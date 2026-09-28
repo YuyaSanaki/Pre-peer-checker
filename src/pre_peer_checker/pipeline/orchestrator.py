@@ -95,6 +95,7 @@ from pre_peer_checker.parsers.r_treesitter import analyze_r_dag_file, analyze_r_
 from pre_peer_checker.parsers.prism_pzfx import is_prism_binary, parse_pzfx
 from pre_peer_checker.parsers.kaleida import kaleida_to_artifact, parse_kaleida_file
 from pre_peer_checker.parsers.yaml_config import extract_group_defs, parse_yaml_config
+from pre_peer_checker.pipeline.progress import ProgressTracker, Stage
 from pre_peer_checker.pipeline.run_coverage import build_run_coverage
 from pre_peer_checker.report.html_report import write_html_report
 from pre_peer_checker.warnings import WarningItem, WarningTag
@@ -151,6 +152,78 @@ def _select_docx_for_legend(docx_files: list[Path]) -> list[Path]:
     return top or ranked[:1]
 
 
+def _plan_stages(
+    *,
+    legend_llm: bool,
+    vlm_assist: bool,
+    corpus: bool,
+    cited_papers: bool,
+    bundle: InputBundle | None = None,
+) -> list[Stage]:
+    """進捗表示用のステージ一覧。見積り秒数は入力件数からの粗い目安（実測・履歴で補正される）。"""
+
+    def n(*kinds: FileKind) -> int:
+        return sum(len(bundle.get(k)) for k in kinds) if bundle is not None else 4
+
+    n_docx = min(n(FileKind.DOCX), 2)
+    n_pdf = n(FileKind.PDF)
+    n_fig_pdf = (
+        sum(1 for p in bundle.get(FileKind.PDF) if is_publication_figure_pdf(p))
+        if bundle is not None
+        else 4
+    )
+    n_images = n(FileKind.IMAGE)
+    n_micro = n(FileKind.LIF, FileKind.CZI)
+    # Legend LLM は Figure 数ぶん生成する（Figure 数は抽出するまで不明なので 1 原稿 8 Figure と仮定）
+    legend_est = (20.0 + 30.0 * 8 * n_docx) if legend_llm else (1.0 + 2.0 * n_docx)
+    panels_est = 2.0 + 3.0 * n_fig_pdf
+    if vlm_assist:
+        panels_est += 30.0 + 25.0 * min(n_fig_pdf, 6) * 0.5
+
+    stages = [
+        Stage("collect", "入力ファイルの収集", 3.0),
+        Stage(
+            "scripts",
+            "解析スクリプト・Prism・設定ファイルの読み取り",
+            1.0 + 0.3 * n(FileKind.PYTHON, FileKind.NOTEBOOK, FileKind.R_SCRIPT, FileKind.PRISM),
+        ),
+        Stage(
+            "legend_llm" if legend_llm else "legend",
+            "Figure Legend の読み取り（ローカル LLM）"
+            if legend_llm
+            else "Figure Legend の読み取り（規則ベース）",
+            legend_est,
+        ),
+        Stage("tables", "表データの読み込み・統計の再計算", 1.0 + 0.5 * n(FileKind.CSV, FileKind.EXCEL)),
+        Stage("consistency", "本文・Legend とデータの整合チェック", 2.0 + 1.5 * n_fig_pdf),
+        Stage(
+            "references",
+            "参考文献チェック（引用先 PDF 照合あり）" if cited_papers else "参考文献チェック",
+            2.0 + (30.0 if cited_papers else 0.0),
+        ),
+        Stage("plots", "Legend の n と生データ・作図 PDF の突合", 1.0 + 0.5 * n_pdf),
+        Stage(
+            "n_matrix_llm" if legend_llm else "n_matrix",
+            "n 対照表の作成（群名の対応付け）",
+            22.0 if legend_llm else 2.0,
+        ),
+        Stage(
+            "figure_panels_vlm" if vlm_assist else "figure_panels",
+            "出版 Figure のパネル解析（VLM 補助あり）" if vlm_assist else "出版 Figure のパネル解析",
+            panels_est,
+        ),
+        Stage(
+            "images",
+            "画像の重複・再利用スキャン",
+            3.0 + 2.0 * n_fig_pdf + 0.3 * n_images + 1.0 * n_micro,
+        ),
+    ]
+    if corpus:
+        stages.append(Stage("corpus", "過去論文コーパスとの画像照合（H3）", 30.0 + 0.5 * n_images))
+    stages.append(Stage("report", "カバレッジ集計・レポート出力", 3.0))
+    return stages
+
+
 def run_verification(
     paths: list[Path | str],
     *,
@@ -165,6 +238,7 @@ def run_verification(
     vlm_prefer: str = "auto",
     vlm_model: str | None = None,
     patterns_path: Path | str | None = None,
+    progress: ProgressTracker | None = None,
 ) -> VerificationResult:
     """検証パイプライン（読む＝LLM/VLM、比べる＝決定論）。
 
@@ -174,6 +248,8 @@ def run_verification(
     legend_llm_profile / vlm_profile: ``llm/model_registry.yaml`` のプロファイル ID。
     vlm_assist: True のときベクターパネル分割が空の出版 Fig に VLM パネル地図を補助。
     patterns_path: 照合カタログ JSON。未指定時はアクティブカタログ → fixtures。
+    progress: 進捗トラッカー（WebUI の進捗バー用）。最後の "report" ステージは開始のみ行い、
+        レポート書き出し後の ``finish()`` は呼び出し側の責任。
     """
     from pre_peer_checker.catalog.runtime import (
         enabled_pattern_ids,
@@ -183,10 +259,21 @@ def run_verification(
     )
     from pre_peer_checker.llm.registry import resolve_model
 
+    tracker = progress if progress is not None else ProgressTracker()
+    plan_flags = {
+        "legend_llm": bool(legend_llm),
+        "vlm_assist": bool(vlm_assist),
+        "corpus": bool(corpus),
+        "cited_papers": bool(cited_papers),
+    }
+    tracker.set_stages(_plan_stages(**plan_flags))
+    tracker.start("collect", "入力フォルダを走査中")
+
     catalog_path = resolve_patterns_path(patterns_path)
     catalog = load_runtime_catalog(catalog_path)
 
     bundle = collect_inputs(paths)
+    tracker.set_stages(_plan_stages(**plan_flags, bundle=bundle))
     result = VerificationResult(bundle=bundle)
     result.artifacts["patterns_catalog"] = {
         "path": str(catalog_path),
@@ -214,8 +301,15 @@ def run_verification(
     # --- スクリプト DAG（Python ast / R tree-sitter / Rhistory） ---
     table_paths_early = bundle.get(FileKind.CSV) + bundle.get(FileKind.EXCEL)
 
+    py_files = list(bundle.get(FileKind.PYTHON)) + list(bundle.get(FileKind.NOTEBOOK))
+    r_files = list(bundle.get(FileKind.R_SCRIPT))
+    n_script_files = len(py_files) + len(r_files)
+    tracker.start("scripts")
+    tracker.update(done=0, total=n_script_files)
+
     py_plots = []
-    for p in list(bundle.get(FileKind.PYTHON)) + list(bundle.get(FileKind.NOTEBOOK)):
+    for i_py, p in enumerate(py_files):
+        tracker.update(done=i_py, detail=p.name)
         source_kind = "notebook" if p.suffix.lower() == ".ipynb" else "python"
         try:
             dag = analyze_python_dag_file(p)
@@ -234,7 +328,8 @@ def run_verification(
     result.artifacts["python"] = py_plots
 
     r_bindings = []
-    for p in bundle.get(FileKind.R_SCRIPT):
+    for i_r, p in enumerate(r_files):
+        tracker.update(done=len(py_files) + i_r, detail=p.name)
         source_kind = "rhistory" if is_r_history_name(p.name) else (
             "rmd" if p.suffix.lower() == ".rmd" else "rscript"
         )
@@ -264,6 +359,7 @@ def run_verification(
         if source_kind != "rhistory":
             result.warnings.extend(warnings_from_r_dag(p, dag))
     result.artifacts["r"] = r_bindings
+    tracker.update(done=n_script_files, detail="Prism / KaleidaGraph / YAML")
 
     # --- Prism (.pzfx) / KaleidaGraph (.qpd/.qpc) ---
     prism_arts: list[dict] = []
@@ -330,6 +426,10 @@ def run_verification(
     # Prefer primary manuscript docx to reduce duplicate legends from versioned copies
     docx_files = bundle.get(FileKind.DOCX)
     docx_for_legend = _select_docx_for_legend(docx_files)
+    tracker.start(
+        "legend_llm" if legend_llm else "legend",
+        "Word 原稿から Figure Legend を抽出中",
+    )
 
     panel_ns = []
     docx_arts = []
@@ -376,7 +476,21 @@ def run_verification(
     legend_jsons = []
     legend_llm_meta: list[dict] = []
     figure_chunks_art: list[dict] = []
-    for p in docx_for_legend:
+    n_legend_docs = len(docx_for_legend)
+    for i_doc, p in enumerate(docx_for_legend):
+
+        def _on_figure(done: int, total: int, label: str, *, _i=i_doc, _p=p) -> None:
+            # 原稿が複数あるときは各原稿の Figure 数が同程度と仮定して通し番号にする
+            tracker.update(done=_i * total + done, total=n_legend_docs * total)
+            if done >= total:
+                return
+            what = f"{label or 'Figure'} を読み取り中（{done + 1}/{total}）"
+            if n_legend_docs > 1:
+                what = f"{_p.name}: {what}"
+            if legend_llm and _i == 0 and done == 0:
+                what += " ※初回はモデル読込を含むため時間がかかります"
+            tracker.update(detail=what)
+
         try:
             legs, meta = extract_legends_with_backend(
                 p,
@@ -385,6 +499,7 @@ def run_verification(
                 model_id=legend_llm_model,
                 profile_id=legend_llm_profile,
                 figure_pdfs=list(bundle.get(FileKind.PDF)),
+                on_item=_on_figure,
             )
             legend_jsons.extend(legs)
             figure_chunks_art.extend(meta.get("figure_chunks") or [])
@@ -420,7 +535,10 @@ def run_verification(
     all_vectors = []
     table_stats = []
     table_load_errors: list[dict[str, str]] = []
-    for p in table_paths:
+    tracker.start("tables")
+    tracker.update(done=0, total=len(table_paths))
+    for i_tab, p in enumerate(table_paths):
+        tracker.update(done=i_tab, detail=f"{p.name}（{i_tab + 1}/{len(table_paths)}）")
         try:
             all_vectors.extend(extract_group_vectors(p))
             table_stats.append(analyze_table_file(p))
@@ -466,6 +584,7 @@ def run_verification(
         }
 
     # --- P-DATA-SWAP: 別実験系の完全一致（コントロール以外） ---
+    tracker.start("consistency", "群データの一致・共有コントロールを確認中")
     plot_vectors = [v for v in all_vectors if is_plot_quant_table(v.source)]
     for m in find_cross_table_matches(plot_vectors, min_n=5, jaccard_threshold=1.0):
         if not m.exact:
@@ -560,6 +679,7 @@ def run_verification(
     result.warnings.extend(warnings_from_source_ratio_artifacts(plot_vectors, min_n=4))
 
     # --- P-NUMERIC-CROSSREF-MISMATCH / P-METHODS-CLAIM-MISMATCH ---
+    tracker.update(detail="本文中の数値・統計記載とデータを照合中")
     result.warnings.extend(
         warnings_from_numeric_crossref(claim_texts, plot_vectors)
     )
@@ -606,6 +726,7 @@ def run_verification(
         for p in bundle.get(FileKind.PDF)
         if is_publication_figure_pdf(p)
     ]
+    tracker.update(detail=f"Figure PDF のパネルラベルを読み取り中（{len(fig_pdfs)} 件）")
     labels_by_figure = collect_panel_labels_by_figure(fig_pdfs)
     result.artifacts["figure_panel_labels"] = labels_by_figure
     result.warnings.extend(
@@ -613,6 +734,7 @@ def run_verification(
     )
 
     # --- 参考文献メタ（原稿内）+ 任意: 引用先 PDF ---
+    tracker.start("references", "原稿の References と本文中の引用を照合中")
     ref_bundle = None
     for p in bundle.get(FileKind.DOCX):
         try:
@@ -630,6 +752,7 @@ def run_verification(
 
         cited_entry_dirs: list[Path] = []
         if cited_paper_roots:
+            tracker.update(detail="引用先 PDF を読み込み・引用主張の根拠を検索中")
             try:
                 cited_entry_dirs = ensure_pdfs_ingested(cited_paper_roots)
             except Exception as exc:  # noqa: BLE001
@@ -661,6 +784,7 @@ def run_verification(
         }
 
     # --- P-N-MISMATCH / P-EXCLUSION-UNDECLARED: Legend n vs 生データ ---
+    tracker.start("plots", "Legend の n と生データの行数を突合中")
     from pre_peer_checker.llm.legend_schema import detect_exclusion_criteria
 
     exclusion_blobs: list[str] = list(claim_texts)
@@ -793,7 +917,12 @@ def run_verification(
 
     dig_arts = []
     seen_div: set[tuple[str, str, str, str]] = set()
-    for pdf in uniq_plots:
+    tracker.update(done=0, total=len(uniq_plots))
+    for i_plot, pdf in enumerate(uniq_plots):
+        tracker.update(
+            done=i_plot,
+            detail=f"作図 PDF を数値化中: {pdf.name}（{i_plot + 1}/{len(uniq_plots)}）",
+        )
         try:
             plots = digitize_plot_pdf(pdf, max_pages=1)
         except Exception:
@@ -855,6 +984,10 @@ def run_verification(
     result.artifacts["digitized_plots"] = dig_arts
 
     # --- n 対照表（原稿 / 実験データ / 作図 / 統計）---
+    tracker.start(
+        "n_matrix_llm" if legend_llm else "n_matrix",
+        "Legend の群名と表の列名を対応付け中",
+    )
     legend_json_by_panel: dict[tuple[str, str], dict] = {}
     manuscript_by_figure: dict[str, str] = {}
     for meta in legend_llm_meta:
@@ -960,6 +1093,10 @@ def run_verification(
     result.artifacts["n_matrix"] = n_matrix_to_artifact(n_rows)
 
     # --- H1 補完: 出版 Figure PDF の多パネル点列同一性 ---
+    tracker.start(
+        "figure_panels_vlm" if vlm_assist else "figure_panels",
+        "Figure PDF のパネル間で同一の点列がないか確認中",
+    )
     pub_figs = [p for p in bundle.get(FileKind.PDF) if is_publication_figure_pdf(p)]
     # Also discover Fig*.pdf under roots even if classify missed
     for root in roots:
@@ -976,6 +1113,11 @@ def run_verification(
     try:
         from pre_peer_checker.llm.panel_map_assist import extract_panel_regions_vector_then_vlm
 
+        def _on_panel_pdf(done: int, total: int, label: str) -> None:
+            tracker.update(done=done, total=total)
+            if done < total:
+                tracker.update(detail=f"パネル分割: {label}（{done + 1}/{total}）")
+
         panel_regions, geom_status = extract_panel_regions_vector_then_vlm(
             pub_figs[:6],
             vlm_assist=bool(vlm_assist),
@@ -984,6 +1126,7 @@ def run_verification(
             vlm_model=vlm_model,
             max_pages_vector=4,
             min_vector_panels=1,
+            on_item=_on_panel_pdf,
         )
         result.artifacts["figure_panel_regions"] = panel_regions
         result.artifacts["figure_panel_regions_n"] = len(panel_regions)
@@ -997,8 +1140,17 @@ def run_verification(
     pdf_meta = []
     pdf_image_paths: list[Path] = []
     tmp_dirs: list[Path] = []
+    all_pdfs = list(bundle.get(FileKind.PDF))
+    # PDF ごとの画像抽出 + 後続 4 スキャン（重複・顕微鏡・ブロット/スケール・取得メタ）
+    n_image_steps = len(all_pdfs) + 4
+    tracker.start("images")
+    tracker.update(done=0, total=n_image_steps)
     try:
-        for p in bundle.get(FileKind.PDF):
+        for i_pdf, p in enumerate(all_pdfs):
+            tracker.update(
+                done=i_pdf,
+                detail=f"PDF から埋め込み画像を抽出中: {p.name}（{i_pdf + 1}/{len(all_pdfs)}）",
+            )
             meta = extract_pdf(p, extract_images=False)
             pdf_meta.append({"path": str(p), "pages": len(meta.pages)})
             name_l = p.name.lower()
@@ -1010,6 +1162,10 @@ def run_verification(
                 )
         result.artifacts["pdf"] = pdf_meta
 
+        tracker.update(
+            done=len(all_pdfs),
+            detail=f"Figure 内画像の類似度スキャン中（{len(pdf_image_paths)} 枚）",
+        )
         if len(pdf_image_paths) >= 2:
             matches, method = scan_image_duplicates_auto(
                 pdf_image_paths, prefer_dino=True, fallback_threshold=0.998
@@ -1041,6 +1197,7 @@ def run_verification(
                     )
                 )
 
+        tracker.update(done=len(all_pdfs) + 1, detail="顕微鏡・ラスタ画像の重複スキャン中")
         micro = scan_microscopy_duplicates(
             bundle.get(FileKind.LIF) + bundle.get(FileKind.CZI),
             bundle.get(FileKind.IMAGE),
@@ -1050,6 +1207,7 @@ def run_verification(
         result.warnings.extend(micro.warnings)
         result.artifacts["microscopy_scan"] = micro.artifacts
 
+        tracker.update(done=len(all_pdfs) + 2, detail="ブロットのレーン再利用・スケールバーを確認中")
         blot_imgs = list(bundle.get(FileKind.IMAGE))
         if pdf_image_paths:
             blot_imgs = list(pdf_image_paths) + blot_imgs
@@ -1064,6 +1222,7 @@ def run_verification(
             warnings_from_scale_mag(claim_texts, blot_imgs[:36])
         )
         # LIF/CZI acquisition meta × Legend（顕微鏡接地・内部照合）
+        tracker.update(done=len(all_pdfs) + 3, detail="顕微鏡の取得メタデータと Legend を照合中")
         micro_paths = (
             list(bundle.get(FileKind.LIF))
             + list(bundle.get(FileKind.CZI))
@@ -1087,6 +1246,7 @@ def run_verification(
 
         # --- H3: 外部コーパス照合（指定時のみ） ---
         if corpus_roots:
+            tracker.start("corpus", "原稿の画像と過去論文の図を照合中")
             query_imgs = (
                 list(bundle.get(FileKind.IMAGE))
                 + list(bundle.get(FileKind.LIF))
@@ -1113,6 +1273,7 @@ def run_verification(
     finally:
         import shutil
 
+        tracker.start("report", "照合カバレッジを集計中")
         # Coverage must be built before wiping zip extracts (paths still listed on bundle).
         try:
             result.artifacts["run_coverage"] = build_run_coverage(

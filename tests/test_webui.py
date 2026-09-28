@@ -150,6 +150,79 @@ def test_web_api_run_passes_legend_llm(tmp_path: Path, monkeypatch: pytest.Monke
     assert captured["cfg"].vlm_profile == "qwen2.5-vl-7b"
 
 
+def test_web_api_run_start_reports_progress(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    pytest.importorskip("fastapi")
+    import threading
+    import time
+
+    from fastapi.testclient import TestClient
+
+    from pre_peer_checker.gui.worker import GuiRunConfig, GuiRunResult
+    from pre_peer_checker.pipeline.progress import Stage
+    from pre_peer_checker.web.app import create_app
+
+    root = _make_demo_case(tmp_path)
+    release = threading.Event()
+
+    def fake_job(config: GuiRunConfig) -> GuiRunResult:
+        tr = config.progress
+        assert tr is not None
+        tr.set_stages([Stage("legend_llm", "Figure Legend の読み取り", 10.0)])
+        tr.start("legend_llm")
+        tr.update(done=1, total=3, detail="Figure 2 を読み取り中（2/3）")
+        release.wait(timeout=5)
+        tr.finish()
+        return GuiRunResult(
+            ok=True,
+            n_warnings=2,
+            report_path=tmp_path / "r.html",
+            json_path=None,
+            warning_rows=[],
+            coverage_lines=["stub"],
+        )
+
+    monkeypatch.setattr("pre_peer_checker.web.app.run_verification_job", fake_job)
+    monkeypatch.setattr("pre_peer_checker.web.app.load_history", dict)
+    client = TestClient(create_app())
+
+    start = client.post("/api/run/start", json={"root": str(root), "legend_llm": True})
+    assert start.status_code == 200
+    job_id = start.json()["job_id"]
+
+    snap = None
+    for _ in range(50):
+        st = client.get(f"/api/run/status/{job_id}").json()
+        assert st["ok"] is True
+        snap = st["progress"]
+        if snap.get("sub_done") == 1:
+            break
+        time.sleep(0.05)
+    assert snap is not None
+    assert st["done"] is False
+    assert snap["stage_label"] == "Figure Legend の読み取り"
+    assert snap["detail"] == "Figure 2 を読み取り中（2/3）"
+    assert client.get("/api/run/current").json()["job_id"] == job_id
+
+    busy = client.post("/api/run/start", json={"root": str(root)})
+    assert busy.json()["ok"] is False
+    assert busy.json()["job_id"] == job_id
+
+    release.set()
+    for _ in range(50):
+        st = client.get(f"/api/run/status/{job_id}").json()
+        if st["done"]:
+            break
+        time.sleep(0.05)
+    assert st["done"] is True
+    assert st["progress"]["fraction"] == 1.0
+    assert st["result"]["ok"] is True
+    assert st["result"]["n_warnings"] == 2
+    assert client.get("/api/run/current").json()["job_id"] is None
+    assert client.get("/api/run/status/unknown").json()["ok"] is False
+
+
 def test_web_api_corpus_ingest_and_run(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     pytest.importorskip("fastapi")
     pytest.importorskip("fitz")

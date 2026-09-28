@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import re
 import tempfile
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -105,8 +106,12 @@ def extract_panel_regions_vector_then_vlm(
     vlm_model: str | None = None,
     max_pages_vector: int = 4,
     min_vector_panels: int = 1,
+    on_item: Callable[[int, int, str], None] | None = None,
 ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
-    """Primary: vector geometry. If a PDF yields < min panels and vlm_assist, call VLM once."""
+    """Primary: vector geometry. If a PDF yields < min panels and vlm_assist, call VLM once.
+
+    on_item(done, total, label) is called before each PDF (label notes VLM use) and at the end.
+    """
     regions: list[dict[str, Any]] = []
     status: dict[str, Any] = {
         "vlm_assist_requested": bool(vlm_assist),
@@ -131,8 +136,13 @@ def extract_panel_regions_vector_then_vlm(
             status["note"] = "no VLM backend (install .[vlm-mlx] or .[vlm-cuda])"
         return backend
 
-    for pdf in pdfs:
+    def _notify(done: int, label: str) -> None:
+        if on_item is not None:
+            on_item(done, len(pdfs), label)
+
+    for i, pdf in enumerate(pdfs):
         pdf = Path(pdf)
+        _notify(i, f"{pdf.name}（ベクター解析）")
         try:
             vec = extract_panel_regions_from_pdf(pdf, max_pages=max_pages_vector)
         except Exception as exc:  # noqa: BLE001
@@ -149,6 +159,7 @@ def extract_panel_regions_vector_then_vlm(
         if len(vec) >= min_vector_panels:
             continue
         # Assist: first page only (keep cost bounded); load VLM lazily
+        _notify(i, f"{pdf.name}（VLM パネル地図）")
         be = _ensure_backend()
         if be is None:
             continue
@@ -158,6 +169,7 @@ def extract_panel_regions_vector_then_vlm(
             status["vlm_used"] = True
             regions.extend(vregs)
 
+    _notify(len(pdfs), "")
     status["n_regions"] = len(regions)
     status["n_vector"] = sum(1 for r in regions if r.get("geometry_source") == "vector")
     status["n_vlm"] = sum(1 for r in regions if r.get("geometry_source") == "vlm")

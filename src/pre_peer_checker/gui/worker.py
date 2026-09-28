@@ -5,7 +5,10 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from pre_peer_checker.pipeline.progress import ProgressTracker
 
 
 @dataclass
@@ -23,6 +26,8 @@ class GuiRunConfig:
     vlm_assist: bool = False
     vlm_prefer: str = "auto"
     patterns_path: Path | None = None
+    # 指定時は進捗を報告し、成功時にステージ所要時間を次回の残り時間推定用に保存する
+    progress: ProgressTracker | None = None
 
 
 @dataclass
@@ -97,7 +102,10 @@ def run_verification_job(config: GuiRunConfig) -> GuiRunResult:
             vlm_assist=bool(config.vlm_assist),
             vlm_prefer=config.vlm_prefer,
             patterns_path=config.patterns_path,
+            progress=config.progress,
         )
+        if config.progress is not None:
+            config.progress.update(detail="HTML レポートを書き出し中")
         config.output_html.parent.mkdir(parents=True, exist_ok=True)
         report = result.write_report(config.output_html)
         cov_raw = result.artifacts.get("run_coverage")
@@ -146,6 +154,11 @@ def run_verification_job(config: GuiRunConfig) -> GuiRunResult:
             }
             for w in result.warnings
         ]
+        if config.progress is not None:
+            from pre_peer_checker.pipeline.progress import save_history
+
+            config.progress.finish()
+            save_history(config.progress.stage_ratios())
         return GuiRunResult(
             ok=True,
             n_warnings=len(result.warnings),

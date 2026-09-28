@@ -376,8 +376,17 @@ def extract_legends_json_from_docx(
     llm_generate: Callable[[str], str] | None = None,
     use_figure_chunks: bool = True,
     figure_pdfs: list[Path] | None = None,
+    on_item: Callable[[int, int, str], None] | None = None,
 ) -> tuple[list[LegendFigureJSON], list[FigureChunk]]:
-    """Extract check-item JSON per figure; returns (items, chunks used)."""
+    """Extract check-item JSON per figure; returns (items, chunks used).
+
+    on_item(done, total, figure_label) is called before each figure and once at the end.
+    """
+
+    def _notify(done: int, total: int, label: str) -> None:
+        if on_item is not None:
+            on_item(done, total, label)
+
     chunks = build_figure_chunks_from_docx(path) if use_figure_chunks else []
     if figure_pdfs and chunks:
         from pre_peer_checker.parsers.figure_panel_labels import (
@@ -391,7 +400,9 @@ def extract_legends_json_from_docx(
     if not chunks:
         # Fallback: legend blocks only
         out: list[LegendFigureJSON] = []
-        for leg in extract_structured_legends(path):
+        legs = extract_structured_legends(path)
+        for i, leg in enumerate(legs):
+            _notify(i, len(legs), leg.figure or "")
             out.append(
                 extract_legend_json_hybrid(
                     leg.text,
@@ -400,18 +411,22 @@ def extract_legends_json_from_docx(
                     prefer_llm=prefer_llm,
                 )
             )
+        _notify(len(legs), len(legs), "")
         return out, []
 
-    out = [
-        extract_check_items_from_chunk(
-            ch,
-            llm_generate=llm_generate,
-            prefer_llm=prefer_llm,
-            legend_only_prompt=False,
-            llm_primary=True,
+    out = []
+    for i, ch in enumerate(chunks):
+        _notify(i, len(chunks), ch.figure_id or "")
+        out.append(
+            extract_check_items_from_chunk(
+                ch,
+                llm_generate=llm_generate,
+                prefer_llm=prefer_llm,
+                legend_only_prompt=False,
+                llm_primary=True,
+            )
         )
-        for ch in chunks
-    ]
+    _notify(len(chunks), len(chunks), "")
     return out, chunks
 
 
@@ -423,6 +438,7 @@ def extract_legends_with_backend(
     profile_id: str | None = None,
     enabled: bool = False,
     figure_pdfs: list[Path] | None = None,
+    on_item: Callable[[int, int, str], None] | None = None,
 ) -> tuple[list[LegendFigureJSON], dict[str, Any]]:
     """Extract legends/check-items; optionally refine with MLX/CUDA when enabled."""
     meta: dict[str, Any] = {
@@ -433,7 +449,9 @@ def extract_legends_with_backend(
         "llm_profile": profile_id,
     }
     if not enabled:
-        items, chunks = extract_legends_json_from_docx(path, figure_pdfs=figure_pdfs)
+        items, chunks = extract_legends_json_from_docx(
+            path, figure_pdfs=figure_pdfs, on_item=on_item
+        )
         meta["n_figure_chunks"] = len(chunks)
         meta["figure_chunks"] = chunks_to_artifact(chunks)
         return items, meta
@@ -454,7 +472,9 @@ def extract_legends_with_backend(
         meta["backend"] = "none"
         meta["note"] = "no MLX/transformers backend; used rules only"
         meta["llm_primary"] = False
-        items, chunks = extract_legends_json_from_docx(path, figure_pdfs=figure_pdfs)
+        items, chunks = extract_legends_json_from_docx(
+            path, figure_pdfs=figure_pdfs, on_item=on_item
+        )
         meta["n_figure_chunks"] = len(chunks)
         meta["figure_chunks"] = chunks_to_artifact(chunks)
         return items, meta
@@ -473,7 +493,11 @@ def extract_legends_with_backend(
         return text
 
     items, chunks = extract_legends_json_from_docx(
-        path, prefer_llm=True, llm_generate=_gen, figure_pdfs=figure_pdfs
+        path,
+        prefer_llm=True,
+        llm_generate=_gen,
+        figure_pdfs=figure_pdfs,
+        on_item=on_item,
     )
     meta["n_figure_chunks"] = len(chunks)
     meta["figure_chunks"] = chunks_to_artifact(chunks)

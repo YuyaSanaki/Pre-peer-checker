@@ -1,0 +1,133 @@
+"""照合進捗トラッカー（WebUI 進捗バー・残り時間）。"""
+
+from __future__ import annotations
+
+from pathlib import Path
+
+from pre_peer_checker.pipeline.progress import (
+    ProgressTracker,
+    Stage,
+    load_history,
+    save_history,
+)
+
+
+class FakeClock:
+    def __init__(self) -> None:
+        self.t = 0.0
+
+    def __call__(self) -> float:
+        return self.t
+
+
+def _tracker(clock: FakeClock, history: dict[str, float] | None = None) -> ProgressTracker:
+    tr = ProgressTracker(history=history, clock=clock)
+    tr.set_stages(
+        [
+            Stage("a", "A", 10.0),
+            Stage("llm", "LLM", 100.0),
+            Stage("b", "B", 10.0),
+        ]
+    )
+    return tr
+
+
+def test_snapshot_stage_and_sub_progress() -> None:
+    clock = FakeClock()
+    tr = _tracker(clock)
+    tr.start("a", "scanning")
+    snap = tr.snapshot()
+    assert snap["stage_id"] == "a"
+    assert snap["stage_index"] == 1
+    assert snap["n_stages"] == 3
+    assert snap["detail"] == "scanning"
+    assert snap["eta_s"] is None  # 開始直後は推定しない
+
+    clock.t = 10.0
+    tr.start("llm")
+    tr.update(done=0, total=4, detail="Figure 1")
+    clock.t = 30.0
+    tr.update(done=1, detail="Figure 2")
+    snap = tr.snapshot()
+    assert snap["sub_done"] == 1 and snap["sub_total"] == 4
+    # 1/4 に 20 秒 → 残り 3 件 ≒ 60 秒、後続 b は見積り 10 秒 × 補正係数 1.0
+    assert 65.0 <= snap["eta_s"] <= 75.0
+    assert [s["status"] for s in snap["stages"]] == ["done", "active", "pending"]
+    assert snap["stages"][0]["seconds"] == 10.0
+
+
+def test_fraction_is_monotonic_and_finishes_at_one() -> None:
+    clock = FakeClock()
+    tr = _tracker(clock)
+    tr.start("a")
+    clock.t = 5.0
+    tr.start("llm")
+    tr.update(done=1, total=2)
+    clock.t = 10.0
+    f1 = tr.snapshot()["fraction"]
+    # 2 件目が遅く見積りが伸びても、バーは後退しない
+    tr.update(done=1, total=10)
+    clock.t = 11.0
+    f2 = tr.snapshot()["fraction"]
+    assert f2 >= f1
+    assert f2 < 1.0
+    tr.finish()
+    snap = tr.snapshot()
+    assert snap["finished"] is True
+    assert snap["fraction"] == 1.0
+    assert snap["eta_s"] is None
+
+
+def test_completed_stages_calibrate_future_estimates() -> None:
+    clock = FakeClock()
+    tr = _tracker(clock)
+    tr.start("a")
+    clock.t = 100.0  # 見積り 10 秒のところ 100 秒 → このマシンは遅い
+    tr.start("llm")
+    clock.t = 101.0
+    slow_eta = tr.snapshot()["eta_s"]
+
+    clock2 = FakeClock()
+    tr2 = _tracker(clock2)
+    tr2.start("a")
+    clock2.t = 10.0
+    tr2.start("llm")
+    clock2.t = 11.0
+    normal_eta = tr2.snapshot()["eta_s"]
+    assert slow_eta > normal_eta * 2
+
+
+def test_history_scales_estimates(tmp_path: Path) -> None:
+    hist = tmp_path / "progress_history.json"
+    assert load_history(hist) == {}
+    save_history({"llm": 3.0}, hist)
+    save_history({"llm": 1.0}, hist)
+    assert load_history(hist) == {"llm": 2.0}
+
+    clock = FakeClock()
+    base = _tracker(clock)
+    base.start("a")
+    clock.t = 10.0
+    base.start("llm")
+    clock.t = 11.0
+    eta_base = base.snapshot()["eta_s"]
+
+    clock2 = FakeClock()
+    calibrated = _tracker(clock2, history=load_history(hist))
+    calibrated.start("a")
+    clock2.t = 10.0
+    calibrated.start("llm")
+    clock2.t = 11.0
+    assert calibrated.snapshot()["eta_s"] > eta_base * 1.5
+
+
+def test_stage_ratios_and_set_stages_keeps_current() -> None:
+    clock = FakeClock()
+    tr = _tracker(clock)
+    tr.start("a")
+    clock.t = 20.0
+    tr.start("llm")
+    tr.set_stages([Stage("a", "A", 10.0), Stage("llm", "LLM", 50.0), Stage("b", "B", 1.0)])
+    snap = tr.snapshot()
+    assert snap["stage_id"] == "llm"
+    assert tr.stage_ratios() == {"a": 2.0}

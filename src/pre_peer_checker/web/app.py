@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import threading
+import uuid
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -11,6 +13,7 @@ from fastapi.responses import FileResponse, HTMLResponse
 from pydantic import BaseModel, Field
 
 from pre_peer_checker.gui.worker import GuiRunConfig, run_verification_job
+from pre_peer_checker.pipeline.progress import ProgressTracker, load_history
 from pre_peer_checker.web.case_layout import validate_case_root
 from pre_peer_checker.web.folder_picker import pick_folder
 
@@ -69,6 +72,92 @@ class CatalogShareBody(BaseModel):
     mode: str = "issue"  # issue | pr | draft
     title: str | None = None
     include_active_diff: bool = True
+
+
+@dataclass
+class _RunJob:
+    id: str
+    tracker: ProgressTracker
+    done: bool = False
+    result: dict[str, Any] | None = None
+
+
+# 直近 1 件のみ保持（ローカル単一ユーザー前提）
+_jobs: dict[str, _RunJob] = {}
+_jobs_lock = threading.Lock()
+
+
+def _running_job() -> _RunJob | None:
+    return next((j for j in _jobs.values() if not j.done), None)
+
+
+def _run_error_payload(error: str | None) -> dict[str, Any]:
+    return {
+        "ok": False,
+        "error": error or "照合に失敗しました",
+        "n_warnings": 0,
+        "warning_rows": [],
+    }
+
+
+def _build_run_config(body: RunBody) -> tuple[GuiRunConfig | None, str | None]:
+    from pre_peer_checker.catalog.runtime import ACTIVE_PATTERNS, ensure_active_catalog
+    from pre_peer_checker.imaging.past_paper_ingest import resolve_corpus_roots
+    from pre_peer_checker.parsers.cited_paper_ingest import resolve_cited_paper_dirs
+
+    v = validate_case_root(body.root)
+    if not v.ok:
+        return None, v.error
+
+    prefer = (body.legend_llm_prefer or "auto").strip().lower()
+    if prefer not in {"auto", "mlx", "cuda", "transformers", "none"}:
+        prefer = "auto"
+
+    patterns_path = None
+    if body.use_active_catalog:
+        ensure_active_catalog(sync=True)
+        patterns_path = ACTIVE_PATTERNS
+
+    return (
+        GuiRunConfig(
+            inputs=list(v.inputs),
+            output_html=DEFAULT_REPORT.resolve(),
+            output_json=DEFAULT_JSON.resolve(),
+            legend_llm=bool(body.legend_llm),
+            legend_llm_prefer=prefer,
+            legend_llm_profile=(body.legend_llm_profile or "").strip() or None,
+            legend_llm_model=(body.legend_llm_model or "").strip() or None,
+            vlm_profile=(body.vlm_profile or "").strip() or None,
+            vlm_assist=bool(body.vlm_assist),
+            vlm_prefer=body.vlm_prefer or "auto",
+            patterns_path=patterns_path,
+            corpus=resolve_corpus_roots(body.corpus_ids),
+            cited_papers=resolve_cited_paper_dirs(body.cited_paper_ids),
+        ),
+        None,
+    )
+
+
+def _run_and_collect(config: GuiRunConfig) -> dict[str, Any]:
+    result = run_verification_job(config)
+    if not result.ok:
+        return _run_error_payload(result.error)
+
+    with _state_lock:
+        global _last_report
+        _last_report = result.report_path
+
+    patterns_path = config.patterns_path
+    return {
+        "ok": True,
+        "n_warnings": result.n_warnings,
+        "report_path": str(result.report_path) if result.report_path else None,
+        "warning_rows": result.warning_rows,
+        "coverage": result.coverage,
+        "coverage_lines": result.coverage_lines or ["照合完了（カバレッジ詳細なし）"],
+        "legend_llm_status": result.legend_llm_status,
+        "patterns_path": str(patterns_path) if patterns_path else None,
+    }
 
 
 def create_app() -> FastAPI:
@@ -343,73 +432,62 @@ def create_app() -> FastAPI:
 
     @app.post("/api/run")
     def api_run(body: RunBody) -> dict[str, Any]:
-        from pre_peer_checker.catalog.runtime import ACTIVE_PATTERNS, ensure_active_catalog
+        """同期実行（完了まで応答しない）。WebUI は /api/run/start + 進捗ポーリングを使う。"""
+        config, error = _build_run_config(body)
+        if config is None:
+            return _run_error_payload(error)
+        return _run_and_collect(config)
 
-        v = validate_case_root(body.root)
-        if not v.ok:
-            return {"ok": False, "error": v.error, "n_warnings": 0, "warning_rows": []}
+    @app.post("/api/run/start")
+    def api_run_start(body: RunBody) -> dict[str, Any]:
+        """照合をバックグラウンドで開始し job_id を返す（進捗は /api/run/status/{job_id}）。"""
+        with _jobs_lock:
+            running = _running_job()
+            if running is not None:
+                return {
+                    "ok": False,
+                    "error": "別の照合が実行中です。完了までお待ちください。",
+                    "job_id": running.id,
+                }
+            config, error = _build_run_config(body)
+            if config is None:
+                return _run_error_payload(error)
+            config.progress = ProgressTracker(history=load_history())
+            job = _RunJob(id=uuid.uuid4().hex[:12], tracker=config.progress)
+            _jobs.clear()
+            _jobs[job.id] = job
 
-        prefer = (body.legend_llm_prefer or "auto").strip().lower()
-        if prefer not in {"auto", "mlx", "cuda", "transformers", "none"}:
-            prefer = "auto"
+        def _worker() -> None:
+            try:
+                payload = _run_and_collect(config)
+            except Exception as exc:  # noqa: BLE001
+                payload = _run_error_payload(str(exc))
+            job.result = payload
+            job.done = True
 
-        llm_profile = (body.legend_llm_profile or "").strip() or None
-        vlm_profile = (body.vlm_profile or "").strip() or None
-        llm_model = (body.legend_llm_model or "").strip() or None
+        threading.Thread(target=_worker, name=f"verify-{job.id}", daemon=True).start()
+        return {"ok": True, "job_id": job.id}
 
-        patterns_path = None
-        if body.use_active_catalog:
-            ensure_active_catalog(sync=True)
-            patterns_path = ACTIVE_PATTERNS
-
-        from pre_peer_checker.imaging.past_paper_ingest import resolve_corpus_roots
-        from pre_peer_checker.parsers.cited_paper_ingest import resolve_cited_paper_dirs
-
-        corpus_roots = resolve_corpus_roots(body.corpus_ids)
-        cited_dirs = resolve_cited_paper_dirs(body.cited_paper_ids)
-
-        report_path = DEFAULT_REPORT.resolve()
-        json_path = DEFAULT_JSON.resolve()
-        result = run_verification_job(
-            GuiRunConfig(
-                inputs=list(v.inputs),
-                output_html=report_path,
-                output_json=json_path,
-                legend_llm=bool(body.legend_llm),
-                legend_llm_prefer=prefer,
-                legend_llm_profile=llm_profile,
-                legend_llm_model=llm_model,
-                vlm_profile=vlm_profile,
-                vlm_assist=bool(getattr(body, "vlm_assist", False)),
-                vlm_prefer=(getattr(body, "vlm_prefer", None) or "auto"),
-                patterns_path=patterns_path,
-                corpus=corpus_roots,
-                cited_papers=cited_dirs,
-            )
-        )
-        if not result.ok:
-            return {
-                "ok": False,
-                "error": result.error or "照合に失敗しました",
-                "n_warnings": 0,
-                "warning_rows": [],
-            }
-
-        with _state_lock:
-            global _last_report
-            _last_report = result.report_path
-
+    @app.get("/api/run/status/{job_id}")
+    def api_run_status(job_id: str) -> dict[str, Any]:
+        with _jobs_lock:
+            job = _jobs.get(job_id)
+        if job is None:
+            return {"ok": False, "error": "照合ジョブが見つかりません（サーバー再起動の可能性）"}
         return {
             "ok": True,
-            "n_warnings": result.n_warnings,
-            "report_path": str(result.report_path) if result.report_path else None,
-            "warning_rows": result.warning_rows,
-            "coverage": result.coverage,
-            "coverage_lines": result.coverage_lines
-            or (["照合完了（カバレッジ詳細なし）"] if result.ok else []),
-            "legend_llm_status": result.legend_llm_status,
-            "patterns_path": str(patterns_path) if patterns_path else None,
+            "job_id": job.id,
+            "done": job.done,
+            "progress": job.tracker.snapshot(),
+            "result": job.result if job.done else None,
         }
+
+    @app.get("/api/run/current")
+    def api_run_current() -> dict[str, Any]:
+        """ページ再読込時に実行中の照合へ再接続するため。"""
+        with _jobs_lock:
+            job = _running_job()
+        return {"ok": True, "job_id": job.id if job else None}
 
     @app.get("/api/report")
     def api_report() -> FileResponse:

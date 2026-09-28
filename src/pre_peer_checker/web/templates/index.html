@@ -250,6 +250,52 @@
       border-color: #b33;
       color: #b33;
     }
+    .progress-box {
+      margin-top: 0.85rem;
+      padding: 0.85rem 1rem;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      background: #faf8f3;
+    }
+    .progress-head {
+      display: flex;
+      justify-content: space-between;
+      gap: 0.75rem;
+      font-size: 0.92rem;
+      font-weight: 600;
+    }
+    .progress-pct { color: var(--accent); font-variant-numeric: tabular-nums; }
+    .progress-track {
+      margin: 0.5rem 0 0.45rem;
+      height: 10px;
+      border-radius: 999px;
+      background: #ece8df;
+      overflow: hidden;
+    }
+    .progress-bar {
+      height: 100%;
+      width: 0%;
+      border-radius: 999px;
+      background: linear-gradient(90deg, var(--accent), #2f8f72);
+      transition: width 0.6s ease;
+    }
+    .progress-detail {
+      font-size: 0.85rem;
+      color: var(--ink);
+      line-height: 1.45;
+      word-break: break-all;
+    }
+    .progress-time {
+      margin-top: 0.25rem;
+      font-size: 0.82rem;
+      color: var(--muted);
+      font-variant-numeric: tabular-nums;
+    }
+    .progress-steps { margin-top: 0.55rem; font-size: 0.82rem; color: var(--muted); }
+    .progress-steps summary { cursor: pointer; }
+    .progress-steps ol { margin: 0.4rem 0 0; padding-left: 1.3rem; line-height: 1.6; }
+    .progress-steps li.done { color: var(--ok); }
+    .progress-steps li.active { color: var(--ink); font-weight: 600; }
   </style>
 </head>
 <body>
@@ -371,6 +417,27 @@
           </a>
         </div>
         <div id="runStatus" class="status"></div>
+        <div id="runProgress" class="progress-box hidden" aria-live="polite">
+          <div class="progress-head">
+            <span id="progStage"></span>
+            <span id="progPercent" class="progress-pct"></span>
+          </div>
+          <div
+            class="progress-track"
+            role="progressbar"
+            aria-valuemin="0"
+            aria-valuemax="100"
+            id="progTrack"
+          >
+            <div id="progBar" class="progress-bar"></div>
+          </div>
+          <div id="progDetail" class="progress-detail"></div>
+          <div id="progTime" class="progress-time"></div>
+          <details class="progress-steps">
+            <summary>処理ステップ一覧</summary>
+            <ol id="progSteps"></ol>
+          </details>
+        </div>
       </section>
 
       <section class="panel" id="coveragePanel">
@@ -1135,15 +1202,102 @@
     }
     refreshCitedList();
 
+    const runProgress = document.getElementById("runProgress");
+    const progStage = document.getElementById("progStage");
+    const progPercent = document.getElementById("progPercent");
+    const progTrack = document.getElementById("progTrack");
+    const progBar = document.getElementById("progBar");
+    const progDetail = document.getElementById("progDetail");
+    const progTime = document.getElementById("progTime");
+    const progSteps = document.getElementById("progSteps");
+    const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+    function fmtClock(sec) {
+      const s = Math.max(0, Math.round(sec || 0));
+      const h = Math.floor(s / 3600);
+      const m = Math.floor((s % 3600) / 60);
+      const ss = String(s % 60).padStart(2, "0");
+      return h ? `${h}:${String(m).padStart(2, "0")}:${ss}` : `${m}:${ss}`;
+    }
+
+    function fmtEta(sec) {
+      if (sec == null) return "推定中…";
+      if (sec < 60) return "1 分未満";
+      const min = Math.round(sec / 60);
+      if (min < 60) return `約 ${min} 分`;
+      return `約 ${Math.floor(min / 60)} 時間 ${min % 60} 分`;
+    }
+
+    function renderProgress(p) {
+      runProgress.classList.remove("hidden");
+      const pct = Math.round((p.fraction || 0) * 100);
+      progBar.style.width = pct + "%";
+      progTrack.setAttribute("aria-valuenow", String(pct));
+      progPercent.textContent = pct + "%";
+      progStage.textContent = p.finished
+        ? "完了"
+        : p.stage_label
+          ? `ステップ ${p.stage_index}/${p.n_stages}: ${p.stage_label}`
+          : "準備中…";
+      progDetail.textContent = p.finished ? "" : p.detail || "";
+      progTime.textContent = p.finished
+        ? `所要時間 ${fmtClock(p.elapsed_s)}`
+        : `経過 ${fmtClock(p.elapsed_s)} · 残り ${fmtEta(p.eta_s)}（目安）`;
+      progSteps.innerHTML = "";
+      for (const s of p.stages || []) {
+        const li = document.createElement("li");
+        li.className = s.status;
+        const mark = s.status === "done" ? "✓ " : s.status === "active" ? "▶ " : "";
+        const sec = s.seconds != null ? `（${fmtClock(s.seconds)}）` : "";
+        li.textContent = mark + s.label + sec;
+        progSteps.appendChild(li);
+      }
+    }
+
+    async function followRunJob(jobId, extra) {
+      runBtn.disabled = true;
+      reportLink.classList.add("hidden");
+      setStatus(runStatus, "照合を実行中…（このタブを閉じても処理は続きます）");
+      let failures = 0;
+      try {
+        for (;;) {
+          let st;
+          try {
+            const res = await fetch("/api/run/status/" + encodeURIComponent(jobId));
+            st = await res.json();
+            failures = 0;
+          } catch (err) {
+            if (++failures >= 10) throw err;
+            await sleep(2000);
+            continue;
+          }
+          if (!st.ok) {
+            setStatus(runStatus, st.error || "進捗を取得できませんでした。", "err");
+            return;
+          }
+          renderProgress(st.progress || {});
+          if (st.done) {
+            renderRunResult(st.result || {}, extra || {});
+            return;
+          }
+          await sleep(1000);
+        }
+      } catch (err) {
+        setStatus(runStatus, String(err), "err");
+      } finally {
+        runBtn.disabled = false;
+      }
+    }
+
     document.getElementById("run").addEventListener("click", async () => {
       if (!(await validateRoot(false))) return;
       runBtn.disabled = true;
       reportLink.classList.add("hidden");
-      setStatus(runStatus, "照合を実行中…（完了までお待ちください）");
+      setStatus(runStatus, "照合を開始しています…");
       try {
         const corpusIds = selectedCorpusIdList();
         const citedIds = selectedCitedIdList();
-        const res = await fetch("/api/run", {
+        const res = await fetch("/api/run/start", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
@@ -1162,47 +1316,72 @@
         const data = await res.json();
         if (!data.ok) {
           setStatus(runStatus, data.error || "照合に失敗しました。", "err");
-          runBtn.disabled = false;
+          if (data.job_id) {
+            await followRunJob(data.job_id);
+          } else {
+            runBtn.disabled = false;
+          }
           return;
         }
-        let msg = "完了: Warning " + data.n_warnings + " 件";
-        if (corpusIds.length) msg += " · H3 コーパス " + corpusIds.length + " 件";
-        if (citedIds.length) msg += " · 参考文献 PDF " + citedIds.length + " 件";
-        if (data.patterns_path) msg += " · カタログ使用";
-        if (data.legend_llm_status && data.legend_llm_status.message) {
-          msg += " — " + data.legend_llm_status.message;
-        }
-        setStatus(
-          runStatus,
-          msg,
-          data.legend_llm_status && data.legend_llm_status.status === "unavailable" ? "err" : "ok"
-        );
-        reportLink.classList.remove("hidden");
-        renderCoverage(data.coverage_lines || []);
-        emptyResults.classList.add("hidden");
-        resultsTable.classList.remove("hidden");
-        resultsBody.innerHTML = "";
-        for (const row of data.warning_rows || []) {
-          const tr = document.createElement("tr");
-          for (const key of ["tag", "title", "location", "pattern_id"]) {
-            const td = document.createElement("td");
-            td.textContent = row[key] || "";
-            tr.appendChild(td);
-          }
-          resultsBody.appendChild(tr);
-        }
-        if (!(data.warning_rows || []).length) {
-          emptyResults.textContent =
-            "Warning はありませんでした。カバレッジと HTML レポートで「何を見たか」を確認してください。";
-          emptyResults.classList.remove("hidden");
-          resultsTable.classList.add("hidden");
-        }
+        runProgress.classList.remove("hidden");
+        await followRunJob(data.job_id, {
+          nCorpus: corpusIds.length,
+          nCited: citedIds.length,
+        });
       } catch (err) {
         setStatus(runStatus, String(err), "err");
-      } finally {
         runBtn.disabled = false;
       }
     });
+
+    (async () => {
+      try {
+        const res = await fetch("/api/run/current");
+        const data = await res.json();
+        if (data.job_id) await followRunJob(data.job_id);
+      } catch (err) {
+        /* 再接続できなくても通常操作は可能 */
+      }
+    })();
+
+    function renderRunResult(data, extra) {
+      if (!data.ok) {
+        setStatus(runStatus, data.error || "照合に失敗しました。", "err");
+        return;
+      }
+      let msg = "完了: Warning " + data.n_warnings + " 件";
+      if (extra.nCorpus) msg += " · H3 コーパス " + extra.nCorpus + " 件";
+      if (extra.nCited) msg += " · 参考文献 PDF " + extra.nCited + " 件";
+      if (data.patterns_path) msg += " · カタログ使用";
+      if (data.legend_llm_status && data.legend_llm_status.message) {
+        msg += " — " + data.legend_llm_status.message;
+      }
+      setStatus(
+        runStatus,
+        msg,
+        data.legend_llm_status && data.legend_llm_status.status === "unavailable" ? "err" : "ok"
+      );
+      reportLink.classList.remove("hidden");
+      renderCoverage(data.coverage_lines || []);
+      emptyResults.classList.add("hidden");
+      resultsTable.classList.remove("hidden");
+      resultsBody.innerHTML = "";
+      for (const row of data.warning_rows || []) {
+        const tr = document.createElement("tr");
+        for (const key of ["tag", "title", "location", "pattern_id"]) {
+          const td = document.createElement("td");
+          td.textContent = row[key] || "";
+          tr.appendChild(td);
+        }
+        resultsBody.appendChild(tr);
+      }
+      if (!(data.warning_rows || []).length) {
+        emptyResults.textContent =
+          "Warning はありませんでした。カバレッジと HTML レポートで「何を見たか」を確認してください。";
+        emptyResults.classList.remove("hidden");
+        resultsTable.classList.add("hidden");
+      }
+    }
 
     function renderQueue(queue) {
       const body = document.getElementById("catQueueBody");

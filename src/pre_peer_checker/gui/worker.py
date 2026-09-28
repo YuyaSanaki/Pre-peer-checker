@@ -139,6 +139,11 @@ def run_verification_job(config: GuiRunConfig) -> GuiRunResult:
                 "n_warnings": len(result.warnings),
                 "run_coverage": cov_dict,
                 "legend_llm_status": llm_status if isinstance(llm_status, dict) else None,
+                "artifacts": {
+                    k: result.artifacts[k]
+                    for k in ("corpus_present", "microscopy_scan")
+                    if k in result.artifacts
+                },
             }
             config.output_json.write_text(
                 json.dumps(payload, ensure_ascii=False, indent=2, default=str),

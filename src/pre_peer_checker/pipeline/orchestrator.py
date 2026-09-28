@@ -1291,6 +1291,7 @@ def run_verification(
             bundle.get(FileKind.IMAGE),
             max_files=36,
             prefer_dino=True,
+            corpus_provided=bool(corpus_roots),
         )
         result.warnings.extend(micro.warnings)
         result.artifacts["microscopy_scan"] = micro.artifacts

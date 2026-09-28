@@ -62,17 +62,69 @@ def test_try_load_lif_reports_missing_dep(tmp_path: Path):
     assert err
 
 
+def _near_copy(arr: np.ndarray) -> np.ndarray:
+    out = arr.copy()
+    out[0, 0] = 255 - out[0, 0]
+    return out
+
+
 def test_microscopy_scan_on_rasters(tmp_path: Path):
-    a = tmp_path / "fig_a.jpg"
-    b = tmp_path / "fig_b.jpg"
+    a = tmp_path / "fig_a.png"
+    b = tmp_path / "fig_b.png"
     arr = np.random.default_rng(1).integers(0, 255, (80, 80, 3), dtype=np.uint8)
-    Image.fromarray(arr).save(a, quality=95)
-    Image.fromarray(arr).save(b, quality=95)
+    Image.fromarray(arr).save(a)
+    Image.fromarray(_near_copy(arr)).save(b)
     result = scan_microscopy_duplicates([], [a, b], max_files=10, prefer_dino=False)
     assert result.artifacts.get("loaded_sources", 0) >= 2
-    assert any(
-        w.metadata.get("pattern_id") == "P-IMAGE-REUSE-UNCITED" for w in result.warnings
+    hits = [
+        w for w in result.warnings if w.metadata.get("pattern_id") == "P-IMAGE-REUSE-UNCITED"
+    ]
+    assert hits
+    assert hits[0].sources == [str(a), str(b)]
+    assert hits[0].location == "fig_a.png ↔ fig_b.png"
+    assert "過去論文コーパス未指定" in hits[0].reason
+
+
+def test_microscopy_scan_reason_when_corpus_provided(tmp_path: Path):
+    a = tmp_path / "fig_a.png"
+    b = tmp_path / "fig_b.png"
+    arr = np.random.default_rng(2).integers(0, 255, (80, 80, 3), dtype=np.uint8)
+    Image.fromarray(arr).save(a)
+    Image.fromarray(_near_copy(arr)).save(b)
+    result = scan_microscopy_duplicates(
+        [], [a, b], max_files=10, prefer_dino=False, corpus_provided=True
     )
+    assert result.warnings
+    assert all("コーパス未指定" not in w.reason for w in result.warnings)
+
+
+def test_microscopy_scan_same_stem_in_different_folders_not_self_matched(tmp_path: Path):
+    rng = np.random.default_rng(3)
+    (tmp_path / "day1").mkdir()
+    (tmp_path / "day2").mkdir()
+    a = tmp_path / "day1" / "Series004.png"
+    b = tmp_path / "day2" / "Series004.png"
+    Image.fromarray(rng.integers(0, 255, (80, 80, 3), dtype=np.uint8)).save(a)
+    Image.fromarray(rng.integers(0, 255, (80, 80, 3), dtype=np.uint8)).save(b)
+    result = scan_microscopy_duplicates([], [a, b], max_files=10, prefer_dino=False)
+    assert result.artifacts.get("preview_count") == 2
+    assert result.warnings == []
+
+
+def test_microscopy_scan_merges_byte_identical_files(tmp_path: Path):
+    rng = np.random.default_rng(4)
+    (tmp_path / "Fig5").mkdir()
+    (tmp_path / "Sup5").mkdir()
+    a = tmp_path / "Fig5" / "4x.png"
+    b = tmp_path / "Sup5" / "4x.png"
+    c = tmp_path / "Fig5" / "other.png"
+    Image.fromarray(rng.integers(0, 255, (80, 80, 3), dtype=np.uint8)).save(a)
+    b.write_bytes(a.read_bytes())
+    Image.fromarray(rng.integers(0, 255, (80, 80, 3), dtype=np.uint8)).save(c)
+    result = scan_microscopy_duplicates([], [a, b, c], max_files=10, prefer_dino=False)
+    assert result.artifacts["identical_sources"] == [[str(a), str(b)]]
+    assert str(b) not in result.artifacts["selected_sources"]
+    assert result.warnings == []
 
 
 def test_html_report_has_tag_filters():

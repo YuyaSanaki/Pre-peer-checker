@@ -112,6 +112,7 @@ def create_app() -> FastAPI:
         from pre_peer_checker.llm.registry import (
             default_profile_id,
             effective_llm_profile_id,
+            effective_vlm_profile_id,
             registry_public_dict,
         )
 

@@ -14,12 +14,12 @@
 いまは手元の原稿・データで試していただき、**検知漏れ（見逃し）と誤検知** を集めて精度を上げる段階です。
 
 1. 下記「セットアップ」でインストールし、WebUI または CLI で自分の原稿フォルダを照合する（処理はすべて手元のマシン内で完結します）。
-2. 結果を [GitHub Issues](https://github.com/YuyaSanaki/Pre-peer-checker/issues) で報告する。次の情報があると助かります。
+2. 結果を Slack などで教えてください。次の情報があると助かります。
    - 使用環境（OS / Mac or Linux / GPU 有無）と、LLM/VLM 補助の ON/OFF
    - 誤検知: Warning のタグ・`pattern_id`・何が正しかったか
    - 見逃し: 本来拾ってほしかった不整合の種類（例: Legend の n と生データ行数の不一致）
    - エラー時: コンソールのエラーメッセージ
-3. **未発表の原稿・生データ・画像・個人情報は Issue に添付しないでください。** 共有する場合は、数値や名前を伏せた最小の再現例（合成データ）にしてください。
+3. **未発表の原稿・生データ・画像・個人情報はそのまま送らないでください。** 共有する場合は、数値や名前を伏せた最小の再現例（合成データ）にしてください。
 
 再現用の合成データは [`fixtures/synthetic/`](fixtures/synthetic/) にあります。追加してほしい検知パターンの提案も歓迎します（[docs/DETECTION_AND_MODELS.md](docs/DETECTION_AND_MODELS.md) の `pattern_id` 体系を参照）。
 
@@ -60,6 +60,10 @@ cd Pre-peer-checker
 # Mac: Pre-peer-checker.command をダブルクリック
 # Linux: scripts/start_webui.sh
 ```
+
+**Git を使わない場合**: GitHub のリポジトリページで「Code → Download ZIP」を選ぶか、開発者から受け取った ZIP を展開し、ターミナルで展開したフォルダ（例: `Pre-peer-checker-main`）に移動して `bash install.sh` を実行してください。以降の起動方法は同じです。
+
+Apple Silicon Mac では `install.sh` だけで MLX（Legend LLM / VLM）・画像スタック・既定モデルの重み（計 ~10GB）まで導入し、最後に機能チェックを表示します。途中で失敗した場合も `./install.sh` を再実行すれば不足分だけ補います。
 
 ブラウザで親フォルダを選びます。親の中に必須:
 

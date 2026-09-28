@@ -10,6 +10,7 @@ from __future__ import annotations
 import argparse
 import importlib.util
 import sys
+import unicodedata
 
 
 def _has(mod: str) -> bool:
@@ -90,10 +91,14 @@ def main() -> int:
         ("顕微鏡 LIF（readlif）", _has("readlif"), ""),
         ("顕微鏡 CZI（pylibCZIrw）", _has("pylibCZIrw"), ""),
     ]
-    width = max(len(r[0]) for r in rows)
+    def display_width(s: str) -> int:
+        return sum(2 if unicodedata.east_asian_width(c) in "WF" else 1 for c in s)
+
+    width = max(display_width(r[0]) for r in rows)
     for name, ok, note in rows:
         mark = "OK" if ok else "--"
-        print(f"  [{mark}] {name.ljust(width)}  {note}".rstrip())
+        pad = " " * (width - display_width(name))
+        print(f"  [{mark}] {name}{pad}  {note}".rstrip())
 
     if args.require_mlx and (llm is None or llm.info().name != "mlx"):
         print("ERROR: Legend LLM が MLX で動作しません。", file=sys.stderr)

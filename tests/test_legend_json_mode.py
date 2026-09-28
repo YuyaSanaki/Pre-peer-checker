@@ -81,6 +81,91 @@ def test_structured_generate_records_outlines_mlx_when_helper_returns(monkeypatc
     assert any(p.n == 17 for p in parsed.panels)
 
 
+def test_outlines_generator_compiled_once_per_backend(monkeypatch):
+    """Schema compile happens once per backend, not once per Figure."""
+    import sys
+    import types
+
+    built: list[object] = []
+
+    class FakeGenerator:
+        def __init__(self, model, output_type):
+            built.append(output_type)
+
+        def __call__(self, prompt, max_tokens=0):
+            return {"figure": prompt, "panels": [], "tests": [], "p_values": []}
+
+    fake = types.ModuleType("outlines")
+    fake.Generator = FakeGenerator
+    fake.from_mlxlm = lambda model, tok: ("wrapped", model)
+    fake_types = types.ModuleType("outlines.types")
+    fake_types.JsonSchema = lambda schema: ("schema", len(schema))
+    fake.types = fake_types
+    monkeypatch.setitem(sys.modules, "outlines", fake)
+    monkeypatch.setitem(sys.modules, "outlines.types", fake_types)
+
+    class FakeMLX:
+        def info(self):
+            return SimpleNamespace(name="mlx")
+
+        def load(self):
+            self._model = getattr(self, "_model", object())
+            self._tokenizer = object()
+
+        def generate(self, prompt: str, *, max_tokens: int = 768) -> str:
+            raise AssertionError("should use outlines path")
+
+    backend = FakeMLX()
+    outs = [structured_legend_generate(backend, f"Figure {i}") for i in range(3)]
+    assert len(built) == 1
+    assert all(meta["json_mode"] == "outlines-mlx" for _, meta in outs)
+    assert [json.loads(t)["figure"] for t, _ in outs] == ["Figure 0", "Figure 1", "Figure 2"]
+
+    other = FakeMLX()
+    structured_legend_generate(other, "Figure 9")
+    assert len(built) == 2
+
+
+def test_outlines_transformers_uses_hf_generate_kwargs(monkeypatch):
+    """HF generate needs max_new_tokens and greedy decoding (not max_tokens)."""
+    import sys
+    import types
+
+    calls: list[dict] = []
+
+    class FakeGenerator:
+        def __init__(self, model, output_type):
+            pass
+
+        def __call__(self, prompt, **kwargs):
+            calls.append(kwargs)
+            return {"figure": prompt, "panels": [], "tests": [], "p_values": []}
+
+    fake = types.ModuleType("outlines")
+    fake.Generator = FakeGenerator
+    fake.from_transformers = lambda model, tok: ("wrapped", model)
+    fake_types = types.ModuleType("outlines.types")
+    fake_types.JsonSchema = lambda schema: ("schema", len(schema))
+    fake.types = fake_types
+    monkeypatch.setitem(sys.modules, "outlines", fake)
+    monkeypatch.setitem(sys.modules, "outlines.types", fake_types)
+
+    class FakeHF:
+        def info(self):
+            return SimpleNamespace(name="transformers")
+
+        def load(self):
+            self._model = getattr(self, "_model", object())
+            self._tokenizer = object()
+
+        def generate(self, prompt: str, *, max_tokens: int = 768) -> str:
+            raise AssertionError("should use outlines path")
+
+    _, meta = structured_legend_generate(FakeHF(), "Figure 1", max_tokens=321)
+    assert meta["json_mode"] == "outlines-transformers"
+    assert calls == [{"max_new_tokens": 321, "do_sample": False}]
+
+
 def test_extract_legends_with_backend_records_json_mode(tmp_path, monkeypatch):
     """Wiring: extract_legends_with_backend sets meta.json_mode via structured path."""
     from docx import Document

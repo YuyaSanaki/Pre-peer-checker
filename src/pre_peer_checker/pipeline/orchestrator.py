@@ -152,6 +152,34 @@ def _select_docx_for_legend(docx_files: list[Path]) -> list[Path]:
     return top or ranked[:1]
 
 
+def _release_model_memory() -> None:
+    """Return freed model weights to the OS/GPU (best effort)."""
+    import gc
+    import sys
+
+    gc.collect()
+    mx = sys.modules.get("mlx.core")
+    if mx is not None:
+        clear = getattr(mx, "clear_cache", None) or getattr(
+            getattr(mx, "metal", None), "clear_cache", None
+        )
+        if callable(clear):
+            try:
+                clear()
+            except Exception:  # noqa: BLE001
+                pass
+    torch = sys.modules.get("torch")
+    if torch is not None:
+        for dev in ("cuda", "mps"):
+            mod = getattr(torch, dev, None)
+            empty = getattr(mod, "empty_cache", None)
+            try:
+                if callable(empty) and (dev != "cuda" or torch.cuda.is_available()):
+                    empty()
+            except Exception:  # noqa: BLE001
+                pass
+
+
 def _plan_stages(
     *,
     legend_llm: bool,
@@ -493,6 +521,20 @@ def run_verification(
     figure_chunks_art: list[dict] = []
     n_legend_docs = len(docx_for_legend)
     legend_figs_before = 0
+    # One text model for every manuscript and the n-matrix alias step; each
+    # select_backend() call would otherwise load the weights again.
+    shared_llm = None
+    if legend_llm:
+        try:
+            from pre_peer_checker.llm.backend import select_backend
+
+            shared_llm = select_backend(
+                legend_llm_prefer,
+                model_id=legend_llm_model,
+                profile_id=legend_llm_profile,
+            )
+        except Exception:  # noqa: BLE001
+            shared_llm = None
     for i_doc, p in enumerate(docx_for_legend):
         doc_fig_total = [0]
 
@@ -530,6 +572,7 @@ def run_verification(
                 profile_id=legend_llm_profile,
                 figure_pdfs=list(bundle.get(FileKind.PDF)),
                 on_item=_on_figure,
+                backend=shared_llm,
             )
             legend_jsons.extend(legs)
             figure_chunks_art.extend(meta.get("figure_chunks") or [])
@@ -1080,13 +1123,7 @@ def run_verification(
         cands = propose_key_candidates(legend_gs, table_gs)
         if legend_llm and legend_gs and table_gs:
             try:
-                from pre_peer_checker.llm.backend import select_backend
-
-                backend = select_backend(
-                    legend_llm_prefer,
-                    model_id=legend_llm_model,
-                    profile_id=legend_llm_profile,
-                )
+                backend = shared_llm
                 if backend is not None:
 
                     def _alias_llm(prompt: str) -> str:
@@ -1123,6 +1160,10 @@ def run_verification(
         key_alias_map=key_alias_map,
     )
     result.artifacts["n_matrix"] = n_matrix_to_artifact(n_rows)
+    # Free the text model before the VLM and image models load (unified memory
+    # on Mac is shared by all three).
+    shared_llm = None
+    _release_model_memory()
 
     # --- H1 補完: 出版 Figure PDF の多パネル点列同一性 ---
     tracker.start(

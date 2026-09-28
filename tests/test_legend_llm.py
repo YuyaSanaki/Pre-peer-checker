@@ -151,3 +151,20 @@ def test_transformers_tensor_device_includes_mps():
     assert TransformersBackend._tensor_device("cuda") == "cuda"
     assert TransformersBackend._tensor_device("cpu") == "cpu"
     assert TransformersBackend._tensor_device("unknown") == "cpu"
+
+
+def test_native_jit_disabled_before_torch_import():
+    """torch reads TORCH_DISABLE_NATIVE_JIT at import; the package must set it first."""
+    import os
+    import subprocess
+    import sys
+
+    env = {k: v for k, v in os.environ.items() if k != "TORCH_DISABLE_NATIVE_JIT"}
+    code = (
+        "import os, sys; import pre_peer_checker; "
+        "print('torch' in sys.modules, os.environ.get('TORCH_DISABLE_NATIVE_JIT'))"
+    )
+    out = subprocess.run(
+        [sys.executable, "-c", code], env=env, capture_output=True, text=True, check=True
+    ).stdout.split()
+    assert out == ["False", "1"]

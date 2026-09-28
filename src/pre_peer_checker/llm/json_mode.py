@@ -91,14 +91,14 @@ def _try_outlines_transformers(
 
         om = outlines.from_transformers(model, tokenizer)  # type: ignore[attr-defined]
         out_type = JsonSchema(schema)
-        result = om(prompt, output_type=out_type, max_tokens=max_tokens)
+        result = om(prompt, output_type=out_type, max_new_tokens=max_tokens, do_sample=False)
         return result if isinstance(result, str) else json.dumps(result, ensure_ascii=False)
     except Exception:
         pass
 
     try:
         om = outlines.from_transformers(model, tokenizer)  # type: ignore[attr-defined]
-        result = om(prompt, output_type=schema, max_tokens=max_tokens)
+        result = om(prompt, output_type=schema, max_new_tokens=max_tokens, do_sample=False)
         return result if isinstance(result, str) else json.dumps(result, ensure_ascii=False)
     except Exception:
         pass
@@ -112,6 +112,84 @@ def _try_outlines_transformers(
         return str(generator(prompt, max_tokens=max_tokens))
     except Exception:
         return None
+
+
+def _build_outlines_generator(
+    kind: str,
+    model: Any,
+    tokenizer: Any,
+    schema: dict[str, Any],
+) -> Any | None:
+    """Compile the schema once; returns ``fn(prompt, max_tokens)`` or None.
+
+    ``model(prompt, output_type=...)`` builds a fresh Generator — and recompiles
+    the JSON-schema automaton — on every call. Building it once per run gives
+    the same output without paying that cost for every Figure.
+    """
+    try:
+        import outlines
+    except Exception:
+        return None
+
+    try:
+        from outlines.types import JsonSchema  # type: ignore
+
+        wrap = outlines.from_mlxlm if kind == "mlx" else outlines.from_transformers  # type: ignore[attr-defined]
+        gen = outlines.Generator(wrap(model, tokenizer), JsonSchema(schema))  # type: ignore[attr-defined]
+        # Kwargs go straight to mlx_lm.generate (greedy by default) / HF generate
+        # (would otherwise sample per the model's generation_config).
+        if kind == "mlx":
+            return lambda prompt, max_tokens: gen(prompt, max_tokens=max_tokens)
+        return lambda prompt, max_tokens: gen(
+            prompt, max_new_tokens=max_tokens, do_sample=False
+        )
+    except Exception:
+        pass
+
+    try:
+        import outlines.generate as ogen  # type: ignore
+
+        if kind == "mlx":
+            from outlines.models.mlxlm import MLXLM  # type: ignore
+
+            om = MLXLM(model, tokenizer)
+        else:
+            from outlines.models.transformers import Transformers  # type: ignore
+
+            om = Transformers(model, tokenizer)
+        gen = ogen.json(om, schema)
+        return lambda prompt, max_tokens: gen(prompt, max_tokens=max_tokens)
+    except Exception:
+        return None
+
+
+def _generate_with_cached_outlines(
+    backend: Any,
+    kind: str,
+    prompt: str,
+    schema: dict[str, Any],
+    *,
+    max_tokens: int,
+) -> str | None:
+    """Generate via a generator cached on ``backend`` (freed with the backend)."""
+    model = getattr(backend, "_model", None)
+    tokenizer = getattr(backend, "_tokenizer", None)
+    if model is None:
+        return None
+    cache: dict[tuple[str, int, str], Any] = backend.__dict__.setdefault(
+        "_outlines_generators", {}
+    )
+    key = (kind, id(model), json.dumps(schema, sort_keys=True))
+    if key not in cache:
+        cache[key] = _build_outlines_generator(kind, model, tokenizer, schema)
+    gen = cache[key]
+    if gen is None:
+        return None
+    try:
+        result = gen(prompt, max_tokens)
+    except Exception:
+        return None
+    return result if isinstance(result, str) else json.dumps(result, ensure_ascii=False)
 
 
 def structured_legend_generate(
@@ -149,6 +227,14 @@ def structured_legend_generate(
             meta["load_error"] = str(exc)
             text = backend.generate(prompt, max_tokens=max_tokens)
             meta["json_mode"] = "free+coerce"
+            return text, meta
+
+    if name in {"mlx", "transformers"} and getattr(backend, "_model", None) is not None:
+        text = _generate_with_cached_outlines(
+            backend, name, prompt, schema, max_tokens=max_tokens
+        )
+        if text is not None:
+            meta["json_mode"] = f"outlines-{name}"
             return text, meta
 
     if name == "mlx" and getattr(backend, "_model", None) is not None:

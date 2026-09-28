@@ -439,8 +439,13 @@ def extract_legends_with_backend(
     enabled: bool = False,
     figure_pdfs: list[Path] | None = None,
     on_item: Callable[[int, int, str], None] | None = None,
+    backend: Any | None = None,
 ) -> tuple[list[LegendFigureJSON], dict[str, Any]]:
-    """Extract legends/check-items; optionally refine with MLX/CUDA when enabled."""
+    """Extract legends/check-items; optionally refine with MLX/CUDA when enabled.
+
+    backend: an already-selected backend to reuse (keeps the model loaded across
+    manuscripts in one run). None selects one here.
+    """
     meta: dict[str, Any] = {
         "legend_llm_enabled": enabled,
         "backend": None,
@@ -467,7 +472,8 @@ def extract_legends_with_backend(
     )
     meta["resolved_llm"] = resolved.to_dict()
     meta["backends_probed"] = [b.__dict__ for b in probe_backends()]
-    backend = select_backend(prefer, model_id=model_id, profile_id=profile_id)
+    if backend is None:
+        backend = select_backend(prefer, model_id=model_id, profile_id=profile_id)
     if backend is None:
         meta["backend"] = "none"
         meta["note"] = "no MLX/transformers backend; used rules only"

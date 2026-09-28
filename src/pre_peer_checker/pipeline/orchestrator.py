@@ -65,7 +65,7 @@ from pre_peer_checker.engine.stats_residue_match import (
     warnings_residue_plot_table_divergence,
 )
 from pre_peer_checker.imaging.blot_lane import scan_blot_lane_reuse
-from pre_peer_checker.imaging.corpus_scan import scan_against_corpus
+from pre_peer_checker.imaging.corpus_scan import collect_corpus_images, scan_against_corpus
 from pre_peer_checker.imaging.duplicate_scan import scan_image_duplicates_auto
 from pre_peer_checker.imaging.microscopy_scan import scan_microscopy_duplicates
 from pre_peer_checker.io_bundle import FileKind, InputBundle, collect_inputs, is_r_history_name
@@ -156,7 +156,7 @@ def _plan_stages(
     *,
     legend_llm: bool,
     vlm_assist: bool,
-    corpus: bool,
+    n_corpus_images: int,
     cited_papers: bool,
     bundle: InputBundle | None = None,
 ) -> list[Stage]:
@@ -212,14 +212,29 @@ def _plan_stages(
             "出版 Figure のパネル解析（VLM 補助あり）" if vlm_assist else "出版 Figure のパネル解析",
             panels_est,
         ),
+        Stage("images_extract", "PDF から埋め込み画像を抽出", 1.0 + 1.0 * n_pdf),
+        Stage("images_dup", "Figure 内画像の類似度スキャン", 5.0 + 1.0 * n_fig_pdf),
         Stage(
-            "images",
-            "画像の重複・再利用スキャン",
-            3.0 + 2.0 * n_fig_pdf + 0.3 * n_images + 1.0 * n_micro,
+            "images_micro",
+            "顕微鏡・ラスタ画像の重複スキャン",
+            2.0 + 0.5 * n_images + 1.0 * n_micro + (10.0 if n_images + n_micro >= 2 else 0.0),
+        ),
+        Stage(
+            "images_meta",
+            "ブロットのレーン再利用・スケールバー・顕微鏡メタデータの照合",
+            2.0 + 0.2 * n_images + 0.5 * n_micro,
         ),
     ]
-    if corpus:
-        stages.append(Stage("corpus", "過去論文コーパスとの画像照合（H3）", 30.0 + 0.5 * n_images))
+    if n_corpus_images:
+        # 部分一致は原稿画像 × コーパス画像の全ペアを照合する（上限は scan_against_corpus の既定値）
+        n_query = min(n_images + n_micro + 10 * n_fig_pdf, 40)
+        stages.append(
+            Stage(
+                "corpus",
+                "過去論文コーパスとの画像照合（H3）",
+                20.0 + 3.0 * max(n_query, 1) * min(n_corpus_images, 80),
+            )
+        )
     stages.append(Stage("report", "カバレッジ集計・レポート出力", 3.0))
     return stages
 
@@ -263,7 +278,7 @@ def run_verification(
     plan_flags = {
         "legend_llm": bool(legend_llm),
         "vlm_assist": bool(vlm_assist),
-        "corpus": bool(corpus),
+        "n_corpus_images": len(collect_corpus_images(list(corpus))) if corpus else 0,
         "cited_papers": bool(cited_papers),
     }
     tracker.set_stages(_plan_stages(**plan_flags))
@@ -477,11 +492,26 @@ def run_verification(
     legend_llm_meta: list[dict] = []
     figure_chunks_art: list[dict] = []
     n_legend_docs = len(docx_for_legend)
+    legend_figs_before = 0
     for i_doc, p in enumerate(docx_for_legend):
+        doc_fig_total = [0]
 
-        def _on_figure(done: int, total: int, label: str, *, _i=i_doc, _p=p) -> None:
-            # 原稿が複数あるときは各原稿の Figure 数が同程度と仮定して通し番号にする
-            tracker.update(done=_i * total + done, total=n_legend_docs * total)
+        def _on_figure(
+            done: int,
+            total: int,
+            label: str,
+            *,
+            _i=i_doc,
+            _p=p,
+            _offset=legend_figs_before,
+            _seen=doc_fig_total,
+        ) -> None:
+            _seen[0] = total
+            # 完了済み原稿は実際の Figure 数で積み、未着手の原稿だけ現原稿と同数と仮定する
+            tracker.update(
+                done=_offset + done,
+                total=_offset + total * (n_legend_docs - _i),
+            )
             if done >= total:
                 return
             what = f"{label or 'Figure'} を読み取り中（{done + 1}/{total}）"
@@ -511,6 +541,8 @@ def run_verification(
             )
         except Exception:  # noqa: BLE001
             continue
+        finally:
+            legend_figs_before += doc_fig_total[0]
     result.artifacts["legend_json"] = legends_to_artifact(legend_jsons)
     result.artifacts["legend_llm"] = legend_llm_meta
     result.artifacts["legend_llm_status"] = summarize_legend_llm_meta(legend_llm_meta)
@@ -1141,10 +1173,8 @@ def run_verification(
     pdf_image_paths: list[Path] = []
     tmp_dirs: list[Path] = []
     all_pdfs = list(bundle.get(FileKind.PDF))
-    # PDF ごとの画像抽出 + 後続 4 スキャン（重複・顕微鏡・ブロット/スケール・取得メタ）
-    n_image_steps = len(all_pdfs) + 4
-    tracker.start("images")
-    tracker.update(done=0, total=n_image_steps)
+    tracker.start("images_extract")
+    tracker.update(done=0, total=len(all_pdfs))
     try:
         for i_pdf, p in enumerate(all_pdfs):
             tracker.update(
@@ -1162,9 +1192,9 @@ def run_verification(
                 )
         result.artifacts["pdf"] = pdf_meta
 
-        tracker.update(
-            done=len(all_pdfs),
-            detail=f"Figure 内画像の類似度スキャン中（{len(pdf_image_paths)} 枚）",
+        tracker.start(
+            "images_dup",
+            f"Figure 内画像の類似度スキャン中（{len(pdf_image_paths)} 枚・初回は画像モデル読込を含む）",
         )
         if len(pdf_image_paths) >= 2:
             matches, method = scan_image_duplicates_auto(
@@ -1197,7 +1227,13 @@ def run_verification(
                     )
                 )
 
-        tracker.update(done=len(all_pdfs) + 1, detail="顕微鏡・ラスタ画像の重複スキャン中")
+        n_micro_inputs = len(
+            bundle.get(FileKind.LIF) + bundle.get(FileKind.CZI) + bundle.get(FileKind.IMAGE)
+        )
+        tracker.start(
+            "images_micro",
+            f"顕微鏡・ラスタ画像の重複スキャン中（候補 {n_micro_inputs} ファイル）",
+        )
         micro = scan_microscopy_duplicates(
             bundle.get(FileKind.LIF) + bundle.get(FileKind.CZI),
             bundle.get(FileKind.IMAGE),
@@ -1207,7 +1243,7 @@ def run_verification(
         result.warnings.extend(micro.warnings)
         result.artifacts["microscopy_scan"] = micro.artifacts
 
-        tracker.update(done=len(all_pdfs) + 2, detail="ブロットのレーン再利用・スケールバーを確認中")
+        tracker.start("images_meta", "ブロットのレーン再利用・スケールバーを確認中")
         blot_imgs = list(bundle.get(FileKind.IMAGE))
         if pdf_image_paths:
             blot_imgs = list(pdf_image_paths) + blot_imgs
@@ -1222,7 +1258,7 @@ def run_verification(
             warnings_from_scale_mag(claim_texts, blot_imgs[:36])
         )
         # LIF/CZI acquisition meta × Legend（顕微鏡接地・内部照合）
-        tracker.update(done=len(all_pdfs) + 3, detail="顕微鏡の取得メタデータと Legend を照合中")
+        tracker.update(detail="顕微鏡の取得メタデータと Legend を照合中")
         micro_paths = (
             list(bundle.get(FileKind.LIF))
             + list(bundle.get(FileKind.CZI))
@@ -1255,12 +1291,19 @@ def run_verification(
             # Prefer exported PDF embeds as query when present
             if pdf_image_paths:
                 query_imgs = list(pdf_image_paths) + query_imgs
+            def _on_corpus(done: int, total: int, label: str) -> None:
+                if total:
+                    tracker.update(done=done, total=total)
+                if label:
+                    tracker.update(detail=label)
+
             corpus_result = scan_against_corpus(
                 query_imgs,
                 corpus_roots,
                 legend_has_citation=legend_cited,
                 prefer_dino=True,
                 prefer_lightglue=True,
+                on_progress=_on_corpus,
             )
             result.warnings.extend(corpus_result.warnings)
             result.artifacts["corpus_scan"] = corpus_result.artifacts

@@ -21,8 +21,10 @@ from pre_peer_checker.catalog.paths import REPO_ROOT
 
 HISTORY_PATH = REPO_ROOT / "cache" / "progress_history.json"
 
-# 見積りが外れていても序盤の短いステージだけで補正係数が振れすぎないよう、事前分を足して縮約する
-_PRIOR_SECONDS = 20.0
+# 序盤の軽いステージが見積りより速くても重いステージ（LLM・画像照合）が速いとは限らないので、
+# 事前分を足して縮約し、さらに補正係数の幅を制限する
+_PRIOR_SECONDS = 60.0
+_FACTOR_CLAMP = (0.5, 4.0)
 _RATIO_CLAMP = (0.05, 20.0)
 
 
@@ -52,6 +54,10 @@ class ProgressTracker:
         self._stage_t0 = self._t0
         self._sub_done: int | None = None
         self._sub_total: int | None = None
+        # 1 件目完了時刻と最新完了時刻（1 件目はモデル読込を含みがちなので件あたり速度から除く）
+        self._sub_first_t: float | None = None
+        self._sub_first_done = 0
+        self._sub_last_t: float | None = None
         self._detail = ""
         self._finished = False
         self._max_fraction = 0.0
@@ -79,6 +85,9 @@ class ProgressTracker:
             self._stage_t0 = now
             self._sub_done = None
             self._sub_total = None
+            self._sub_first_t = None
+            self._sub_first_done = 0
+            self._sub_last_t = None
             self._detail = detail
 
     def update(
@@ -92,7 +101,14 @@ class ProgressTracker:
             if total is not None:
                 self._sub_total = max(int(total), 0)
             if done is not None:
-                self._sub_done = max(int(done), 0)
+                done = max(int(done), 0)
+                if done > (self._sub_done or 0):
+                    now = self._clock()
+                    if self._sub_first_t is None:
+                        self._sub_first_t = now
+                        self._sub_first_done = done
+                    self._sub_last_t = now
+                self._sub_done = done
             if detail is not None:
                 self._detail = detail
 
@@ -193,15 +209,27 @@ class ProgressTracker:
             if i < self._current and s.id in self._durations
         )
         factor = (done_actual + _PRIOR_SECONDS) / (done_est + _PRIOR_SECONDS)
+        factor = min(max(factor, _FACTOR_CLAMP[0]), _FACTOR_CLAMP[1])
 
         cur_est = self._calibrated(cur) * factor
-        sub_frac = None
-        if self._sub_total and self._sub_done:
-            sub_frac = min(self._sub_done / self._sub_total, 1.0)
-        if sub_frac and sub_frac > 0:
-            cur_rem = stage_elapsed * (1.0 - sub_frac) / sub_frac
+        # 見積りベース: 超過したら「経過に比例してまだかかる」とみなす
+        est_rem = max(cur_est - stage_elapsed, 0.2 * stage_elapsed)
+        done, total = self._sub_done or 0, self._sub_total or 0
+        if total and done >= total:
+            cur_rem = 0.0
+        elif total and done:
+            # 実測ペース: 数件だけだと偶然速い/遅い件に引っ張られるので、件数に応じて見積りから重みを移す
+            n_after = done - self._sub_first_done
+            if n_after > 0 and self._sub_first_t is not None and self._sub_last_t is not None:
+                per_item = (self._sub_last_t - self._sub_first_t) / n_after
+                since_last = now - self._sub_last_t
+                rate_rem = max((total - done) * per_item - since_last, 0.1 * per_item)
+            else:
+                rate_rem = est_rem
+            w = min(1.0, n_after / max(3.0, 0.15 * total))
+            cur_rem = w * rate_rem + (1.0 - w) * est_rem
         else:
-            cur_rem = max(cur_est - stage_elapsed, 0.1 * cur_est)
+            cur_rem = est_rem
 
         fut_rem = factor * sum(
             self._calibrated(s) for s in self._stages[self._current + 1 :]

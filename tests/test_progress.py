@@ -50,10 +50,52 @@ def test_snapshot_stage_and_sub_progress() -> None:
     tr.update(done=1, detail="Figure 2")
     snap = tr.snapshot()
     assert snap["sub_done"] == 1 and snap["sub_total"] == 4
-    # 1/4 に 20 秒 → 残り 3 件 ≒ 60 秒、後続 b は見積り 10 秒 × 補正係数 1.0
-    assert 65.0 <= snap["eta_s"] <= 75.0
+    # 1 件目だけでは実測ペースを信用せず見積り（100 - 経過 20 秒）+ 後続 b（10 秒）
+    assert snap["eta_s"] == 90.0
     assert [s["status"] for s in snap["stages"]] == ["done", "active", "pending"]
     assert snap["stages"][0]["seconds"] == 10.0
+
+
+def test_first_item_warmup_is_excluded_from_per_item_rate() -> None:
+    clock = FakeClock()
+    tr = ProgressTracker(clock=clock)
+    tr.set_stages([Stage("llm", "LLM", 500.0)])
+    tr.start("llm")
+    tr.update(done=0, total=10)
+    clock.t = 60.0  # 1 件目: モデル読込 50 秒 + 生成 10 秒
+    tr.update(done=1)
+    for i in range(2, 6):
+        clock.t = 60.0 + 10.0 * (i - 1)
+        tr.update(done=i)
+    # 1 件目以降 4 件で実測を全面採用: 件あたり 10 秒 × 残り 5 件
+    # （1 件目込みで外挿すると 100 秒、見積りのままだと 400 秒）
+    assert tr.snapshot()["eta_s"] == 50.0
+
+
+def test_few_fast_items_do_not_jump_to_near_complete() -> None:
+    clock = FakeClock()
+    tr = ProgressTracker(clock=clock)
+    tr.set_stages([Stage("corpus", "Corpus", 300.0)])
+    tr.start("corpus")
+    clock.t = 50.0  # サブ進捗の無い前処理
+    tr.update(done=0, total=80)
+    for i in range(1, 6):  # 最初の数ペアだけ一瞬で終わる
+        clock.t = 50.0 + 0.1 * i
+        tr.update(done=i)
+    snap = tr.snapshot()
+    assert snap["eta_s"] > 150.0
+    assert snap["fraction"] < 0.3
+
+
+def test_overrun_stage_without_sub_progress_keeps_growing() -> None:
+    clock = FakeClock()
+    tr = ProgressTracker(clock=clock)
+    tr.set_stages([Stage("scan", "Scan", 10.0)])
+    tr.start("scan")
+    clock.t = 5.0
+    assert tr.snapshot()["eta_s"] == 5.0
+    clock.t = 100.0
+    assert tr.snapshot()["eta_s"] == 20.0
 
 
 def test_fraction_is_monotonic_and_finishes_at_one() -> None:

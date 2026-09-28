@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import tempfile
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -61,8 +62,18 @@ def scan_against_corpus(
     prefer_dino: bool = True,
     prefer_lightglue: bool = True,
     enable_partial: bool = True,
+    on_progress: Callable[[int, int, str], None] | None = None,
 ) -> CorpusScanResult:
-    """Compare manuscript images to a user-provided past-paper corpus."""
+    """Compare manuscript images to a user-provided past-paper corpus.
+
+    on_progress(done, total, label): total=0 はフェーズ切替のみ（件数なし）。
+    部分一致（原稿×コーパスの全ペア）は 1 ペアずつ報告する。
+    """
+
+    def _notify(done: int, total: int, label: str) -> None:
+        if on_progress is not None:
+            on_progress(done, total, label)
+
     result = CorpusScanResult()
     corpus_paths = collect_corpus_images(corpus_roots, max_files=max_corpus)
     result.corpus_present = bool(corpus_paths)
@@ -82,6 +93,7 @@ def scan_against_corpus(
 
     tmp = Path(tempfile.mkdtemp(prefix="mc_corpus_"))
     try:
+        _notify(0, 0, f"画像を読み込み中（原稿 {len(queries)} 枚・コーパス {len(corpus_paths)} 枚）")
         q_prev = _export_previews(queries, tmp / "q")
         c_prev = _export_previews(corpus_paths, tmp / "c")
         result.artifacts["query_previews"] = len(q_prev)
@@ -95,6 +107,7 @@ def scan_against_corpus(
         src_of = {str(prev): src for prev, src in q_prev + c_prev}
         q_set = {str(p) for p, _ in q_prev}
 
+        _notify(0, 0, f"全体一致の類似度スキャン中（{len(preview_paths)} 枚）")
         matches, method = scan_image_duplicates_auto(
             preview_paths,
             prefer_dino=prefer_dino,
@@ -164,8 +177,17 @@ def scan_against_corpus(
         # Partial / cropped containment across query↔corpus (Bik Cat II proxy)
         partial_hits = 0
         if enable_partial:
+            n_pairs = len(q_prev) * len(c_prev)
+            i_pair = 0
             for q_prev_path, q_src in q_prev:
                 for c_prev_path, c_src in c_prev:
+                    _notify(
+                        i_pair,
+                        n_pairs,
+                        f"部分一致（切り抜き再利用）の照合中: {Path(q_src).name} ↔ "
+                        f"{Path(c_src).name}（{i_pair + 1}/{n_pairs} ペア）",
+                    )
+                    i_pair += 1
                     key = tuple(sorted((str(q_src), str(c_src))))
                     if key in dup_src_pairs or key in seen:
                         continue
@@ -208,6 +230,7 @@ def scan_against_corpus(
                             },
                         )
                     )
+            _notify(n_pairs, n_pairs, "")
         result.artifacts["cross_partial_pairs"] = partial_hits
         result.artifacts["cross_match_pairs"] = pair_log
         result.artifacts["enable_partial"] = bool(enable_partial)

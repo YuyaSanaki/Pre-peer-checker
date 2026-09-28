@@ -81,6 +81,7 @@ cd Pre-peer-checker
 Apple Silicon Mac では `install.sh` だけで MLX（Legend LLM / VLM）・画像スタック・既定モデルの重み（計 ~10GB）まで導入し、最後に機能チェックを表示します。途中で失敗した場合も `./install.sh` を再実行すれば不足分だけ補います。
 
 **Git を使わない場合**: GitHub のリポジトリページで「Code → Download ZIP」を選ぶか、開発者から受け取った ZIP を展開し、ターミナルで展開したフォルダ（例: `Pre-peer-checker-main`）に移動して `bash install.sh` を実行してください。以降の起動方法は同じです。
+
 ![Untitled.001](docs/fig/Untitled.001.png)
 
 ![Untitled.002](docs/fig/Untitled.002.png)
@@ -105,6 +106,11 @@ MyCase/
 
 データ量にもよりますが10分から1時間くらいかかります。
 
+![照合の進捗表示](docs/fig/webui_progress.png)
+
+照合完了すると下部にWarning一覧が表示されます。詳細なレポートは別ページで開きます。
+
+![HTML レポートを開く](docs/fig/webui_report_link.png)
 
 
 

@@ -242,7 +242,8 @@ Bik et al. Category I≈A1、II≈A2、III≈A3 に対応づける。F 系は **
 
 - **典型**: 回転・クロップ・コントラスト変更後の同一バンド／セル領域。
 - **読む**: 出典フラグ、パネル地図。
-- **比べる**: コーパス照合の NCC 包含（`imaging/partial_match.py` + `corpus_scan`）。DINOv2/LightGlue 精緻化は後続。
+- **比べる**: コーパス照合の NCC 包含（`imaging/partial_match.py` + `corpus_scan`）。回転 4 通り × スケール 0.55–1.0 の各テンプレートを、FFT 相互相関＋積分画像で**全オフセット（stride 1）厳密評価**する（float64 総当たりとの差 < 1e-12）。高スコアのみ LightGlue で再検証。
+- **粗選別を入れない理由**: pHash 等の全体ハッシュで候補を先に絞ると、切り抜き・回転・スケール変更後の再利用（Bik Cat II）がハッシュ上は別画像になり取りこぼす。高速化は計算の厳密な置き換えのみで行う。
 - **not_sufficient**: 同一実験系の意図的再掲で出典あり。
 - **合成 fixture**: `fixtures/synthetic/image_partial` + gold `image_partial`（G1）。
 - **sources**: literature (Bik; Rossner), curated_pubpeer

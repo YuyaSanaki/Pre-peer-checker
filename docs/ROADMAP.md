@@ -626,6 +626,7 @@ Phase 5 の `planned` を **P0→P1** で合成 fixture＋エンジン化。**Ph
 
 | 日付 | 内容 |
 |------|------|
+| 2026-09-28 | **画像照合の高速化（検知結果は不変）**: 部分一致 NCC を Python 二重ループから FFT 相互相関＋積分画像へ置換（1 ペア 40s → 0.5s、全オフセット厳密評価で旧 stride 間引き・float32 誤差を解消）。グレースケール復号をペア間でキャッシュ。DINOv2 を 1 プロセス 1 モデルで共有（3 経路の再ロード解消）＋バッチ埋め込み（CPU 3.3×、埋め込み値はビット同一）。pHash 粗選別は切り抜き再利用の取りこぼしを招くため不採用。原稿入力は Word 推奨・PDF は精度低下の可能性ありと明記 |
 | 2026-09-28 | **ライセンス整理（非商用配布）**: `install.sh` で利用区分を選択（`usage_profile.json`）→ LightGlue 特徴点を academic=SuperPoint（35）/ commercial=ALIKED（50、CUDA 較正）で切替。LightGlue をコミット `eb42fee` に固定。モデルプロファイルを Apache-2.0 のみに（3B・72B・InternVL3 削除） |
 | 2026-09-28 | **WebUI 既定: VLM パネル地図補助 ON**（Legend LLM 補助と同様）。ベクター空時のみ・VLM 未導入時は note のみでスキップ。CLI `--vlm-assist` / GUI は従来どおり opt-in |
 | 2026-09-26 | **Phase 7 初期**: 文献メタ＋引用整合（ユーザー提供 PDF）。`parsers/references` / `cited_paper_ingest` / `ref_biblio` / `ref_pdf_meta` / `ref_claim`。Taxonomy E4/E5。合成 `ref_biblio`/`ref_claim` CI |

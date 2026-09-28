@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from functools import lru_cache
 from pathlib import Path
 
 import numpy as np
 from PIL import Image
+from scipy import fft as _sfft
 
 
 @dataclass
@@ -20,13 +22,34 @@ class PartialMatch:
     best_rotation: int = 0
 
 
-def _gray(path: Path, max_side: int = 256) -> np.ndarray:
+def _decode_gray(path: Path, max_side: int) -> np.ndarray:
     img = Image.open(path).convert("L")
     w, h = img.size
     scale = min(1.0, max_side / max(w, h))
     if scale < 1.0:
         img = img.resize((max(1, int(w * scale)), max(1, int(h * scale))), Image.Resampling.BILINEAR)
     return np.asarray(img, dtype=np.float32)
+
+
+@lru_cache(maxsize=256)
+def _gray_cached(path_str: str, max_side: int, _stat: tuple[int, int]) -> np.ndarray:
+    arr = _decode_gray(Path(path_str), max_side)
+    arr.flags.writeable = False  # shared across pairs — must not be mutated in place
+    return arr
+
+
+def _gray(path: Path, max_side: int = 256) -> np.ndarray:
+    """Grayscale array, cached per (path, mtime, size, max_side).
+
+    Cross-set scans re-request the same image for every pair, so decoding once
+    per image instead of once per pair removes the bulk of the I/O.
+    """
+    p = Path(path)
+    try:
+        st = p.stat()
+    except OSError:
+        return _decode_gray(p, max_side)
+    return _gray_cached(str(p.resolve()), max_side, (st.st_mtime_ns, st.st_size))
 
 
 def _ncc_at(template: np.ndarray, window: np.ndarray) -> float:
@@ -43,42 +66,87 @@ def _ncc_at(template: np.ndarray, window: np.ndarray) -> float:
     return float(np.dot(t, w) / (tn * wn))
 
 
+class _NccTarget:
+    """Precomputed ``large``-side terms for NCC against many templates.
+
+    Holds the padded spectrum and the summed-area tables of ``large`` and
+    ``large**2``. Every template in the rotation × scale grid reuses these, so
+    the per-template work is one small forward transform plus one inverse.
+    """
+
+    def __init__(self, large: np.ndarray):
+        self.large = np.ascontiguousarray(large, dtype=np.float64)
+        lh, lw = self.large.shape
+        self.shape = (lh, lw)
+        # Zero-pad to >= 2*side-1 so correlation never wraps, for any template
+        # up to the full size of ``large``. Independent of template size, which
+        # keeps this reusable across the whole grid.
+        self.fshape = (
+            int(_sfft.next_fast_len(2 * lh - 1)),
+            int(_sfft.next_fast_len(2 * lw - 1)),
+        )
+        self.spectrum = _sfft.rfft2(self.large, s=self.fshape)
+        self._sum = _integral(self.large)
+        self._sumsq = _integral(self.large * self.large)
+
+    def _window_norms(self, sh: int, sw: int) -> np.ndarray:
+        """L2 norm of every mean-centred ``sh``×``sw`` window of ``large``."""
+        s1 = _box_sums(self._sum, sh, sw)
+        s2 = _box_sums(self._sumsq, sh, sw)
+        var = s2 - (s1 * s1) / float(sh * sw)
+        return np.sqrt(np.maximum(var, 0.0))
+
+    def max_ncc(self, template: np.ndarray) -> float:
+        sh, sw = template.shape
+        lh, lw = self.shape
+        if sh > lh or sw > lw or template.size < 16:
+            return 0.0
+        t = np.asarray(template, dtype=np.float64)
+        t = t - t.mean()
+        t_norm = float(np.linalg.norm(t))
+        if t_norm < 1e-6:
+            return 0.0
+        # corr[y, x] = sum(window(y, x) * t); the window mean drops out because
+        # t is already mean-centred, so this is the NCC numerator.
+        spec = self.spectrum * _sfft.rfft2(t[::-1, ::-1], s=self.fshape)
+        corr = _sfft.irfft2(spec, s=self.fshape)[sh - 1 : lh, sw - 1 : lw]
+        w_norm = self._window_norms(sh, sw)
+        usable = w_norm > 1e-6
+        if not usable.any():
+            return 0.0
+        return float((corr[usable] / (t_norm * w_norm[usable])).max())
+
+
+def _integral(arr: np.ndarray) -> np.ndarray:
+    return np.pad(arr.cumsum(axis=0).cumsum(axis=1), ((1, 0), (1, 0)))
+
+
+def _box_sums(integral: np.ndarray, sh: int, sw: int) -> np.ndarray:
+    return (
+        integral[sh:, sw:]
+        - integral[:-sh, sw:]
+        - integral[sh:, :-sw]
+        + integral[:-sh, :-sw]
+    )
+
+
 def max_ncc_containment(
     small: np.ndarray,
     large: np.ndarray,
     *,
     stride: int | None = None,
 ) -> float:
-    """Max normalized cross-correlation of ``small`` sliding over ``large``."""
+    """Max normalized cross-correlation of ``small`` sliding over ``large``.
+
+    Evaluates every offset (stride 1) via FFT cross-correlation and summed-area
+    tables. ``stride`` is accepted for backwards compatibility and ignored: the
+    search is now exhaustive, so it can only find peaks the strided scan missed.
+    """
     sh, sw = small.shape
     lh, lw = large.shape
     if sh > lh or sw > lw:
         return 0.0
-    if stride is None:
-        stride = 1 if max(sh, sw) <= 64 else max(1, min(sh, sw) // 12)
-    best = 0.0
-    best_yx = (0, 0)
-    for y in range(0, lh - sh + 1, stride):
-        for x in range(0, lw - sw + 1, stride):
-            window = large[y : y + sh, x : x + sw]
-            score = _ncc_at(small, window)
-            if score > best:
-                best = score
-                best_yx = (y, x)
-    if stride > 1 and best > 0.5:
-        y0, x0 = best_yx
-        pad = max(stride, 4)
-        y_lo = max(0, y0 - pad)
-        y_hi = min(lh - sh, y0 + pad)
-        x_lo = max(0, x0 - pad)
-        x_hi = min(lw - sw, x0 + pad)
-        for y in range(y_lo, y_hi + 1):
-            for x in range(x_lo, x_hi + 1):
-                window = large[y : y + sh, x : x + sw]
-                score = _ncc_at(small, window)
-                if score > best:
-                    best = score
-    return best
+    return _NccTarget(large).max_ncc(small)
 
 
 def _scale_grid(
@@ -139,6 +207,7 @@ def partial_containment_score(
     best = 0.0
     best_rot = 0
     best_scale = 1.0
+    target = _NccTarget(large)
     for rot in rotations:
         if rot == 0:
             base = small
@@ -160,7 +229,7 @@ def partial_containment_score(
                 )
             if tmpl.shape[0] > large.shape[0] or tmpl.shape[1] > large.shape[1]:
                 continue
-            score = max_ncc_containment(tmpl, large)
+            score = target.max_ncc(tmpl)
             if score > best:
                 best = score
                 best_rot = rot

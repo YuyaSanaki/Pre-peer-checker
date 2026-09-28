@@ -95,6 +95,8 @@ class DinoDuplicateScanner:
         import torch
         import torchvision.transforms as T
 
+        if self._model is not None and self._transform is not None:
+            return
         if self.device is None:
             if torch.cuda.is_available():
                 self.device = "cuda"
@@ -123,34 +125,68 @@ class DinoDuplicateScanner:
         )
 
     def embed(self, path: Path | str) -> np.ndarray:
+        return self.embed_many([path])[0]
+
+    def embed_many(
+        self, paths: list[Path | str], *, batch_size: int = 16
+    ) -> list[np.ndarray]:
+        """Embed images in batches (one forward pass per batch, not per image)."""
         import torch
 
         if self._model is None:
             self.load()
         assert self._model is not None and self._transform is not None
-        img = Image.open(path).convert("RGB")
-        tensor = self._transform(img).unsqueeze(0).to(self.device)
-        with torch.inference_mode():
-            feat = self._model(tensor)
-            feat = feat / feat.norm(dim=-1, keepdim=True)
-        return feat.squeeze(0).detach().cpu().numpy()
+        out: list[np.ndarray] = []
+        for start in range(0, len(paths), batch_size):
+            chunk = paths[start : start + batch_size]
+            tensors = [
+                self._transform(Image.open(p).convert("RGB")) for p in chunk
+            ]
+            batch = torch.stack(tensors).to(self.device)
+            with torch.inference_mode():
+                feats = self._model(batch)
+                feats = feats / feats.norm(dim=-1, keepdim=True)
+            out.extend(feats.detach().cpu().numpy())
+        return out
 
     def scan(self, paths: list[Path | str], *, threshold: float = 0.95) -> list[ImagePairMatch]:
         resolved = [Path(p) for p in paths]
-        embeds = {p: self.embed(p) for p in resolved}
-        out: list[ImagePairMatch] = []
-        for a, b in combinations(resolved, 2):
-            sim = float(np.dot(embeds[a], embeds[b]))
-            out.append(
-                ImagePairMatch(
-                    path_a=a,
-                    path_b=b,
-                    cosine_similarity=sim,
-                    likely_duplicate=sim >= threshold,
-                    method=f"dinov2:{self.model_name}",
-                )
+        matrix = np.stack(self.embed_many(resolved))
+        # Embeddings are L2-normalised, so the gram matrix is the cosine similarity
+        # for every pair at once.
+        sims = matrix @ matrix.T
+        method = f"dinov2:{self.model_name}"
+        return [
+            ImagePairMatch(
+                path_a=resolved[i],
+                path_b=resolved[j],
+                cosine_similarity=float(sims[i, j]),
+                likely_duplicate=bool(sims[i, j] >= threshold),
+                method=method,
             )
-        return out
+            for i, j in combinations(range(len(resolved)), 2)
+        ]
+
+
+_SHARED_SCANNERS: dict[str, DinoDuplicateScanner] = {}
+
+
+def shared_dino_scanner(model_name: str = "dinov2_vits14") -> DinoDuplicateScanner:
+    """Process-wide DINOv2 scanner.
+
+    A single run scans Figure embeds, microscopy rasters and the past-paper
+    corpus. Without this each of those would pull the weights through
+    ``torch.hub`` again and repeat the MPS warmup probe.
+    """
+    scanner = _SHARED_SCANNERS.get(model_name)
+    if scanner is None:
+        scanner = DinoDuplicateScanner(model_name)
+        _SHARED_SCANNERS[model_name] = scanner
+    return scanner
+
+
+def clear_shared_dino_scanners() -> None:
+    _SHARED_SCANNERS.clear()
 
 
 def scan_image_duplicates_auto(
@@ -182,7 +218,7 @@ def scan_image_duplicates_auto(
 
     if prefer_dino and DinoDuplicateScanner.available():
         try:
-            scanner = DinoDuplicateScanner()
+            scanner = shared_dino_scanner()
             thr = dino_threshold if threshold is None else threshold
             matches = scanner.scan(paths, threshold=thr)
             method = f"dinov2:{scanner.model_name}"

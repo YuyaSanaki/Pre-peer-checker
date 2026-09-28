@@ -56,7 +56,7 @@ Rosetta（x86_64）のターミナルから実行しても arm64 で自動的に
 
 ```text
 MyCase/
-  manuscript/   # Word・Figure PDF など（.zip 可・自動展開）
+  manuscript/   # Word・Figure PDF など（.zip 可・自動展開）。原稿は Word 推奨（PDF 原稿は精度が落ちる可能性あり）
   data/         # xlsx・生データ・スクリプトなど（.zip 可・自動展開）
 ```
 

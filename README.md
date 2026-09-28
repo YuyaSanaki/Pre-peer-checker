@@ -83,6 +83,8 @@ MyCase/
   data/         # 表・生データ・スクリプト
 ```
 
+**原稿は Word（`.docx`）を推奨します。** PDF（proof 原稿など）でも照合できますが、精度が落ちる可能性があります。現状、Figure Legend の n・本文中の統計記載・参考文献の読み取りは Word 原稿が対象で、PDF だけの場合は主に図（パネル・埋め込み画像）の照合になります。Figure PDF は Word 原稿と併せて置いてください。
+
 詳細は docs/PACKAGING.md。
 
 ![Untitled.005](docs/fig/Untitled.005.png)

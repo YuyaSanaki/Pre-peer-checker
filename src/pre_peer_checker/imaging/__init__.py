@@ -3,8 +3,10 @@
 from pre_peer_checker.imaging.duplicate_scan import (
     DinoDuplicateScanner,
     ImagePairMatch,
+    clear_shared_dino_scanners,
     scan_image_duplicates,
     scan_image_duplicates_auto,
+    shared_dino_scanner,
 )
 from pre_peer_checker.imaging.lightglue_match import (
     MIN_MATCHES_BY_FEATURES,
@@ -32,6 +34,8 @@ from pre_peer_checker.imaging.microscopy_scan import (
 __all__ = [
     "DinoDuplicateScanner",
     "ImagePairMatch",
+    "clear_shared_dino_scanners",
+    "shared_dino_scanner",
     "scan_image_duplicates",
     "scan_image_duplicates_auto",
     "PreciseMatchResult",

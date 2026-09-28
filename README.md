@@ -5,7 +5,7 @@
 
 論文投稿前（peer review 前）の研究データ・解析コード・原稿・Figure の整合性を、**完全ローカル**で自動検証するソフトウェアです。
 
-外部 API 課金なし・完全ローカル（原稿やデータを外部に送信しません）。開発は DGX Spark、利用は **clone → `./install.sh` → ショートカットで WebUI**（Apple Silicon Mac / Linux）。
+外部 API 課金なし・完全ローカル（原稿やデータを外部に送信しません）。開発は DGX Spark、利用は **clone →** `./install.sh` **→ ショートカットで WebUI**（Apple Silicon Mac / Linux）。
 
 **開発の絶対条件**: **読む＝LLM/VLM**（Legend・Fig チャンク → チェック項目 JSON）、**比べる＝機械**（表・DAG・画像類似度で Warning 確定）。詳細は [docs/REQUIREMENTS.md](docs/REQUIREMENTS.md) §1.2.1。
 
@@ -15,13 +15,13 @@
 
 1. 下記「セットアップ」でインストールし、WebUI または CLI で自分の原稿フォルダを照合する（処理はすべて手元のマシン内で完結します）。
 2. 結果を Slack などで教えてください。次の情報があると助かります。
-   - 使用環境（OS / Mac or Linux / GPU 有無）と、LLM/VLM 補助の ON/OFF
-   - 誤検知: Warning のタグ・`pattern_id`・何が正しかったか
-   - 見逃し: 本来拾ってほしかった不整合の種類（例: Legend の n と生データ行数の不一致）
-   - エラー時: コンソールのエラーメッセージ
+  - 使用環境（OS / Mac or Linux / GPU 有無）と、LLM/VLM 補助の ON/OFF
+  - 誤検知: Warning のタグ・`pattern_id`・何が正しかったか
+  - 見逃し: 本来拾ってほしかった不整合の種類（例: Legend の n と生データ行数の不一致）
+  - エラー時: コンソールのエラーメッセージ
 3. **未発表の原稿・生データ・画像・個人情報はそのまま送らないでください。** 共有する場合は、数値や名前を伏せた最小の再現例（合成データ）にしてください。
 
-再現用の合成データは [`fixtures/synthetic/`](fixtures/synthetic/) にあります。追加してほしい検知パターンの提案も歓迎します（[docs/DETECTION_AND_MODELS.md](docs/DETECTION_AND_MODELS.md) の `pattern_id` 体系を参照）。
+再現用の合成データは `[fixtures/synthetic/](fixtures/synthetic/)` にあります。追加してほしい検知パターンの提案も歓迎します（[docs/DETECTION_AND_MODELS.md](docs/DETECTION_AND_MODELS.md) の `pattern_id` 体系を参照）。
 
 ## ドキュメント
 
@@ -34,19 +34,22 @@
 - [Docker 実行・学習](docs/DOCKER.md)
 - [配布・起動（WebUI）](docs/PACKAGING.md)
 
+
+
 ## 現状
 
-| モジュール       | 内容                                             |
-| ----------- | ---------------------------------------------- |
+
+| モジュール       | 内容                                                                                    |
+| ----------- | ------------------------------------------------------------------------------------- |
 | `parsers/`  | Python AST / R tree-sitter / YAML / Word / PDF / Fig チャンク / 参考文献・本文 cite / 引用先 PDF 取込 |
-| `data/`     | Excel・CSV 群推定と統計再計算（比べる）                      |
-| `engine/`   | 決定論照合（n・群ベクトル・統計・参照・参考文献メタ・引用主張）          |
-| `imaging/`  | CZI/LIF ローダ、画像重複スキャン（軽量フォールバック + DINOv2 口）     |
-| `llm/`      | ローカル LLM/VLM（読む本線）+ モデルレジストリ                   |
-| `catalog/`  | 照合カタログ拡充（RW pulse・PubPeer PDF 取込・Issue/PR 共有） |
-| `pipeline/` | オーケストレーション                                     |
-| `report/`   | HTML Warning レポート（n 対照表・カバレッジ）                 |
-| `web/`      | ローカル WebUI（照合本線＋カタログ更新タブ）                      |
+| `data/`     | Excel・CSV 群推定と統計再計算（比べる）                                                              |
+| `engine/`   | 決定論照合（n・群ベクトル・統計・参照・参考文献メタ・引用主張）                                                      |
+| `imaging/`  | CZI/LIF ローダ、画像重複スキャン（軽量フォールバック + DINOv2 口）                                            |
+| `llm/`      | ローカル LLM/VLM（読む本線）+ モデルレジストリ                                                          |
+| `catalog/`  | 照合カタログ拡充（RW pulse・PubPeer PDF 取込・Issue/PR 共有）                                         |
+| `pipeline/` | オーケストレーション                                                                            |
+| `report/`   | HTML Warning レポート（n 対照表・カバレッジ）                                                        |
+| `web/`      | ローカル WebUI（照合本線＋カタログ更新タブ）                                                             |
 
 
 
@@ -61,9 +64,16 @@ cd Pre-peer-checker
 # Linux: scripts/start_webui.sh
 ```
 
-**Git を使わない場合**: GitHub のリポジトリページで「Code → Download ZIP」を選ぶか、開発者から受け取った ZIP を展開し、ターミナルで展開したフォルダ（例: `Pre-peer-checker-main`）に移動して `bash install.sh` を実行してください。以降の起動方法は同じです。
-
 Apple Silicon Mac では `install.sh` だけで MLX（Legend LLM / VLM）・画像スタック・既定モデルの重み（計 ~10GB）まで導入し、最後に機能チェックを表示します。途中で失敗した場合も `./install.sh` を再実行すれば不足分だけ補います。
+
+**Git を使わない場合**: GitHub のリポジトリページで「Code → Download ZIP」を選ぶか、開発者から受け取った ZIP を展開し、ターミナルで展開したフォルダ（例: `Pre-peer-checker-main`）に移動して `bash install.sh` を実行してください。以降の起動方法は同じです。
+![Untitled.001](docs/fig/Untitled.001.png)
+
+![Untitled.002](docs/fig/Untitled.002.png)
+
+![Untitled.003](docs/fig/Untitled.003.png)
+
+![Untitled.004](docs/fig/Untitled.004.png)
 
 ブラウザで親フォルダを選びます。親の中に必須:
 
@@ -73,7 +83,15 @@ MyCase/
   data/         # 表・生データ・スクリプト
 ```
 
-詳細は [docs/PACKAGING.md](docs/PACKAGING.md)。
+詳細は docs/PACKAGING.md。
+
+![Untitled.005](docs/fig/Untitled.005.png)
+
+データ量にもよりますが10分から1時間くらいかかります。
+
+
+
+
 
 ### Docker（開発・学習）
 
@@ -157,6 +175,8 @@ python -m pre_peer_checker.catalog --help
 - **参考文献 PDF（引用整合）**: WebUI 照合タブ「2b」 / `parsers.cited_paper_ingest`（テキスト・チャンク抽出・ローカルライブラリ）
 - **PubPeer カタログ（ネタ帳）**: WebUI カタログ更新タブ / `catalog.pubpeer_ingest` / `catalog.share`（抽象ルールのみ共有可）
 
+
+
 ## 参考文献メタ＋引用整合チェック
 
 原稿の参考文献リストに誤りがないか、また「〜が示されている [12]」のような引用文が引用先論文の内容と合っているかを確認します。引用先論文の中身は**ユーザーが渡した PDF だけ**を使い、PubMed や Crossref などへのネットワーク問い合わせはしません。
@@ -166,14 +186,16 @@ python -m pre_peer_checker.catalog --help
 1. **原稿だけで行うチェック（常時）** — Word 原稿の `References` 節と、本文中の引用（`[1]`、`[1,2]`、`[3–5]`、`(Smith et al., 2020)`）を突き合わせます。
 2. **引用先 PDF を渡したときのチェック（任意）** — 参考文献の各エントリを PDF に紐付け（DOI 完全一致 → タイトル＋年 → ファイル名の順）、メタデータと本文を照合します。
 
-| pattern_id | 内容 | 必要な入力 | 出力 |
-|------------|------|------------|------|
-| `P-REF-MISSING-ENTRY` | 本文で引用しているキーが References に無い | 原稿 | Warning |
-| `P-REF-DUPLICATE-KEY` | References に同じ番号・キーが重複している | 原稿 | Warning |
-| `P-REF-META-INCONSISTENT` | 1 つのエントリ内で年が食い違う、DOI はあるのに著者もタイトルも読めない | 原稿 | Warning |
-| `P-REF-ORPHAN-ENTRY` | References にあるが本文で一度も引用されていない | 原稿 | カバレッジに情報表示（既定で Warning にしない） |
-| `P-REF-PDF-META-MISMATCH` | 参考文献の DOI・年・タイトルが、紐付いた PDF のものと食い違う | 原稿 + 引用先 PDF | Warning |
-| `P-REF-CLAIM-CONTRADICTION` | 引用文の主張（数値・増加／減少）が、引用先 PDF の該当箇所と明確に矛盾する | 原稿 + 引用先 PDF | Warning |
+
+| pattern_id                  | 内容                                      | 必要な入力        | 出力                           |
+| --------------------------- | --------------------------------------- | ------------ | ---------------------------- |
+| `P-REF-MISSING-ENTRY`       | 本文で引用しているキーが References に無い             | 原稿           | Warning                      |
+| `P-REF-DUPLICATE-KEY`       | References に同じ番号・キーが重複している              | 原稿           | Warning                      |
+| `P-REF-META-INCONSISTENT`   | 1 つのエントリ内で年が食い違う、DOI はあるのに著者もタイトルも読めない  | 原稿           | Warning                      |
+| `P-REF-ORPHAN-ENTRY`        | References にあるが本文で一度も引用されていない           | 原稿           | カバレッジに情報表示（既定で Warning にしない） |
+| `P-REF-PDF-META-MISMATCH`   | 参考文献の DOI・年・タイトルが、紐付いた PDF のものと食い違う     | 原稿 + 引用先 PDF | Warning                      |
+| `P-REF-CLAIM-CONTRADICTION` | 引用文の主張（数値・増加／減少）が、引用先 PDF の該当箇所と明確に矛盾する | 原稿 + 引用先 PDF | Warning                      |
+
 
 引用文と論文内容の整合は、次の流れで見ます。
 
@@ -207,6 +229,8 @@ pip install -e ".[gui]"
 pre-peer-checker-gui
 ```
 
+
+
 ## レイアウト検証 / 任意スモーク
 
 ```bash
@@ -229,42 +253,50 @@ pip install -e '.[packaging]'
 
 ### ローカルモデル（任意・補助）
 
-| 役割 | モデル | ライセンス | 備考 |
-|------|--------|------------|------|
-| Legend→JSON 等（Mac 本線） | Qwen2.5-7B-Instruct（MLX 4-bit 例: `mlx-community/Qwen2.5-7B-Instruct-4bit`） | Apache 2.0 | Alibaba Cloud / Qwen |
-| Fig 接地（配布本命） | Qwen2.5-VL-7B-Instruct（mlx-vlm） | Apache 2.0 | パネル境界・軸ラベル・グラフ種別 |
-| Fig 接地（開発・教師） | Qwen2.5-VL-32B-Instruct | Apache 2.0 | DGX ゴールド・7B 蒸留／LoRA 用 |
-| メモリ逼迫時 / CUDA 縮退例 | Qwen2.5-3B-Instruct | Qwen Research License | **非商用・研究向け**。商用時は 7B 等へ固定推奨 |
-| 画像類似スクリーニング | DINOv2（例: `dinov2_vits14`） | Apache 2.0 | Meta。標準重み。派生チェックポイントは別ライセンスの場合あり |
-| 画像ペア精密照合（任意） | LightGlue + SuperPoint | LightGlue: Apache 2.0 / SuperPoint: Magic Leap（非商用研究） | SuperPoint は研究・非商用前提 |
+
+| 役割                    | モデル                                                                        | ライセンス                                                 | 備考                               |
+| --------------------- | -------------------------------------------------------------------------- | ----------------------------------------------------- | -------------------------------- |
+| Legend→JSON 等（Mac 本線） | Qwen2.5-7B-Instruct（MLX 4-bit 例: `mlx-community/Qwen2.5-7B-Instruct-4bit`） | Apache 2.0                                            | Alibaba Cloud / Qwen             |
+| Fig 接地（配布本命）          | Qwen2.5-VL-7B-Instruct（mlx-vlm）                                            | Apache 2.0                                            | パネル境界・軸ラベル・グラフ種別                 |
+| Fig 接地（開発・教師）         | Qwen2.5-VL-32B-Instruct                                                    | Apache 2.0                                            | DGX ゴールド・7B 蒸留／LoRA 用            |
+| メモリ逼迫時 / CUDA 縮退例     | Qwen2.5-3B-Instruct                                                        | Qwen Research License                                 | **非商用・研究向け**。商用時は 7B 等へ固定推奨      |
+| 画像類似スクリーニング           | DINOv2（例: `dinov2_vits14`）                                                 | Apache 2.0                                            | Meta。標準重み。派生チェックポイントは別ライセンスの場合あり |
+| 画像ペア精密照合（任意）          | LightGlue + SuperPoint                                                     | LightGlue: Apache 2.0 / SuperPoint: Magic Leap（非商用研究） | SuperPoint は研究・非商用前提             |
+
 
 推論ランタイム: **MLX / mlx-lm**（MIT、Apple Silicon）、**PyTorch + transformers**（BSD / Apache、CUDA 経路）。
 
 ### コア依存（常時）
 
-| パッケージ | 用途 | 代表的ライセンス |
-|------------|------|------------------|
-| numpy, pandas, scipy, statsmodels | 数値・統計再計算 | BSD 系 |
-| openpyxl | Excel | MIT |
-| ruamel.yaml | YAML | MIT |
-| python-docx | Word | MIT |
-| **PyMuPDF** | PDF テキスト・埋め込み図 | **AGPL-3.0**（または Artifex 商用）。ソース公開の無料配布と整合しやすい |
-| Pillow | 画像 I/O | HPND |
-| Jinja2 | HTML レポート | BSD-3-Clause |
-| nbformat | Jupyter | BSD-3-Clause |
+
+| パッケージ                             | 用途             | 代表的ライセンス                                       |
+| --------------------------------- | -------------- | ---------------------------------------------- |
+| numpy, pandas, scipy, statsmodels | 数値・統計再計算       | BSD 系                                          |
+| openpyxl                          | Excel          | MIT                                            |
+| ruamel.yaml                       | YAML           | MIT                                            |
+| python-docx                       | Word           | MIT                                            |
+| **PyMuPDF**                       | PDF テキスト・埋め込み図 | **AGPL-3.0**（または Artifex 商用）。ソース公開の無料配布と整合しやすい |
+| Pillow                            | 画像 I/O         | HPND                                           |
+| Jinja2                            | HTML レポート      | BSD-3-Clause                                   |
+| nbformat                          | Jupyter        | BSD-3-Clause                                   |
+
+
+
 
 ### オプショナル依存（`pyproject.toml` extras）
 
-| Extra | 主なパッケージ | 用途 | 代表的ライセンス |
-|-------|----------------|------|------------------|
-| `web` | FastAPI, uvicorn | ローカル WebUI | MIT / BSD |
-| `gui` | PyQt6 | 任意 GUI | GPL / Qt 商用 |
-| `imaging` | torch, torchvision, OpenCV, pylibCZIrw, readlif, aicsimageio | 顕微鏡・重複スキャン | BSD / Apache 等（各上流） |
-| `r-ast` | tree-sitter, tree-sitter-language-pack | R AST | MIT |
-| `mlx` | mlx, mlx-lm | Mac LLM | MIT |
-| `llm-cuda` | torch, transformers, accelerate | Linux/CUDA LLM | BSD / Apache |
-| `packaging` | PyInstaller | 凍結スモーク（配布本線外） | GPL（リンク例外あり） |
-| `dev` | pytest, ruff, httpx | 開発 | MIT |
+
+| Extra       | 主なパッケージ                                                      | 用途             | 代表的ライセンス            |
+| ----------- | ------------------------------------------------------------ | -------------- | ------------------- |
+| `web`       | FastAPI, uvicorn                                             | ローカル WebUI     | MIT / BSD           |
+| `gui`       | PyQt6                                                        | 任意 GUI         | GPL / Qt 商用         |
+| `imaging`   | torch, torchvision, OpenCV, pylibCZIrw, readlif, aicsimageio | 顕微鏡・重複スキャン     | BSD / Apache 等（各上流） |
+| `r-ast`     | tree-sitter, tree-sitter-language-pack                       | R AST          | MIT                 |
+| `mlx`       | mlx, mlx-lm                                                  | Mac LLM        | MIT                 |
+| `llm-cuda`  | torch, transformers, accelerate                              | Linux/CUDA LLM | BSD / Apache        |
+| `packaging` | PyInstaller                                                  | 凍結スモーク（配布本線外）  | GPL（リンク例外あり）        |
+| `dev`       | pytest, ruff, httpx                                          | 開発             | MIT                 |
+
 
 LightGlue は imaging extra コメントのとおり、必要時に upstream から別途導入します。
 
@@ -273,3 +305,4 @@ LightGlue は imaging extra コメントのとおり、必要時に upstream か
 - **無料配布**: ソース公開（clone → `./install.sh`）を本線とし、利用者が依存とモデルを各自取得する形を推奨。
 - **論文化**: Methods / Acknowledgments にモデル名・主要ライブラリとライセンス（および必要なら論文引用）を記載。
 - **商用・クローズド配布**を将来検討する場合は、とくに PyMuPDF（AGPL）、Qwen2.5-3B（Research）、SuperPoint（非商用）を再点検してください。
+

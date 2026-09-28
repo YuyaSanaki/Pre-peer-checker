@@ -97,6 +97,12 @@
       "corpus": true
     },
     {
+      "pattern_id": "P-IMAGE-DUPLICATE-INTERNAL",
+      "ci_required": false,
+      "harness": "deferred",
+      "defer_reason": "合成パネル図は tests/test_internal_panel_reuse.py で再現（Word / PDF 原稿の双方）。gold ケースは未作成"
+    },
+    {
       "pattern_id": "P-BLOT-LANE-REUSE",
       "ci_required": true,
       "harness": "gold_eval",

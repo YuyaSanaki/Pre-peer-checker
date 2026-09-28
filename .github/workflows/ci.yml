@@ -1,0 +1,42 @@
+name: CI
+
+# push / PR ごとに公開テストスイートを実行。
+# tests/private/ と実データ依存テストは gitignore / skipif により CI では対象外。
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: pytest (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        # macos-14: Apple Silicon (Mac 本線) / ubuntu-latest: DGX・Docker 相当の Linux
+        os: [macos-14, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: astral-sh/setup-uv@v10.2.0
+        with:
+          python-version: "3.12"
+          enable-cache: true
+
+      # web: FastAPI テスト / r-ast: R スクリプト DAG の AST バックエンド（regex フォールバックでは一部失敗）
+      - name: Install dependencies
+        run: uv sync --locked --extra dev --extra web --extra r-ast
+
+      - name: Run pytest
+        run: uv run --no-sync pytest -v

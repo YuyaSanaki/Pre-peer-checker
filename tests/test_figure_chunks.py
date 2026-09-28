@@ -118,10 +118,20 @@ def test_extract_check_items_chunk_with_stub_llm():
     _ = rules
 
 
-def test_merge_panel_ns_prefers_llm():
+def test_merge_panel_ns_rules_lock():
+    rules = [PanelN(panel="F", n=11, figure="Figure 1", context="n=11")]
+    llm = [
+        PanelN(panel="F", n=12, figure="Figure 1", context="n=12"),
+        PanelN(panel="G", n=7, figure="Figure 1", context="n=7"),
+    ]
+    merged = {p.panel: p.n for p in merge_panel_ns(rules, llm)}
+    assert merged == {"F": 11, "G": 7}
+
+
+def test_merge_panel_ns_prefer_llm_legacy():
     rules = [PanelN(panel="F", n=11, figure="Figure 1", context="n=11")]
     llm = [PanelN(panel="F", n=12, figure="Figure 1", context="n=12")]
-    merged = merge_panel_ns(rules, llm)
+    merged = merge_panel_ns(rules, llm, prefer_llm=True)
     assert len(merged) == 1
     assert merged[0].n == 12
 

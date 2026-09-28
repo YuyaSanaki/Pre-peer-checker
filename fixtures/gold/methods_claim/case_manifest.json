@@ -1,0 +1,15 @@
+{
+  "schema_version": "1.0",
+  "case_id": "methods_claim",
+  "role": "synthetic_regression",
+  "description": "Methods 1:1 vs Figure 1:2 → P-METHODS-CLAIM-MISMATCH.",
+  "root_relative": "fixtures/synthetic/methods_claim",
+  "docker_root": "/app/fixtures/synthetic/methods_claim",
+  "canonical_paths": {
+    "manuscript": "manuscript.docx"
+  },
+  "ignore_globs": [],
+  "eval_command": {
+    "gold": "python -m pre_peer_checker.eval.gold_eval --case methods_claim --run --input fixtures/synthetic/methods_claim"
+  }
+}

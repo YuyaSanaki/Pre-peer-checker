@@ -1,0 +1,108 @@
+# LLM / VLM プロファイル（開発〜配布）。WebUI / CLI で選択する。
+# 開発機（〜128GB）では大型 ID を許可。配布既定は *mlx / 小〜中サイズ。
+version: 1
+default_llm_profile: qwen2.5-7b-mlx
+default_vlm_profile: qwen2.5-vl-7b
+
+profiles:
+  # --- Text (Legend / Methods → JSON) ---
+  qwen2.5-7b-mlx:
+    family: qwen
+    role: text
+    label: Qwen2.5-7B Instruct (MLX 4-bit)
+    model_id: mlx-community/Qwen2.5-7B-Instruct-4bit
+    prefer: mlx
+    recommended_vram_gb: 8
+    size_hint: 7B
+    notes: Mac 配布・既定。既存 MLX 経路。
+
+  qwen2.5-3b-mlx:
+    family: qwen
+    role: text
+    label: Qwen2.5-3B Instruct (MLX 4-bit)
+    model_id: mlx-community/Qwen2.5-3B-Instruct-4bit
+    prefer: mlx
+    recommended_vram_gb: 4
+    size_hint: 3B
+    notes: 16GB 逼迫時の縮退。
+
+  qwen2.5-7b-hf:
+    family: qwen
+    role: text
+    label: Qwen2.5-7B Instruct (HF)
+    model_id: Qwen/Qwen2.5-7B-Instruct
+    prefer: transformers
+    recommended_vram_gb: 16
+    size_hint: 7B
+    notes: CUDA / transformers 本線（DGX Spark 等）。MLX 無しホストの高精度既定（規則フォールバックしない）。
+
+  qwen2.5-32b-hf:
+    family: qwen
+    role: text
+    label: Qwen2.5-32B Instruct (HF)
+    model_id: Qwen/Qwen2.5-32B-Instruct
+    prefer: transformers
+    recommended_vram_gb: 64
+    size_hint: 32B
+    notes: DGX 教師候補。難しい legend で 7B より文脈を拾う。蒸留／LoRA の正解は 32B 生出力ではなく人手確認ゴールドを正とする。
+
+  qwen2.5-72b-hf:
+    family: qwen
+    role: text
+    label: Qwen2.5-72B Instruct (HF)
+    model_id: Qwen/Qwen2.5-72B-Instruct
+    prefer: transformers
+    recommended_vram_gb: 128
+    size_hint: 72B
+    notes: 上限付近の教師。量子化前提推奨。
+
+  # --- Vision (Fig パネル接地) ---
+  qwen2.5-vl-7b:
+    family: qwen
+    role: vision
+    label: Qwen2.5-VL-7B Instruct (HF)
+    model_id: Qwen/Qwen2.5-VL-7B-Instruct
+    prefer: transformers
+    recommended_vram_gb: 16
+    size_hint: 7B
+    notes: CUDA 本線。Mac では qwen2.5-vl-7b-mlx を推奨。
+
+  qwen2.5-vl-7b-mlx:
+    family: qwen
+    role: vision
+    label: Qwen2.5-VL-7B Instruct (MLX 4-bit)
+    model_id: mlx-community/Qwen2.5-VL-7B-Instruct-4bit
+    prefer: mlx
+    recommended_vram_gb: 16
+    size_hint: 7B
+    notes: 配布用本命（Apple Silicon / mlx-vlm）。パネル地図補助。
+
+  qwen2.5-vl-32b:
+    family: qwen
+    role: vision
+    label: Qwen2.5-VL-32B Instruct
+    model_id: Qwen/Qwen2.5-VL-32B-Instruct
+    prefer: transformers
+    recommended_vram_gb: 64
+    size_hint: 32B
+    notes: 開発・教師用本命。DGX でゴールド作成・7B プロンプト／LoRA・蒸留の正解ラベル生成。
+
+  internvl3-8b:
+    family: internvl
+    role: vision
+    label: InternVL3-8B
+    model_id: OpenGVLab/InternVL3-8B
+    prefer: transformers
+    recommended_vram_gb: 20
+    size_hint: 8B
+    notes: 文書・OCR 対抗馬（任意比較）。
+
+  internvl3-38b:
+    family: internvl
+    role: vision
+    label: InternVL3-38B
+    model_id: OpenGVLab/InternVL3-38B
+    prefer: transformers
+    recommended_vram_gb: 80
+    size_hint: 38B
+    notes: 開発 bakeoff 用（任意）。

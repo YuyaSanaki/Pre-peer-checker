@@ -1,0 +1,16 @@
+{
+  "schema_version": "1.0",
+  "case_id": "czi_meta",
+  "role": "synthetic_regression",
+  "description": "Minimal CZI XML 40× vs Legend 63× (+ FOV vs 500µm).",
+  "root_relative": "fixtures/synthetic/czi_meta",
+  "docker_root": "/app/fixtures/synthetic/czi_meta",
+  "canonical_paths": {
+    "czi": "panel.czi",
+    "manuscript": "manuscript.docx"
+  },
+  "ignore_globs": [],
+  "eval_command": {
+    "gold": "python -m pre_peer_checker.eval.gold_eval --case czi_meta --run --input fixtures/synthetic/czi_meta"
+  }
+}

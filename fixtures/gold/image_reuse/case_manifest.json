@@ -1,0 +1,18 @@
+{
+  "schema_version": "1.0",
+  "case_id": "image_reuse",
+  "role": "synthetic_regression",
+  "description": "Anonymous H3 fixture: identical raster in manuscript vs past-paper corpus, Legend without citation. Inspired by PubPeer image-reuse themes; no real paper pixels.",
+  "root_relative": "fixtures/synthetic/image_reuse/manuscript",
+  "corpus_relative": "fixtures/synthetic/image_reuse/corpus",
+  "docker_root": "/app/fixtures/synthetic/image_reuse/manuscript",
+  "canonical_paths": {
+    "manuscript_docx": "main.docx",
+    "panel": "panel_s1.png",
+    "corpus_image": "../corpus/past_paper_fig.png"
+  },
+  "ignore_globs": [],
+  "eval_command": {
+    "gold": "python -m pre_peer_checker.eval.gold_eval --case image_reuse --run --corpus-present --corpus fixtures/synthetic/image_reuse/corpus --input fixtures/synthetic/image_reuse/manuscript"
+  }
+}

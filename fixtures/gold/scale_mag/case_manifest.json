@@ -1,0 +1,17 @@
+{
+  "schema_version": "1.0",
+  "case_id": "scale_mag",
+  "role": "synthetic_regression",
+  "description": "Identical panels with 40× vs 60× legends → P-SCALE-MAG-INCONSISTENT.",
+  "root_relative": "fixtures/synthetic/scale_mag",
+  "docker_root": "/app/fixtures/synthetic/scale_mag",
+  "canonical_paths": {
+    "image_a": "panel_a.png",
+    "image_b": "panel_b.png",
+    "manuscript": "manuscript.docx"
+  },
+  "ignore_globs": [],
+  "eval_command": {
+    "gold": "python -m pre_peer_checker.eval.gold_eval --case scale_mag --run --input fixtures/synthetic/scale_mag"
+  }
+}

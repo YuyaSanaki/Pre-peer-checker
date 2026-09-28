@@ -1,0 +1,32 @@
+{
+  "schema_version": "1.0",
+  "case_id": "exclusion_id_phantom",
+  "benchmark_only": false,
+  "generalization": "Methods lists F5,F7; table omits F5,F6 — set inequality both ways.",
+  "items": [
+    {
+      "id": "G13c",
+      "pattern_id": "P-EXCLUSION-UNDECLARED",
+      "expected_tags": [
+        "Warning [サンプルサイズ記載誤記]"
+      ],
+      "severity": "required",
+      "panels": [
+        {
+          "figure": "Figure 1",
+          "panel": "A"
+        }
+      ],
+      "evidence_paths": [
+        "fig1a/animals.csv",
+        "manuscript.docx"
+      ],
+      "detection_hints": [
+        "exclusion_id_trace"
+      ],
+      "citations": [
+        "fixtures/synthetic/exclusion_id_phantom"
+      ]
+    }
+  ]
+}

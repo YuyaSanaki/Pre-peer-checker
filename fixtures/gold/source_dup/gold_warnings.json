@@ -1,0 +1,23 @@
+{
+  "schema_version": "1.0",
+  "case_id": "source_dup",
+  "benchmark_only": false,
+  "generalization": "Synthetic G9: independent gene labels, identical source values.",
+  "items": [
+    {
+      "id": "G9",
+      "pattern_id": "P-SOURCE-DUPLICATE-VALUES",
+      "expected_tags": ["Warning [実験データとの不一致]"],
+      "severity": "required",
+      "panels": [
+        {"figure": "Fig.1", "group": "gene_a"},
+        {"figure": "Fig.1", "group": "gene_b"}
+      ],
+      "evidence_paths": ["quant_panel.csv"],
+      "detection_hints": [
+        "gene_a and gene_b share the same sorted value multiset"
+      ],
+      "citations": ["fixtures/synthetic/source_dup"]
+    }
+  ]
+}

@@ -1,0 +1,102 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://pre-peer-checker.local/schemas/panel_extract_gold.schema.json",
+  "title": "LegendPanelExtractGold",
+  "description": "Hard legend spans for extraction-quality eval (not Warning gold). Human-confirmed labels only.",
+  "type": "object",
+  "required": ["schema_version", "case_id", "role", "items"],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": { "type": "string", "const": "1.0" },
+    "case_id": {
+      "type": "string",
+      "description": "Anonymous slot id, e.g. paper_01. Do not use real paper titles."
+    },
+    "role": { "type": "string", "const": "legend_panel_extract_gold" },
+    "description": { "type": "string" },
+    "notes": { "type": "array", "items": { "type": "string" } },
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "type": "string",
+          "enum": ["published_pdf", "manuscript_docx", "legend_excerpt_txt", "other"]
+        },
+        "local_path": {
+          "type": "string",
+          "description": "Path under input/panel_extract/<case_id>/ (gitignored). No DOI/title."
+        },
+        "has_experimental_data": {
+          "type": "boolean",
+          "description": "false for thin extract-only cases"
+        }
+      }
+    },
+    "review": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "status": {
+          "type": "string",
+          "enum": ["draft", "in_review", "confirmed"]
+        },
+        "teacher_model": { "type": "string" },
+        "reviewed_by": { "type": "string" },
+        "reviewed_at": { "type": "string" },
+        "target_hard_spans": { "type": "string" }
+      }
+    },
+    "items": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/item" }
+    }
+  },
+  "$defs": {
+    "item": {
+      "type": "object",
+      "required": ["id", "figure", "panel", "group", "n", "difficulty", "review_status"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "type": "string" },
+        "figure": { "type": "string" },
+        "panel": { "type": "string", "minLength": 1 },
+        "group": { "type": "string" },
+        "n": { "type": ["integer", "null"] },
+        "difficulty": {
+          "type": "string",
+          "enum": [
+            "context_typo",
+            "multi_group",
+            "multi_group_timepoint",
+            "four_way_group",
+            "complex_genotype",
+            "panel_letter",
+            "shared_n",
+            "other"
+          ]
+        },
+        "review_status": {
+          "type": "string",
+          "enum": ["pending", "confirmed", "dropped"]
+        },
+        "aliases_group": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "legend_typo": { "type": "string" },
+        "forbid_panels": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "evidence_span": { "type": "string" },
+        "n_scope": {
+          "type": "string",
+          "enum": ["per_group", "total", "per_genotype", "unknown"]
+        },
+        "model_raw": { "type": "string" },
+        "human_note": { "type": "string" }
+      }
+    }
+  }
+}

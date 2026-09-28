@@ -1,0 +1,110 @@
+{
+  "generated_at": "2026-09-22T12:52:36.604563+00:00",
+  "purpose": "Benchmark precision/recall vs fixtures/gold (informed by check_reference/). Engine must stay pattern-generic; do not claim 100%.",
+  "check_reference_role": "Design-time gold source only (PubPeer notes, explanation decks). Not mounted as runtime input for end users.",
+  "lora_stance": "LoRA is NOT required for the shipping product. Core verification is deterministic patterns in fixtures/patterns/. Legend LLM uses rules + optional few-shot prompts; LoRA only if extraction quality fails on diverse public legends after rules/prompting — never for guilt scoring.",
+  "cases": [
+    {
+      "case_id": "demo",
+      "warnings_path": "outputs/metrics/demo_warnings.json",
+      "n_warnings_emitted": 2,
+      "required_recall": 1.0,
+      "required_hit": 3,
+      "required_total": 3,
+      "desirable_hit": 0,
+      "desirable_total": 0,
+      "precision": 1.0,
+      "recall": 1.0,
+      "true_positive_warnings": 2,
+      "false_positive_warnings": 0,
+      "false_negative_item_ids": [],
+      "corpus_present": false,
+      "items": [
+        {
+          "id": "D1",
+          "severity": "required",
+          "matched": true,
+          "matched_tags": [
+            "Warning [データ取り違え]"
+          ],
+          "matched_pattern_ids": [
+            "P-DATA-SWAP-CROSS-CONDITION"
+          ],
+          "note": ""
+        },
+        {
+          "id": "D2",
+          "severity": "required",
+          "matched": true,
+          "matched_tags": [
+            "Warning [サンプルサイズ記載誤記]"
+          ],
+          "matched_pattern_ids": [
+            "P-N-MISMATCH-LEGEND-VS-DATA"
+          ],
+          "note": ""
+        },
+        {
+          "id": "D3",
+          "severity": "required_when_corpus_present",
+          "matched": true,
+          "matched_tags": [],
+          "matched_pattern_ids": [],
+          "note": "skipped (past-paper corpus not provided)"
+        }
+      ],
+      "metrics_definition": "recall=matched_required_gold_items/required_gold_items; precision=warnings_supporting_any_gold_item/all_emitted_warnings. Not a claim of population accuracy; benchmark-case relative only.",
+      "note": "Metrics are relative to this benchmark gold only — not a claim of 100% detection on all life-science manuscripts. Do not overfit to one case. check_reference/ informs gold design; it is not runtime input.",
+      "status": "ok"
+    },
+    {
+      "case_id": "shared_control",
+      "warnings_path": "outputs/metrics/shared_control_warnings.json",
+      "n_warnings_emitted": 1,
+      "required_recall": 1.0,
+      "required_hit": 1,
+      "required_total": 1,
+      "desirable_hit": 0,
+      "desirable_total": 0,
+      "precision": 1.0,
+      "recall": 1.0,
+      "true_positive_warnings": 1,
+      "false_positive_warnings": 0,
+      "false_negative_item_ids": [],
+      "corpus_present": false,
+      "items": [
+        {
+          "id": "SC1",
+          "severity": "required",
+          "matched": true,
+          "matched_tags": [
+            "Warning [コントロール群共有]"
+          ],
+          "matched_pattern_ids": [
+            "P-SHARED-CONTROL-UNDISCLOSED"
+          ],
+          "note": ""
+        }
+      ],
+      "metrics_definition": "recall=matched_required_gold_items/required_gold_items; precision=warnings_supporting_any_gold_item/all_emitted_warnings. Not a claim of population accuracy; benchmark-case relative only.",
+      "note": "Metrics are relative to this benchmark gold only — not a claim of 100% detection on all life-science manuscripts. Do not overfit to one case. check_reference/ informs gold design; it is not runtime input.",
+      "status": "ok"
+    }
+  ],
+  "summary": {
+    "n_cases_ok": 2,
+    "recalls": {
+      "demo": 1.0,
+      "shared_control": 1.0
+    },
+    "precisions": {
+      "demo": 1.0,
+      "shared_control": 1.0
+    },
+    "required_recalls": {
+      "demo": 1.0,
+      "shared_control": 1.0
+    }
+  },
+  "note": "Checked-in example from public synthetic golds only. Full local suite (incl. private_benchmark) lives under outputs/metrics/."
+}

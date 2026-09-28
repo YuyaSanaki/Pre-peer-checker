@@ -1,0 +1,13 @@
+{
+  "schema_version": "1.0",
+  "case_id": "exclusion_id_phantom",
+  "role": "synthetic_regression",
+  "description": "Methods lists F5,F7; table omits F5,F6 — set inequality both ways.",
+  "root_relative": "fixtures/synthetic/exclusion_id_phantom",
+  "docker_root": "/app/fixtures/synthetic/exclusion_id_phantom",
+  "canonical_paths": {},
+  "ignore_globs": [],
+  "eval_command": {
+    "gold": "python -m pre_peer_checker.eval.gold_eval --case exclusion_id_phantom --run --input fixtures/synthetic/exclusion_id_phantom"
+  }
+}

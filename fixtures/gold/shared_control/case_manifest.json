@@ -1,0 +1,32 @@
+{
+  "schema_version": "1.0",
+  "case_id": "shared_control",
+  "role": "synthetic_regression",
+  "description": "Anonymous shared-control / multi-figure shared control: endpoint dropout between panels. No private manuscript content.",
+  "root_relative": "fixtures/synthetic/shared_control",
+  "docker_root": "/app/fixtures/synthetic/shared_control",
+  "canonical_paths": {
+    "panel_a": "fig1a/quant_panel.csv",
+    "panel_b": "fig1b/quant_panel.csv"
+  },
+  "ignore_globs": [],
+  "group_schema": {
+    "panel_a": {
+      "source": "panel_a",
+      "groups": [
+        {"label": "ctrl", "n_expected_from_data": 7},
+        {"label": "mut", "n_expected_from_data": 5}
+      ]
+    },
+    "panel_b": {
+      "source": "panel_b",
+      "groups": [
+        {"label": "ctrl", "n_expected_from_data": 5},
+        {"label": "mut", "n_expected_from_data": 5}
+      ]
+    }
+  },
+  "eval_command": {
+    "gold": "python -m pre_peer_checker.eval.gold_eval --case shared_control --run --input fixtures/synthetic/shared_control"
+  }
+}

@@ -1,0 +1,88 @@
+# Pre-peer-checker — Docker Compose (DGX Spark / NVIDIA GPU)
+#
+# ビルド:
+#   docker compose build
+#   docker compose --profile train build train
+#
+# 照合実行:
+#   docker compose run --rm run verify /data/input -o /data/output/report.html
+#
+# 学習（GPU）:
+#   docker compose --profile train run --rm train
+#
+# テスト:
+#   docker compose run --rm test
+
+name: pre-peer-checker
+
+x-gpu: &gpu
+  gpus: all
+
+x-volumes: &volumes
+  - ./input:/data/input:ro
+  - ./outputs:/data/output
+  - ./models:/data/models
+  - ./check_reference:/data/reference:ro
+  - ./src:/app/src
+  - ./tests:/app/tests
+  - ./pyproject.toml:/app/pyproject.toml:ro
+
+services:
+  run:
+    <<: *gpu
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: runtime
+    image: pre-peer-checker:runtime
+    working_dir: /app
+    volumes: *volumes
+    environment:
+      - NVIDIA_VISIBLE_DEVICES=all
+      - NVIDIA_DRIVER_CAPABILITIES=compute,utility
+    # デフォルト: 入力ディレクトリを照合
+    command: ["verify", "/data/input", "-o", "/data/output/report.html"]
+
+  train:
+    <<: *gpu
+    profiles: ["train"]
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: train
+    image: pre-peer-checker:train
+    working_dir: /app
+    volumes: *volumes
+    environment:
+      - NVIDIA_VISIBLE_DEVICES=all
+      - NVIDIA_DRIVER_CAPABILITIES=compute,utility
+    command: ["train", "--out-dir", "/data/models"]
+
+  test:
+    <<: *gpu
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: runtime
+    image: pre-peer-checker:runtime
+    working_dir: /app
+    volumes: *volumes
+    environment:
+      - NVIDIA_VISIBLE_DEVICES=all
+    command: ["test"]
+
+  shell:
+    <<: *gpu
+    profiles: ["dev"]
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: runtime
+    image: pre-peer-checker:runtime
+    working_dir: /app
+    volumes: *volumes
+    environment:
+      - NVIDIA_VISIBLE_DEVICES=all
+    stdin_open: true
+    tty: true
+    command: ["shell"]

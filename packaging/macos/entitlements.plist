@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <!-- DEPRECATED: Hardened Runtime entitlements for legacy .app packaging.
+       Primary launch path is local WebUI (install.sh). See docs/PACKAGING.md. -->
+  <!-- Hardened Runtime entitlements for Pre-peer-checker (local-only app). -->
+  <key>com.apple.security.cs.allow-unsigned-executable-memory</key>
+  <true/>
+  <key>com.apple.security.cs.disable-library-validation</key>
+  <true/>
+  <!-- Optional: user-selected folders via open panel / drag-drop -->
+  <key>com.apple.security.files.user-selected.read-write</key>
+  <true/>
+</dict>
+</plist>

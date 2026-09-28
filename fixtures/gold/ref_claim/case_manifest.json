@@ -1,0 +1,13 @@
+{
+  "schema_version": "1.0",
+  "case_id": "ref_claim",
+  "role": "synthetic_regression",
+  "description": "Citation claim vs user PDF evidence + bib↔PDF meta mismatch.",
+  "root_relative": "fixtures/synthetic/ref_claim",
+  "docker_root": "/app/fixtures/synthetic/ref_claim",
+  "canonical_paths": {},
+  "ignore_globs": [],
+  "eval_command": {
+    "gold": "python -m pre_peer_checker.eval.gold_eval --case ref_claim --run --input fixtures/synthetic/ref_claim --cited-papers fixtures/synthetic/ref_claim/cited_pdfs"
+  }
+}

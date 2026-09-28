@@ -1,0 +1,220 @@
+{
+  "schema_version": "1.0",
+  "purpose": "pattern_id ごとの合成 1:1 CI カバレッジ。カタログ全行がここに載る。ci_required=true は pytest で必須再現。",
+  "catalog": "fixtures/patterns/pubpeer_patterns.json",
+  "entries": [
+    {
+      "pattern_id": "P-DATA-SWAP-CROSS-CONDITION",
+      "ci_required": true,
+      "harness": "gold_eval",
+      "case_id": "demo",
+      "gold_item_id": "D1",
+      "also_cases": [
+        "cross_fig_reuse"
+      ]
+    },
+    {
+      "pattern_id": "P-N-MISMATCH-LEGEND-VS-DATA",
+      "ci_required": true,
+      "harness": "gold_eval",
+      "case_id": "demo",
+      "gold_item_id": "D2"
+    },
+    {
+      "pattern_id": "P-N-INCONSISTENT-ACROSS-IDENTICAL-PLOTS",
+      "ci_required": true,
+      "harness": "unit",
+      "unit": "h2b_synthetic"
+    },
+    {
+      "pattern_id": "P-IMAGE-REUSE-UNCITED",
+      "ci_required": true,
+      "harness": "gold_eval",
+      "case_id": "image_reuse",
+      "corpus": true
+    },
+    {
+      "pattern_id": "P-FILENAME-CONTENT-MISMATCH",
+      "ci_required": true,
+      "harness": "gold_eval",
+      "case_id": "script_swap"
+    },
+    {
+      "pattern_id": "P-SHARED-CONTROL-UNDISCLOSED",
+      "ci_required": true,
+      "harness": "gold_eval",
+      "case_id": "shared_control",
+      "gold_item_id": "SC1"
+    },
+    {
+      "pattern_id": "P-STATS-RECALC-MISMATCH",
+      "ci_required": true,
+      "harness": "gold_eval",
+      "case_id": "stats_recalc",
+      "gold_item_id": "D5"
+    },
+    {
+      "pattern_id": "P-STAT-METHOD-INCONSISTENT",
+      "ci_required": true,
+      "harness": "gold_eval",
+      "case_id": "stat_method",
+      "gold_item_id": "D6"
+    },
+    {
+      "pattern_id": "P-CONFIG-ANNOTATION-MISMATCH",
+      "ci_required": true,
+      "harness": "gold_eval",
+      "case_id": "config_annotation",
+      "gold_item_id": "D7"
+    },
+    {
+      "pattern_id": "P-REF-LABEL-MISMATCH",
+      "ci_required": true,
+      "harness": "gold_eval",
+      "case_id": "ref_label",
+      "gold_item_id": "D8"
+    },
+    {
+      "pattern_id": "P-SOURCE-DUPLICATE-VALUES",
+      "ci_required": true,
+      "harness": "gold_eval",
+      "case_id": "source_dup",
+      "gold_item_id": "G9"
+    },
+    {
+      "pattern_id": "P-SOURCE-RATIO-ARTIFACT",
+      "ci_required": true,
+      "harness": "gold_eval",
+      "case_id": "source_ratio",
+      "gold_item_id": "G10"
+    },
+    {
+      "pattern_id": "P-IMAGE-PARTIAL-REUSE",
+      "ci_required": true,
+      "harness": "gold_eval",
+      "case_id": "image_partial",
+      "gold_item_id": "G1",
+      "corpus": true
+    },
+    {
+      "pattern_id": "P-BLOT-LANE-REUSE",
+      "ci_required": true,
+      "harness": "gold_eval",
+      "case_id": "blot_lane",
+      "gold_item_id": "G2"
+    },
+    {
+      "pattern_id": "P-VECTOR-SUBSET-UNDISCLOSED",
+      "ci_required": true,
+      "harness": "gold_eval",
+      "case_id": "vector_subset",
+      "gold_item_id": "G3"
+    },
+    {
+      "pattern_id": "P-ERRORBAR-SEM-SD-MISMATCH",
+      "ci_required": true,
+      "harness": "gold_eval",
+      "case_id": "errorbar_sem_sd",
+      "gold_item_id": "G4"
+    },
+    {
+      "pattern_id": "P-STAT-MULTIPLICITY-GAP",
+      "ci_required": true,
+      "harness": "gold_eval",
+      "case_id": "multiplicity",
+      "gold_item_id": "G5"
+    },
+    {
+      "pattern_id": "P-NUMERIC-CROSSREF-MISMATCH",
+      "ci_required": true,
+      "harness": "gold_eval",
+      "case_id": "numeric_crossref",
+      "gold_item_id": "G6"
+    },
+    {
+      "pattern_id": "P-SCALE-MAG-INCONSISTENT",
+      "ci_required": true,
+      "harness": "gold_eval",
+      "case_id": "scale_mag",
+      "gold_item_id": "G7",
+      "also_cases": [
+        "microscopy_meta",
+        "lif_meta",
+        "czi_meta"
+      ]
+    },
+    {
+      "pattern_id": "P-COUNT-N-MISMATCH",
+      "ci_required": true,
+      "harness": "gold_eval",
+      "case_id": "count_n",
+      "gold_item_id": "G8"
+    },
+    {
+      "pattern_id": "P-SURVIVAL-COUNT-NONINTEGER",
+      "ci_required": true,
+      "harness": "gold_eval",
+      "case_id": "survival_noninteger",
+      "gold_item_id": "G11"
+    },
+    {
+      "pattern_id": "P-METHODS-CLAIM-MISMATCH",
+      "ci_required": true,
+      "harness": "gold_eval",
+      "case_id": "methods_claim",
+      "gold_item_id": "G12"
+    },
+    {
+      "pattern_id": "P-EXCLUSION-UNDECLARED",
+      "ci_required": true,
+      "harness": "gold_eval",
+      "case_id": "exclusion_undeclared",
+      "gold_item_id": "G13",
+      "also_cases": [
+        "exclusion_id_trace",
+        "exclusion_id_phantom"
+      ]
+    },
+    {
+      "pattern_id": "P-REF-MISSING-ENTRY",
+      "ci_required": true,
+      "harness": "gold_eval",
+      "case_id": "ref_biblio",
+      "gold_item_id": "E4a"
+    },
+    {
+      "pattern_id": "P-REF-DUPLICATE-KEY",
+      "ci_required": true,
+      "harness": "gold_eval",
+      "case_id": "ref_biblio",
+      "gold_item_id": "E4b"
+    },
+    {
+      "pattern_id": "P-REF-META-INCONSISTENT",
+      "ci_required": true,
+      "harness": "gold_eval",
+      "case_id": "ref_biblio",
+      "gold_item_id": "E4c"
+    },
+    {
+      "pattern_id": "P-REF-ORPHAN-ENTRY",
+      "ci_required": false,
+      "harness": "deferred",
+      "defer_reason": "情報寄り。既定 OFF で coverage の reference_orphans にのみ出す"
+    },
+    {
+      "pattern_id": "P-REF-PDF-META-MISMATCH",
+      "ci_required": true,
+      "harness": "gold_eval",
+      "case_id": "ref_claim",
+      "gold_item_id": "E4d"
+    },
+    {
+      "pattern_id": "P-REF-CLAIM-CONTRADICTION",
+      "ci_required": true,
+      "harness": "gold_eval",
+      "case_id": "ref_claim",
+      "gold_item_id": "E5a"
+    }
+  ]
+}

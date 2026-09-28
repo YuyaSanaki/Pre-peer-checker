@@ -1,0 +1,37 @@
+name: catalog-pulse
+
+# 日次: Retraction Watch Crossref Git を pull し、カタログ拡充「提案」をアーティファクト化。
+# カタログ JSON への自動 merge / PubPeer スクレイプは行わない。
+
+on:
+  schedule:
+    - cron: "17 3 * * *" # 毎日 03:17 UTC
+  workflow_dispatch:
+
+jobs:
+  pulse:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install package
+        run: pip install -e .
+
+      - name: Catalog pulse (RW pull → mine → propose → export-yaml)
+        run: |
+          python -m pre_peer_checker.catalog pulse \
+            --out-dir outputs/catalog_proposals \
+            --allow-fixture-fallback
+
+      - name: Upload proposals
+        uses: actions/upload-artifact@v4
+        with:
+          name: catalog-proposals
+          path: |
+            outputs/catalog_proposals/
+            rules/verification_catalog.yaml
+          if-no-files-found: warn

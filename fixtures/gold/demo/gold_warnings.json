@@ -1,0 +1,43 @@
+{
+  "schema_version": "1.0",
+  "case_id": "demo",
+  "benchmark_only": false,
+  "generalization": "Synthetic gold for CI. pattern_ids link to fixtures/patterns/pubpeer_patterns.json.",
+  "items": [
+    {
+      "id": "D1",
+      "pattern_id": "P-DATA-SWAP-CROSS-CONDITION",
+      "expected_tags": ["Warning [データ取り違え]"],
+      "severity": "required",
+      "panels": [
+        {"figure": "Fig.1", "group": "A2", "condition": "condition_a"},
+        {"figure": "Fig.2", "group": "B2", "condition": "condition_b"}
+      ],
+      "evidence_paths": ["quant_a.csv", "quant_b.csv"],
+      "detection_hints": [
+        "In the synthetic bundle, condition_a mut vector is intentionally identical to condition_b kd"
+      ],
+      "citations": ["fixtures/synthetic/demo"]
+    },
+    {
+      "id": "D2",
+      "pattern_id": "P-N-MISMATCH-LEGEND-VS-DATA",
+      "expected_tags": ["Warning [サンプルサイズ記載誤記]"],
+      "severity": "required",
+      "panels": [{"figure": "Fig.1", "group": "A1"}],
+      "evidence_paths": ["legend_n.json", "quant_a.csv"],
+      "detection_hints": ["legend claims n=6 but csv has 5 rows for ctrl"],
+      "citations": ["fixtures/synthetic/demo"]
+    },
+    {
+      "id": "D3",
+      "pattern_id": "P-IMAGE-REUSE-UNCITED",
+      "expected_tags": ["Warning [画像重複・再利用（要出典確認）]"],
+      "severity": "required_when_corpus_present",
+      "panels": [{"figure": "Fig.S1"}],
+      "evidence_paths": ["panel_s1.png"],
+      "detection_hints": ["Skipped in CI unless --corpus-present"],
+      "citations": ["fixtures/synthetic/demo"]
+    }
+  ]
+}

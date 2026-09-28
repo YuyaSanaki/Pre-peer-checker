@@ -1,0 +1,17 @@
+{
+  "schema_version": "1.0",
+  "case_id": "vector_subset",
+  "role": "synthetic_regression",
+  "description": "Endpoint-dropout ctrl vectors + independent-experiments claim → P-VECTOR-SUBSET-UNDISCLOSED.",
+  "root_relative": "fixtures/synthetic/vector_subset",
+  "docker_root": "/app/fixtures/synthetic/vector_subset",
+  "canonical_paths": {
+    "table_a": "fig1a/quant_panel.csv",
+    "table_b": "fig1b/quant_panel.csv",
+    "manuscript": "manuscript.docx"
+  },
+  "ignore_globs": [],
+  "eval_command": {
+    "gold": "python -m pre_peer_checker.eval.gold_eval --case vector_subset --run --input fixtures/synthetic/vector_subset"
+  }
+}

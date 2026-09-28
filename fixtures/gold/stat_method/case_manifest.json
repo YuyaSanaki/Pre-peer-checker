@@ -1,0 +1,13 @@
+{
+  "schema_version": "1.0",
+  "case_id": "stat_method",
+  "role": "synthetic_regression",
+  "description": "Legend ANOVA vs R t.test only.",
+  "root_relative": "fixtures/synthetic/stat_method",
+  "docker_root": "/app/fixtures/synthetic/stat_method",
+  "canonical_paths": {},
+  "ignore_globs": [],
+  "eval_command": {
+    "gold": "python -m pre_peer_checker.eval.gold_eval --case stat_method --run --input fixtures/synthetic/stat_method"
+  }
+}

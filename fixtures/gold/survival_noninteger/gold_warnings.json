@@ -1,0 +1,31 @@
+{
+  "schema_version": "1.0",
+  "case_id": "survival_noninteger",
+  "benchmark_only": false,
+  "generalization": "Synthetic G11: fixed vial N0 with non-integer survivors.",
+  "items": [
+    {
+      "id": "G11",
+      "pattern_id": "P-SURVIVAL-COUNT-NONINTEGER",
+      "expected_tags": [
+        "Warning [サンプルサイズ記載誤記]"
+      ],
+      "severity": "required",
+      "panels": [
+        {
+          "figure": "Figure 1"
+        }
+      ],
+      "evidence_paths": [
+        "survival.csv",
+        "manuscript.docx"
+      ],
+      "detection_hints": [
+        "20 flies/vial; survival=0.775 → 15.5"
+      ],
+      "citations": [
+        "fixtures/synthetic/survival_noninteger"
+      ]
+    }
+  ]
+}

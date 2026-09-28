@@ -1,0 +1,25 @@
+{
+  "schema_version": "1.0",
+  "purpose": "ORI Case Summaries から人手で抽出した抽象照合ルール（ケース HTML 全文は git に入れない）。",
+  "source_policy": "https://ori.hhs.gov/case_summary — 公開事例をブラウザで読み、不一致シグナルだけ記録",
+  "rules": [
+    {
+      "id": "ORI-SEED-IMAGE-LANE",
+      "abstract_rule": "ウェスタン／ゲル図で loading control またはレーン帯が別実験パネルと同一で、正当な再表示の明示が無い。",
+      "pattern_ids": ["P-BLOT-LANE-REUSE", "P-IMAGE-PARTIAL-REUSE"],
+      "taxonomy": ["A3", "A2"]
+    },
+    {
+      "id": "ORI-SEED-FIG-VS-RAW",
+      "abstract_rule": "調査で指摘されたとおり、生データファイルの値と Figure に示された数値・曲線が一致しない。",
+      "pattern_ids": ["P-STATS-RECALC-MISMATCH", "P-NUMERIC-CROSSREF-MISMATCH", "P-EXCLUSION-UNDECLARED"],
+      "taxonomy": ["D3", "C2", "C3"]
+    },
+    {
+      "id": "ORI-SEED-IMAGE-DUP",
+      "abstract_rule": "同一または実質同一の顕微鏡／ブロット画像が、別条件または別論文パネルとして提示される。",
+      "pattern_ids": ["P-IMAGE-REUSE-UNCITED", "P-IMAGE-PARTIAL-REUSE"],
+      "taxonomy": ["A1", "A2"]
+    }
+  ]
+}

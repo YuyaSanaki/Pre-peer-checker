@@ -1,0 +1,20 @@
+{
+  "schema_version": "1.0",
+  "case_id": "image_reuse",
+  "benchmark_only": false,
+  "generalization": "Synthetic H3 (P-IMAGE-REUSE-UNCITED). pattern_ids link to fixtures/patterns/pubpeer_patterns.json.",
+  "items": [
+    {
+      "id": "IR1",
+      "pattern_id": "P-IMAGE-REUSE-UNCITED",
+      "expected_tags": ["Warning [画像重複・再利用（要出典確認）]"],
+      "severity": "required",
+      "panels": [{"figure": "Fig.S1"}],
+      "evidence_paths": ["panel_s1.png", "../corpus/past_paper_fig.png"],
+      "detection_hints": [
+        "Identical PNG in manuscript and corpus; Legend has no reproduced-from citation"
+      ],
+      "citations": ["fixtures/synthetic/image_reuse"]
+    }
+  ]
+}

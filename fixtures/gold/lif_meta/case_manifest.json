@@ -1,0 +1,16 @@
+{
+  "schema_version": "1.0",
+  "case_id": "lif_meta",
+  "role": "synthetic_regression",
+  "description": "Minimal LIF XML 40× vs Legend 63× (+ FOV vs 500µm scale bar).",
+  "root_relative": "fixtures/synthetic/lif_meta",
+  "docker_root": "/app/fixtures/synthetic/lif_meta",
+  "canonical_paths": {
+    "lif": "panel.lif",
+    "manuscript": "manuscript.docx"
+  },
+  "ignore_globs": [],
+  "eval_command": {
+    "gold": "python -m pre_peer_checker.eval.gold_eval --case lif_meta --run --input fixtures/synthetic/lif_meta"
+  }
+}

@@ -1,0 +1,1573 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Pre-peer-checker</title>
+  <style>
+    :root {
+      --bg: #f6f4ef;
+      --ink: #1a1a1a;
+      --muted: #5c5c5c;
+      --accent: #0b5f4a;
+      --accent-hover: #084536;
+      --card: #fffef9;
+      --border: #d9d4c8;
+      --danger: #9b1c1c;
+      --ok: #0b5f4a;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: "Hiragino Sans", "Noto Sans JP", "Segoe UI", sans-serif;
+      background:
+        radial-gradient(ellipse at 20% 0%, #e8efe9 0%, transparent 50%),
+        radial-gradient(ellipse at 100% 20%, #efe8df 0%, transparent 45%),
+        var(--bg);
+      color: var(--ink);
+      min-height: 100vh;
+    }
+    main {
+      max-width: 960px;
+      margin: 0 auto;
+      padding: 2.5rem 1.25rem 3rem;
+    }
+    h1 {
+      font-size: 1.75rem;
+      font-weight: 700;
+      letter-spacing: -0.02em;
+      margin: 0 0 0.35rem;
+    }
+    .lead {
+      color: var(--muted);
+      margin: 0 0 1.25rem;
+      line-height: 1.55;
+    }
+    .tabs {
+      display: flex;
+      gap: 0.35rem;
+      margin-bottom: 1.25rem;
+      border-bottom: 1px solid var(--border);
+      padding-bottom: 0.35rem;
+    }
+    .tabs button {
+      background: transparent;
+      color: var(--muted);
+      border-radius: 8px 8px 0 0;
+      padding: 0.55rem 1rem;
+      font-weight: 600;
+    }
+    .tabs button.active {
+      background: var(--card);
+      color: var(--accent);
+      border: 1px solid var(--border);
+      border-bottom-color: var(--card);
+      margin-bottom: -1px;
+    }
+    .tab-pane.hidden { display: none; }
+    .panel {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 1.25rem 1.35rem;
+      margin-bottom: 1rem;
+    }
+    .panel h2 {
+      font-size: 0.95rem;
+      margin: 0 0 0.75rem;
+      color: var(--muted);
+      font-weight: 600;
+    }
+    .row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.5rem;
+      align-items: center;
+    }
+    input[type="text"] {
+      flex: 1 1 220px;
+      min-width: 0;
+      padding: 0.65rem 0.75rem;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      font-size: 0.95rem;
+      background: #fff;
+    }
+    button {
+      border: none;
+      border-radius: 8px;
+      padding: 0.65rem 1rem;
+      font-size: 0.95rem;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    button.primary {
+      background: var(--accent);
+      color: #fff;
+    }
+    button.primary:hover:not(:disabled) { background: var(--accent-hover); }
+    button.secondary {
+      background: #ece8df;
+      color: var(--ink);
+    }
+    button:disabled {
+      opacity: 0.55;
+      cursor: not-allowed;
+    }
+    .hint {
+      font-size: 0.85rem;
+      color: var(--muted);
+      margin-top: 0.65rem;
+      line-height: 1.45;
+    }
+    .opt {
+      display: flex;
+      gap: 0.55rem;
+      align-items: flex-start;
+      font-size: 0.92rem;
+      line-height: 1.4;
+      cursor: pointer;
+      user-select: none;
+    }
+    .opt input {
+      margin-top: 0.2rem;
+      flex: 0 0 auto;
+    }
+    .opt-note {
+      display: block;
+      font-size: 0.8rem;
+      color: var(--muted);
+      font-weight: 400;
+      margin-top: 0.2rem;
+    }
+    .field {
+      margin-top: 0.85rem;
+    }
+    .field label {
+      display: block;
+      font-size: 0.82rem;
+      color: var(--muted);
+      font-weight: 600;
+      margin-bottom: 0.35rem;
+    }
+    select {
+      width: 100%;
+      padding: 0.55rem 0.65rem;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      font-size: 0.92rem;
+      background: #fff;
+      color: var(--ink);
+    }
+    .status {
+      margin-top: 0.75rem;
+      font-size: 0.9rem;
+      min-height: 1.3em;
+    }
+    .status.err { color: var(--danger); }
+    .status.ok { color: var(--ok); }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.82rem;
+    }
+    th, td {
+      text-align: left;
+      padding: 0.4rem 0.3rem;
+      border-bottom: 1px solid var(--border);
+      vertical-align: top;
+    }
+    th { color: var(--muted); font-weight: 600; }
+    .hidden { display: none; }
+    a.report-link {
+      color: var(--accent);
+      font-weight: 600;
+    }
+    .pill {
+      display: inline-block;
+      font-size: 0.75rem;
+      padding: 0.15rem 0.45rem;
+      border-radius: 999px;
+      background: #ece8df;
+      color: var(--muted);
+    }
+    .pill.ok { background: #d7ebe3; color: var(--ok); }
+    td select.action-sel {
+      width: auto;
+      min-width: 8.5rem;
+      padding: 0.25rem 0.35rem;
+      font-size: 0.8rem;
+    }
+    .pill.diff-same { background: #ece8df; color: var(--muted); }
+    .pill.diff-changed { background: #f5e6c8; color: #8a5a00; }
+    .pill.diff-only_active { background: #d7ebe3; color: var(--ok); }
+    .pill.diff-only_fixtures { background: #f0d6d6; color: var(--danger); }
+    .cmp-cell { font-size: 0.78rem; line-height: 1.35; }
+    .cmp-cell .muted { color: var(--muted); }
+    .cmp-summary { font-size: 0.85rem; margin: 0.35rem 0 0.65rem; color: var(--muted); }
+    .queue-wrap { overflow-x: auto; }
+    .dropzone {
+      border: 2px dashed var(--border);
+      border-radius: 12px;
+      padding: 1.5rem 1rem;
+      text-align: center;
+      background: #faf8f3;
+      color: var(--muted);
+      transition: border-color 0.15s, background 0.15s;
+      cursor: pointer;
+    }
+    .dropzone.dragover {
+      border-color: var(--accent);
+      background: #e8efe9;
+      color: var(--accent);
+    }
+    .dropzone strong { color: var(--ink); }
+    .corpus-list {
+      list-style: none;
+      margin: 0.75rem 0 0;
+      padding: 0;
+    }
+    .corpus-list li {
+      display: flex;
+      align-items: center;
+      gap: 0.65rem;
+      padding: 0.45rem 0;
+      border-bottom: 1px solid var(--border);
+      font-size: 0.92rem;
+    }
+    .corpus-list li:last-child { border-bottom: none; }
+    .corpus-list .meta { color: var(--muted); font-size: 0.82rem; flex: 1; }
+    .corpus-list button.danger {
+      background: transparent;
+      border: 1px solid var(--border);
+      color: var(--muted);
+      padding: 0.2rem 0.55rem;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 0.8rem;
+    }
+    .corpus-list button.danger:hover {
+      border-color: #b33;
+      color: #b33;
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>Pre-peer-checker</h1>
+    <p class="lead">
+      すべてこのパソコン上で実行されます（外部送信なし）。照合カタログは WebUI で更新・キュレーションできます。
+    </p>
+
+    <nav class="tabs" role="tablist">
+      <button type="button" class="active" id="tabVerify" data-tab="verify">照合</button>
+      <button type="button" id="tabCatalog" data-tab="catalog">カタログ更新</button>
+    </nav>
+
+    <div id="paneVerify" class="tab-pane">
+      <section class="panel">
+        <h2>1. ケース親フォルダ</h2>
+        <div class="row">
+          <input id="root" type="text" placeholder="例: /Users/…/MyCase" autocomplete="off" />
+          <button type="button" class="secondary" id="browse">フォルダを選ぶ</button>
+          <button type="button" class="secondary" id="validate">確認</button>
+        </div>
+        <p class="hint">
+          親フォルダの中に <code>manuscript/</code>（原稿・Figure）と
+          <code>data/</code>（表・生データ・スクリプト）を用意してください。
+        </p>
+        <div id="validateStatus" class="status"></div>
+      </section>
+
+      <section class="panel">
+        <h2>2. 過去論文コーパス（H3・任意）</h2>
+        <div
+          id="corpusDrop"
+          class="dropzone"
+          tabindex="0"
+          role="button"
+          aria-label="過去論文 PDF をドロップ"
+        >
+          <strong>ここに過去論文の PDF をドロップ</strong>
+          <div style="margin-top:0.35rem;font-size:0.85rem;">
+            またはクリックして選択（複数可）
+          </div>
+          <input id="corpusInput" type="file" accept="application/pdf,.pdf" multiple class="hidden" />
+        </div>
+        <div id="corpusIngestStatus" class="status"></div>
+        <div id="corpusEmpty" class="hint" style="margin-top:0.75rem;">
+          まだ登録がありません。PDF を追加すると図が抽出され、次回以降もここから選べます。
+        </div>
+        <ul id="corpusList" class="corpus-list hidden"></ul>
+        <p class="hint">
+          このパソコンの <code>cache/past_papers/</code> のみに保存します（コミュニティ共有なし）。
+          埋め込み図を抽出し、無い場合はページ画像にフォールバックします。
+          照合時にチェックした論文だけを画像再利用検知（H3）に使います。
+        </p>
+      </section>
+
+      <section class="panel">
+        <h2>2b. 参考文献 PDF（引用整合・任意）</h2>
+        <div
+          id="citedDrop"
+          class="dropzone"
+          tabindex="0"
+          role="button"
+          aria-label="参考文献 PDF をドロップ"
+        >
+          <strong>ここに引用先論文の PDF をドロップ</strong>
+          <div style="margin-top:0.35rem;font-size:0.85rem;">
+            またはクリックして選択（複数可）
+          </div>
+          <input id="citedInput" type="file" accept="application/pdf,.pdf" multiple class="hidden" />
+        </div>
+        <div id="citedIngestStatus" class="status"></div>
+        <div id="citedEmpty" class="hint" style="margin-top:0.75rem;">
+          まだ登録がありません。参考文献リストと突き合わせる PDF を追加してください。
+        </div>
+        <ul id="citedList" class="corpus-list hidden"></ul>
+        <p class="hint">
+          <code>cache/cited_papers/</code> のみに保存（H3 画像コーパスとは別）。
+          メタ突合と引用文の根拠レビューに使います。ネットワーク取得はありません。
+        </p>
+      </section>
+
+      <section class="panel">
+        <h2>3. 照合</h2>
+        <label class="opt" for="legendLlm">
+          <input type="checkbox" id="legendLlm" checked />
+          <span>
+            Legend LLM 補助（Figチャンク → チェック項目 JSON）
+            <span class="opt-note" id="legendLlmHint">状態を確認中…</span>
+          </span>
+        </label>
+        <label class="opt" for="useActiveCatalog" style="margin-top:0.65rem;">
+          <input type="checkbox" id="useActiveCatalog" checked />
+          <span>
+            アクティブ照合カタログを使う
+            <span class="opt-note" id="activeCatalogHint">カタログ状態を確認中…</span>
+          </span>
+        </label>
+        <div class="field" id="llmProfileField">
+          <label for="llmProfile">Text LLM プロファイル</label>
+          <select id="llmProfile" disabled>
+            <option value="">読み込み中…</option>
+          </select>
+        </div>
+        <div class="field" id="vlmProfileField">
+          <label for="vlmProfile">Vision プロファイル（Fig 接地・開発）</label>
+          <select id="vlmProfile" disabled>
+            <option value="">読み込み中…</option>
+          </select>
+        </div>
+        <label class="check">
+          <input type="checkbox" id="vlmAssist" />
+          VLM パネル地図補助（ベクター分割が空のとき）
+        </label>
+        <div class="row" style="margin-top: 0.85rem;">
+          <button type="button" class="primary" id="run" disabled>照合開始</button>
+          <a id="reportLink" class="report-link hidden" href="/api/report" target="_blank" rel="noopener">
+            HTML レポートを開く
+          </a>
+        </div>
+        <div id="runStatus" class="status"></div>
+      </section>
+
+      <section class="panel" id="coveragePanel">
+        <h2>4. 照合カバレッジ（何を見たか）</h2>
+        <div id="coverageEmpty" class="hint">まだ実行していません。</div>
+        <ul id="coverageList" class="hint hidden" style="margin:0;padding-left:1.2rem;line-height:1.55;"></ul>
+      </section>
+
+      <section class="panel" id="resultsPanel">
+        <h2>5. Warning 一覧</h2>
+        <div id="emptyResults" class="hint">まだ実行していません。</div>
+        <table id="resultsTable" class="hidden">
+          <thead>
+            <tr>
+              <th>タグ</th>
+              <th>タイトル</th>
+              <th>場所</th>
+              <th>pattern_id</th>
+            </tr>
+          </thead>
+          <tbody id="resultsBody"></tbody>
+        </table>
+      </section>
+    </div>
+
+    <div id="paneCatalog" class="tab-pane hidden">
+      <section class="panel">
+        <h2>0. PubPeer PDF を追加（人手保存）</h2>
+        <div
+          id="pdfDrop"
+          class="dropzone"
+          tabindex="0"
+          role="button"
+          aria-label="PubPeer PDF をドロップ"
+        >
+          <strong>ここに PubPeer の PDF をドロップ</strong>
+          <div style="margin-top:0.35rem;font-size:0.85rem;">
+            またはクリックして選択（複数可）
+          </div>
+          <input id="pdfInput" type="file" accept="application/pdf,.pdf" multiple class="hidden" />
+        </div>
+        <label class="opt" for="pdfUseLlm" style="margin-top:0.75rem;">
+          <input type="checkbox" id="pdfUseLlm" checked />
+          <span>
+            取込時にローカル LLM で抽象ルール抽出
+            <span class="opt-note">OFF ならキーワード規則のみ。PDF は cache/ のみ（git 外）。</span>
+          </span>
+        </label>
+        <div id="pdfIngestStatus" class="status"></div>
+        <p class="hint">
+          PubPeer サイトの自動取得はしません。ブラウザで保存した PDF だけを取り込み、
+          <strong>抽象ルール</strong>をキュレーションキューへ足します（コメント全文は保存しません）。
+        </p>
+      </section>
+
+      <section class="panel">
+        <h2>照合カタログの状態</h2>
+        <div id="catalogStatusLine" class="hint">読み込み中…</div>
+        <div class="row" style="margin-top:0.75rem;">
+          <button type="button" class="secondary" id="catRefresh">再読込</button>
+          <button type="button" class="secondary" id="catReset">アクティブを fixtures から作り直し</button>
+        </div>
+        <p class="hint">
+          正本は <code>fixtures/patterns/pubpeer_patterns.json</code>。
+          キュレーション結果は <code>cache/catalog_active/</code> に保存され、照合時に優先使用されます。
+          fixtures の実装済昇格・新規 ID は照合／仕分け／Apply／PDF 取込／ステータス表示時に自動マージします
+          （明示 disable は保持。実装済 ID を accept_planned で降格しません）。
+          作り直しはローカル無効化も消えます。
+          PubPeer の自動取得はしません（RW / ORI / COPE 公式オープンソースのみ）。
+        </p>
+      </section>
+
+      <section class="panel">
+        <h2>アクティブ ↔ fixtures 比較</h2>
+        <div class="row">
+          <button type="button" class="secondary" id="catCompare">比較を更新</button>
+          <label class="opt" for="catDiffOnly" style="margin:0;">
+            <input type="checkbox" id="catDiffOnly" checked />
+            <span style="font-size:0.85rem;">差分のみ表示</span>
+          </label>
+        </div>
+        <div id="catCompareSummary" class="cmp-summary"></div>
+        <div class="queue-wrap">
+          <table id="catCompareTable" class="hidden">
+            <thead>
+              <tr>
+                <th>差分</th>
+                <th>pattern_id</th>
+                <th>fixtures（正本）</th>
+                <th>アクティブ（照合用）</th>
+                <th>変更点</th>
+              </tr>
+            </thead>
+            <tbody id="catCompareBody"></tbody>
+          </table>
+          <div id="catCompareEmpty" class="hint">「比較を更新」で両カタログを並べます。</div>
+        </div>
+      </section>
+
+      <section class="panel">
+        <h2>1. Retraction Watch を pull → 集計</h2>
+        <div class="row">
+          <button type="button" class="primary" id="catPull">Pull &amp; Mine</button>
+        </div>
+        <div id="catPullStatus" class="status"></div>
+      </section>
+
+      <section class="panel">
+        <h2>2. Qwen で優先度仕分け</h2>
+        <label class="opt" for="catUseLlm">
+          <input type="checkbox" id="catUseLlm" checked />
+          <span>
+            ローカル LLM（Qwen 等）で仕分け
+            <span class="opt-note">オフ時は規則ベースのみ。未導入時も規則にフォールバックします。</span>
+          </span>
+        </label>
+        <label class="opt" for="catIncludeCurated" style="margin-top:0.55rem;">
+          <input type="checkbox" id="catIncludeCurated" />
+          <span>
+            既に適用済みの pattern もキューに含める
+            <span class="opt-note">OFF（既定）だと、前回「適用」した項目は再表示しません。</span>
+          </span>
+        </label>
+        <div class="field">
+          <label for="catLlmProfile">Text LLM プロファイル（仕分け用）</label>
+          <select id="catLlmProfile" disabled>
+            <option value="">読み込み中…</option>
+          </select>
+        </div>
+        <div class="row" style="margin-top:0.85rem;">
+          <button type="button" class="primary" id="catTriage">仕分け実行</button>
+        </div>
+        <div id="catTriageStatus" class="status"></div>
+        <p id="catTriageSummary" class="hint"></p>
+      </section>
+
+      <section class="panel">
+        <h2>3. キュレーション（選択して適用）</h2>
+        <div class="row" style="margin-bottom:0.65rem;">
+          <button type="button" class="primary" id="catApply" disabled>選択をアクティブカタログへ適用</button>
+          <label class="opt" for="catAlsoFixtures" style="margin:0;">
+            <input type="checkbox" id="catAlsoFixtures" />
+            <span style="font-size:0.85rem;">開発用: fixtures にも書く</span>
+          </label>
+        </div>
+        <div id="catApplyStatus" class="status"></div>
+        <div class="queue-wrap">
+          <table id="catQueueTable" class="hidden">
+            <thead>
+              <tr>
+                <th>採用</th>
+                <th>種別</th>
+                <th>pattern / reason</th>
+                <th>推奨</th>
+                <th>アクション</th>
+                <th>優先度</th>
+                <th>理由</th>
+              </tr>
+            </thead>
+            <tbody id="catQueueBody"></tbody>
+          </table>
+          <div id="catQueueEmpty" class="hint">まだ仕分け結果がありません。「仕分け実行」を押してください。</div>
+        </div>
+      </section>
+
+      <section class="panel">
+        <h2>4. 開発リポジトリへ共有</h2>
+        <p class="hint" style="margin-top:0;">
+          抽象ルールの標準 JSON だけを共有します（PDF・コメント全文・著者名・DOI は載せません）。
+          <strong>トークン入力は不要</strong>です。Issue は GitHub の下書きページを開き、PR は CLI をコピーします。
+          絶対ルール: 表現を取らない／検査仕様に抽象化／コメント者を名指し・攻撃しない。
+        </p>
+        <div class="row">
+          <button type="button" class="secondary" id="catShareDraft">下書きプレビュー</button>
+          <button type="button" class="primary" id="catShareIssue">Issue 下書きを開く</button>
+          <button type="button" class="secondary" id="catSharePr">PR 用 CLI をコピー</button>
+        </div>
+        <div id="catShareStatus" class="status"></div>
+        <pre id="catSharePreview" class="hint hidden" style="white-space:pre-wrap;max-height:280px;overflow:auto;background:#faf8f3;padding:0.75rem;border-radius:8px;border:1px solid var(--border);"></pre>
+      </section>
+    </div>
+  </main>
+  <script>
+    const rootEl = document.getElementById("root");
+    const validateStatus = document.getElementById("validateStatus");
+    const runStatus = document.getElementById("runStatus");
+    const runBtn = document.getElementById("run");
+    const legendLlm = document.getElementById("legendLlm");
+    const legendLlmHint = document.getElementById("legendLlmHint");
+    const useActiveCatalog = document.getElementById("useActiveCatalog");
+    const activeCatalogHint = document.getElementById("activeCatalogHint");
+    const llmProfile = document.getElementById("llmProfile");
+    const vlmProfile = document.getElementById("vlmProfile");
+    const vlmAssist = document.getElementById("vlmAssist");
+    const catLlmProfile = document.getElementById("catLlmProfile");
+    const reportLink = document.getElementById("reportLink");
+    let llmAvailable = false;
+    let queueItems = [];
+    let lastCompareData = null;
+
+    function fillSelect(el, profiles, selectedId) {
+      el.innerHTML = "";
+      for (const p of profiles || []) {
+        const opt = document.createElement("option");
+        opt.value = p.id;
+        const vram = p.recommended_vram_gb != null ? ` · ~${p.recommended_vram_gb}GB` : "";
+        opt.textContent = `${p.label}${vram}`;
+        if (p.id === selectedId) opt.selected = true;
+        el.appendChild(opt);
+      }
+      el.disabled = !(profiles && profiles.length);
+    }
+
+    function setStatus(el, text, kind) {
+      el.textContent = text || "";
+      el.className = "status" + (kind ? " " + kind : "");
+    }
+
+    function switchTab(name) {
+      const verify = name === "verify";
+      document.getElementById("paneVerify").classList.toggle("hidden", !verify);
+      document.getElementById("paneCatalog").classList.toggle("hidden", verify);
+      document.getElementById("tabVerify").classList.toggle("active", verify);
+      document.getElementById("tabCatalog").classList.toggle("active", !verify);
+      if (!verify) refreshCatalogStatus();
+    }
+    document.getElementById("tabVerify").addEventListener("click", () => switchTab("verify"));
+    document.getElementById("tabCatalog").addEventListener("click", () => switchTab("catalog"));
+
+    async function refreshLlmStatus() {
+      try {
+        const res = await fetch("/api/llm-status");
+        const data = await res.json();
+        llmAvailable = !!data.available;
+        const def =
+          data.effective_llm_profile || data.default_llm_profile || data.env_llm_profile;
+        fillSelect(llmProfile, data.text_profiles || [], def);
+        fillSelect(vlmProfile, data.vision_profiles || [], data.default_vlm_profile);
+        fillSelect(catLlmProfile, data.text_profiles || [], def);
+        if (llmAvailable) {
+          const sel = data.selected || {};
+          legendLlmHint.textContent =
+            "利用可能: " + (sel.name || "backend") + " / 既定 " + (def || sel.model_id || "");
+        } else {
+          legendLlmHint.textContent =
+            "未導入のため ON でも規則のみ。導入: " + (data.install_hint || 'pip install -e ".[mlx]"');
+        }
+      } catch (err) {
+        legendLlmHint.textContent = "LLM 状態を取得できませんでした。";
+      }
+    }
+
+    function fmtSnap(snap) {
+      if (!snap) return '<span class="muted">（なし）</span>';
+      const en = snap.enabled ? "ON" : "OFF";
+      const pri = snap.priority || "—";
+      const st = snap.status || "—";
+      return `<div class="cmp-cell"><strong>${st}</strong> · 有効 ${en} · ${pri}` +
+        (snap.curation && snap.curation.decision
+          ? `<br><span class="muted">curation: ${snap.curation.decision}</span>`
+          : "") +
+        `</div>`;
+    }
+
+    function diffLabel(d) {
+      const map = {
+        same: "同一",
+        changed: "変更あり",
+        only_active: "アクティブのみ",
+        only_fixtures: "fixturesのみ",
+      };
+      return map[d] || d;
+    }
+
+    function renderCompare(data) {
+      lastCompareData = data;
+      const body = document.getElementById("catCompareBody");
+      const table = document.getElementById("catCompareTable");
+      const empty = document.getElementById("catCompareEmpty");
+      const summary = document.getElementById("catCompareSummary");
+      const diffOnly = document.getElementById("catDiffOnly").checked;
+      const allRows = (data && data.rows) || [];
+      const counts = (data && data.counts) || {};
+      summary.textContent =
+        `fixtures: ${data.fixtures_path || "—"}` +
+        (data.fixtures_revision ? ` (${data.fixtures_revision})` : "") +
+        ` · アクティブ: ${data.active_exists ? (data.active_path || "あり") : "未作成"}` +
+        ` · 同一 ${counts.same || 0} / 変更 ${counts.changed || 0}` +
+        ` / アクティブのみ ${counts.only_active || 0} / fixturesのみ ${counts.only_fixtures || 0}`;
+
+      const rows = diffOnly
+        ? allRows.filter((r) => r.diff !== "same")
+        : allRows;
+      body.innerHTML = "";
+      if (!allRows.length) {
+        table.classList.add("hidden");
+        empty.classList.remove("hidden");
+        empty.textContent = data.active_exists
+          ? "パターンがありません。"
+          : "アクティブ未作成です。照合開始または作り直しで fixtures から生成されます。";
+        return;
+      }
+      if (!rows.length) {
+        table.classList.add("hidden");
+        empty.classList.remove("hidden");
+        empty.textContent = "差分はありません（同一です）。「差分のみ」を外すと全件表示。";
+        return;
+      }
+      empty.classList.add("hidden");
+      table.classList.remove("hidden");
+      for (const r of rows) {
+        const tr = document.createElement("tr");
+        const fields = (r.changed_fields || []).join(", ") || "—";
+        tr.innerHTML = `
+          <td><span class="pill diff-${r.diff}">${diffLabel(r.diff)}</span></td>
+          <td><code>${r.pattern_id}</code></td>
+          <td>${fmtSnap(r.fixtures)}</td>
+          <td>${fmtSnap(r.active)}</td>
+          <td class="cmp-cell">${fields}</td>
+        `;
+        body.appendChild(tr);
+      }
+    }
+
+    async function refreshCompare() {
+      try {
+        const res = await fetch("/api/catalog/compare");
+        const data = await res.json();
+        if (!data.ok && data.ok !== undefined) {
+          document.getElementById("catCompareEmpty").textContent =
+            data.error || "比較に失敗しました";
+          return;
+        }
+        renderCompare(data);
+      } catch (err) {
+        document.getElementById("catCompareEmpty").textContent = "比較失敗: " + err;
+        document.getElementById("catCompareTable").classList.add("hidden");
+        document.getElementById("catCompareEmpty").classList.remove("hidden");
+      }
+    }
+
+    async function refreshCatalogStatus() {
+      try {
+        const res = await fetch("/api/catalog/status");
+        const data = await res.json();
+        const st = data.status || {};
+        const line =
+          (st.using_active ? "アクティブ使用中" : "fixtures 既定") +
+          ` · 有効 ${st.n_enabled || 0} / 全 ${st.n_patterns || 0}` +
+          ` · implemented ${st.n_implemented || 0} · planned ${st.n_planned || 0}` +
+          (st.path ? ` · ${st.path}` : "");
+        document.getElementById("catalogStatusLine").textContent = line;
+        activeCatalogHint.textContent = st.using_active
+          ? `照合はアクティブカタログを使います（有効 ${st.n_enabled}）`
+          : "アクティブ未作成時は初回照合で fixtures から生成します";
+        if (data.queue && data.queue.items) {
+          queueItems = data.queue.items;
+          renderQueue(data.queue);
+        }
+        await refreshCompare();
+      } catch (err) {
+        document.getElementById("catalogStatusLine").textContent = "状態取得に失敗: " + err;
+      }
+    }
+
+    refreshLlmStatus();
+    refreshCatalogStatus();
+
+    const resultsBody = document.getElementById("resultsBody");
+    const resultsTable = document.getElementById("resultsTable");
+    const emptyResults = document.getElementById("emptyResults");
+    const coverageEmpty = document.getElementById("coverageEmpty");
+    const coverageList = document.getElementById("coverageList");
+
+    function renderCoverage(lines) {
+      coverageList.innerHTML = "";
+      if (!lines || !lines.length) {
+        coverageEmpty.textContent = "カバレッジ情報はありません。";
+        coverageEmpty.classList.remove("hidden");
+        coverageList.classList.add("hidden");
+        return;
+      }
+      coverageEmpty.classList.add("hidden");
+      coverageList.classList.remove("hidden");
+      for (const line of lines) {
+        const li = document.createElement("li");
+        li.textContent = line;
+        coverageList.appendChild(li);
+      }
+    }
+
+    async function validateRoot(showOk) {
+      const root = rootEl.value.trim();
+      if (!root) {
+        setStatus(validateStatus, "フォルダを指定してください。", "err");
+        runBtn.disabled = true;
+        return false;
+      }
+      const res = await fetch("/api/validate-root", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ root }),
+      });
+      const data = await res.json();
+      if (!data.ok) {
+        setStatus(validateStatus, data.error || "無効なフォルダです。", "err");
+        runBtn.disabled = true;
+        return false;
+      }
+      if (showOk) {
+        setStatus(validateStatus, "OK: manuscript/ と data/ を検出 → " + data.root, "ok");
+      }
+      runBtn.disabled = false;
+      return true;
+    }
+
+    document.getElementById("browse").addEventListener("click", async () => {
+      setStatus(validateStatus, "フォルダ選択ダイアログを開いています…");
+      const res = await fetch("/api/pick-folder", { method: "POST" });
+      const data = await res.json();
+      if (data.cancelled) {
+        setStatus(validateStatus, "選択がキャンセルされました。");
+        return;
+      }
+      if (data.error) {
+        setStatus(validateStatus, data.error, "err");
+        return;
+      }
+      rootEl.value = data.path || "";
+      await validateRoot(true);
+    });
+
+    document.getElementById("validate").addEventListener("click", () => validateRoot(true));
+    rootEl.addEventListener("change", () => validateRoot(true));
+
+    // --- Past-paper corpus (H3) ---
+    const corpusListEl = document.getElementById("corpusList");
+    const corpusEmpty = document.getElementById("corpusEmpty");
+    const corpusIngestStatus = document.getElementById("corpusIngestStatus");
+    const selectedCorpusIds = new Set();
+    let corpusSelectionPrimed = false;
+
+    function selectedCorpusIdList() {
+      return Array.from(corpusListEl.querySelectorAll('input[type="checkbox"][data-corpus-id]:checked'))
+        .map((el) => el.getAttribute("data-corpus-id"))
+        .filter(Boolean);
+    }
+
+    function renderCorpusList(entries) {
+      const items = entries || [];
+      corpusListEl.innerHTML = "";
+      if (!items.length) {
+        corpusEmpty.classList.remove("hidden");
+        corpusListEl.classList.add("hidden");
+        selectedCorpusIds.clear();
+        corpusSelectionPrimed = false;
+        return;
+      }
+      corpusEmpty.classList.add("hidden");
+      corpusListEl.classList.remove("hidden");
+      if (!corpusSelectionPrimed) {
+        for (const e of items) {
+          if (e.id) selectedCorpusIds.add(e.id);
+        }
+        corpusSelectionPrimed = true;
+      }
+      for (const e of items) {
+        const id = e.id || "";
+        const li = document.createElement("li");
+        const cb = document.createElement("input");
+        cb.type = "checkbox";
+        cb.setAttribute("data-corpus-id", id);
+        cb.checked = selectedCorpusIds.has(id);
+        cb.addEventListener("change", () => {
+          if (cb.checked) selectedCorpusIds.add(id);
+          else selectedCorpusIds.delete(id);
+        });
+        const label = document.createElement("span");
+        label.style.flex = "1";
+        label.textContent = e.source_name || e.title || id;
+        const meta = document.createElement("span");
+        meta.className = "meta";
+        const method =
+          e.extract_method === "page_raster"
+            ? "ページ画像"
+            : e.extract_method === "embedded"
+              ? "埋め込み図"
+              : e.extract_method || "";
+        meta.textContent =
+          (e.n_figures != null ? e.n_figures + " 図" : "") +
+          (method ? " · " + method : "") +
+          (e.created_at ? " · " + e.created_at : "");
+        const del = document.createElement("button");
+        del.type = "button";
+        del.className = "danger";
+        del.textContent = "削除";
+        del.addEventListener("click", async () => {
+          if (!confirm("この過去論文をライブラリから削除しますか？")) return;
+          try {
+            const res = await fetch("/api/corpus/" + encodeURIComponent(id), {
+              method: "DELETE",
+            });
+            const data = await res.json();
+            if (!data.ok) {
+              setStatus(corpusIngestStatus, data.error || "削除に失敗しました", "err");
+              return;
+            }
+            selectedCorpusIds.delete(id);
+            renderCorpusList(data.entries || []);
+            setStatus(corpusIngestStatus, "削除しました", "ok");
+          } catch (err) {
+            setStatus(corpusIngestStatus, String(err), "err");
+          }
+        });
+        li.appendChild(cb);
+        li.appendChild(label);
+        li.appendChild(meta);
+        li.appendChild(del);
+        corpusListEl.appendChild(li);
+      }
+    }
+
+    async function refreshCorpusList() {
+      try {
+        const res = await fetch("/api/corpus/list");
+        const data = await res.json();
+        if (!data.ok) return;
+        renderCorpusList(data.entries || []);
+      } catch (_) {
+        /* ignore on load */
+      }
+    }
+
+    async function ingestCorpusFiles(fileList) {
+      const files = Array.from(fileList || []).filter((f) =>
+        (f.name || "").toLowerCase().endsWith(".pdf")
+      );
+      if (!files.length) {
+        setStatus(corpusIngestStatus, "PDF を選んでください。", "err");
+        return;
+      }
+      setStatus(corpusIngestStatus, files.length + " 件を取り込み中…");
+      let okN = 0;
+      let lastEntries = null;
+      let figSum = 0;
+      for (const f of files) {
+        const fd = new FormData();
+        fd.append("file", f, f.name);
+        try {
+          const res = await fetch("/api/corpus/ingest-pdf", { method: "POST", body: fd });
+          const data = await res.json();
+          if (data.ok) {
+            okN += 1;
+            figSum += data.n_figures || 0;
+            if (data.entry && data.entry.id) selectedCorpusIds.add(data.entry.id);
+            lastEntries = data.entries;
+          } else {
+            setStatus(
+              corpusIngestStatus,
+              (f.name || "PDF") + ": " + (data.error || "失敗"),
+              "err"
+            );
+          }
+        } catch (err) {
+          setStatus(corpusIngestStatus, String(err), "err");
+        }
+      }
+      if (lastEntries) renderCorpusList(lastEntries);
+      else await refreshCorpusList();
+      if (okN) {
+        setStatus(
+          corpusIngestStatus,
+          okN + " 件を登録（図 " + figSum + " 枚）。照合時にチェックした論文を使います。",
+          "ok"
+        );
+      }
+    }
+
+    const corpusDrop = document.getElementById("corpusDrop");
+    const corpusInput = document.getElementById("corpusInput");
+    if (corpusDrop && corpusInput) {
+      corpusDrop.addEventListener("click", () => corpusInput.click());
+      corpusInput.addEventListener("change", () => {
+        ingestCorpusFiles(corpusInput.files);
+        corpusInput.value = "";
+      });
+      corpusDrop.addEventListener("dragover", (e) => {
+        e.preventDefault();
+        corpusDrop.classList.add("dragover");
+      });
+      corpusDrop.addEventListener("dragleave", () => corpusDrop.classList.remove("dragover"));
+      corpusDrop.addEventListener("drop", (e) => {
+        e.preventDefault();
+        corpusDrop.classList.remove("dragover");
+        ingestCorpusFiles(e.dataTransfer && e.dataTransfer.files);
+      });
+    }
+    refreshCorpusList();
+
+    const citedListEl = document.getElementById("citedList");
+    const citedEmpty = document.getElementById("citedEmpty");
+    const citedIngestStatus = document.getElementById("citedIngestStatus");
+    const selectedCitedIds = new Set();
+    let citedSelectionPrimed = false;
+
+    function selectedCitedIdList() {
+      if (!citedListEl) return [];
+      return Array.from(citedListEl.querySelectorAll('input[type="checkbox"][data-cited-id]:checked'))
+        .map((el) => el.getAttribute("data-cited-id"))
+        .filter(Boolean);
+    }
+
+    function renderCitedList(entries) {
+      if (!citedListEl || !citedEmpty) return;
+      const items = entries || [];
+      citedListEl.innerHTML = "";
+      if (!items.length) {
+        citedEmpty.classList.remove("hidden");
+        citedListEl.classList.add("hidden");
+        selectedCitedIds.clear();
+        citedSelectionPrimed = false;
+        return;
+      }
+      citedEmpty.classList.add("hidden");
+      citedListEl.classList.remove("hidden");
+      if (!citedSelectionPrimed) {
+        for (const e of items) {
+          if (e.id) selectedCitedIds.add(e.id);
+        }
+        citedSelectionPrimed = true;
+      }
+      for (const e of items) {
+        const id = e.id || "";
+        const li = document.createElement("li");
+        const cb = document.createElement("input");
+        cb.type = "checkbox";
+        cb.setAttribute("data-cited-id", id);
+        cb.checked = selectedCitedIds.has(id);
+        cb.addEventListener("change", () => {
+          if (cb.checked) selectedCitedIds.add(id);
+          else selectedCitedIds.delete(id);
+        });
+        const label = document.createElement("span");
+        label.style.flex = "1";
+        label.textContent = e.source_name || e.title || id;
+        const meta = document.createElement("span");
+        meta.className = "meta";
+        meta.textContent =
+          (e.year != null ? String(e.year) : "") +
+          (e.doi ? " · " + e.doi : "") +
+          (e.n_chunks != null ? " · " + e.n_chunks + " chunks" : "");
+        const del = document.createElement("button");
+        del.type = "button";
+        del.className = "danger";
+        del.textContent = "削除";
+        del.addEventListener("click", async () => {
+          if (!confirm("この参考文献 PDF をライブラリから削除しますか？")) return;
+          try {
+            const res = await fetch("/api/cited-papers/" + encodeURIComponent(id), {
+              method: "DELETE",
+            });
+            const data = await res.json();
+            if (!data.ok) {
+              setStatus(citedIngestStatus, data.error || "削除に失敗しました", "err");
+              return;
+            }
+            selectedCitedIds.delete(id);
+            renderCitedList(data.entries || []);
+            setStatus(citedIngestStatus, "削除しました", "ok");
+          } catch (err) {
+            setStatus(citedIngestStatus, String(err), "err");
+          }
+        });
+        li.appendChild(cb);
+        li.appendChild(label);
+        li.appendChild(meta);
+        li.appendChild(del);
+        citedListEl.appendChild(li);
+      }
+    }
+
+    async function refreshCitedList() {
+      try {
+        const res = await fetch("/api/cited-papers/list");
+        const data = await res.json();
+        if (!data.ok) return;
+        renderCitedList(data.entries || []);
+      } catch (_) {
+        /* ignore */
+      }
+    }
+
+    async function ingestCitedFiles(fileList) {
+      const files = Array.from(fileList || []).filter((f) =>
+        (f.name || "").toLowerCase().endsWith(".pdf")
+      );
+      if (!files.length) {
+        setStatus(citedIngestStatus, "PDF を選んでください。", "err");
+        return;
+      }
+      setStatus(citedIngestStatus, files.length + " 件を取り込み中…");
+      let okN = 0;
+      let lastEntries = null;
+      for (const f of files) {
+        const fd = new FormData();
+        fd.append("file", f, f.name);
+        try {
+          const res = await fetch("/api/cited-papers/ingest-pdf", {
+            method: "POST",
+            body: fd,
+          });
+          const data = await res.json();
+          if (data.ok) {
+            okN += 1;
+            if (data.id) selectedCitedIds.add(data.id);
+            else if (data.meta && data.meta.id) selectedCitedIds.add(data.meta.id);
+            lastEntries = data.entries;
+          } else {
+            setStatus(
+              citedIngestStatus,
+              (f.name || "PDF") + ": " + (data.error || "失敗"),
+              "err"
+            );
+          }
+        } catch (err) {
+          setStatus(citedIngestStatus, String(err), "err");
+        }
+      }
+      if (lastEntries) renderCitedList(lastEntries);
+      else await refreshCitedList();
+      if (okN) {
+        setStatus(
+          citedIngestStatus,
+          okN + " 件を登録。照合時にチェックした PDF を使います。",
+          "ok"
+        );
+      }
+    }
+
+    const citedDrop = document.getElementById("citedDrop");
+    const citedInput = document.getElementById("citedInput");
+    if (citedDrop && citedInput) {
+      citedDrop.addEventListener("click", () => citedInput.click());
+      citedInput.addEventListener("change", () => {
+        ingestCitedFiles(citedInput.files);
+        citedInput.value = "";
+      });
+      citedDrop.addEventListener("dragover", (e) => {
+        e.preventDefault();
+        citedDrop.classList.add("dragover");
+      });
+      citedDrop.addEventListener("dragleave", () => citedDrop.classList.remove("dragover"));
+      citedDrop.addEventListener("drop", (e) => {
+        e.preventDefault();
+        citedDrop.classList.remove("dragover");
+        ingestCitedFiles(e.dataTransfer && e.dataTransfer.files);
+      });
+    }
+    refreshCitedList();
+
+    document.getElementById("run").addEventListener("click", async () => {
+      if (!(await validateRoot(false))) return;
+      runBtn.disabled = true;
+      reportLink.classList.add("hidden");
+      setStatus(runStatus, "照合を実行中…（完了までお待ちください）");
+      try {
+        const corpusIds = selectedCorpusIdList();
+        const citedIds = selectedCitedIdList();
+        const res = await fetch("/api/run", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            root: rootEl.value.trim(),
+            legend_llm: !!(legendLlm && legendLlm.checked),
+            legend_llm_prefer: "auto",
+            legend_llm_profile: llmProfile && llmProfile.value ? llmProfile.value : null,
+            vlm_profile: vlmProfile && vlmProfile.value ? vlmProfile.value : null,
+            vlm_assist: !!(vlmAssist && vlmAssist.checked),
+            vlm_prefer: "auto",
+            use_active_catalog: !!(useActiveCatalog && useActiveCatalog.checked),
+            corpus_ids: corpusIds,
+            cited_paper_ids: citedIds,
+          }),
+        });
+        const data = await res.json();
+        if (!data.ok) {
+          setStatus(runStatus, data.error || "照合に失敗しました。", "err");
+          runBtn.disabled = false;
+          return;
+        }
+        let msg = "完了: Warning " + data.n_warnings + " 件";
+        if (corpusIds.length) msg += " · H3 コーパス " + corpusIds.length + " 件";
+        if (citedIds.length) msg += " · 参考文献 PDF " + citedIds.length + " 件";
+        if (data.patterns_path) msg += " · カタログ使用";
+        if (data.legend_llm_status && data.legend_llm_status.message) {
+          msg += " — " + data.legend_llm_status.message;
+        }
+        setStatus(
+          runStatus,
+          msg,
+          data.legend_llm_status && data.legend_llm_status.status === "unavailable" ? "err" : "ok"
+        );
+        reportLink.classList.remove("hidden");
+        renderCoverage(data.coverage_lines || []);
+        emptyResults.classList.add("hidden");
+        resultsTable.classList.remove("hidden");
+        resultsBody.innerHTML = "";
+        for (const row of data.warning_rows || []) {
+          const tr = document.createElement("tr");
+          for (const key of ["tag", "title", "location", "pattern_id"]) {
+            const td = document.createElement("td");
+            td.textContent = row[key] || "";
+            tr.appendChild(td);
+          }
+          resultsBody.appendChild(tr);
+        }
+        if (!(data.warning_rows || []).length) {
+          emptyResults.textContent =
+            "Warning はありませんでした。カバレッジと HTML レポートで「何を見たか」を確認してください。";
+          emptyResults.classList.remove("hidden");
+          resultsTable.classList.add("hidden");
+        }
+      } catch (err) {
+        setStatus(runStatus, String(err), "err");
+      } finally {
+        runBtn.disabled = false;
+      }
+    });
+
+    function renderQueue(queue) {
+      const body = document.getElementById("catQueueBody");
+      const table = document.getElementById("catQueueTable");
+      const empty = document.getElementById("catQueueEmpty");
+      const items = (queue && queue.items) || [];
+      queueItems = items;
+      body.innerHTML = "";
+      if (!items.length) {
+        table.classList.add("hidden");
+        empty.classList.remove("hidden");
+        document.getElementById("catApply").disabled = true;
+        return;
+      }
+      empty.classList.add("hidden");
+      table.classList.remove("hidden");
+      document.getElementById("catApply").disabled = false;
+      const actions = [
+        "enable", "disable", "accept_planned", "set_priority", "defer", "skip", "map_reason"
+      ];
+      items.forEach((item, i) => {
+        const tr = document.createElement("tr");
+        const idLabel = item.pattern_id || item.reason || "(なし)";
+        const checked = item.selected !== false && item.suggested_action !== "skip";
+        tr.innerHTML = `
+          <td><input type="checkbox" data-i="${i}" class="q-sel" ${checked ? "checked" : ""} /></td>
+          <td><span class="pill">${item.kind || ""}</span></td>
+          <td>${idLabel}</td>
+          <td>${item.suggested_action || ""} / ${item.suggested_priority || ""}</td>
+          <td>
+            <select class="action-sel q-act" data-i="${i}">
+              ${actions.map((a) =>
+                `<option value="${a}" ${a === (item.suggested_action || "defer") ? "selected" : ""}>${a}</option>`
+              ).join("")}
+            </select>
+          </td>
+          <td>
+            <select class="action-sel q-pri" data-i="${i}">
+              ${["P0", "P1", "P2"].map((p) =>
+                `<option value="${p}" ${p === (item.user_priority || item.suggested_priority || "P2") ? "selected" : ""}>${p}</option>`
+              ).join("")}
+            </select>
+          </td>
+          <td>${item.rationale || ""}</td>
+        `;
+        body.appendChild(tr);
+      });
+      if (queue.summary_ja) {
+        document.getElementById("catTriageSummary").textContent = queue.summary_ja;
+      }
+    }
+
+    document.getElementById("catRefresh").addEventListener("click", () => refreshCatalogStatus());
+    document.getElementById("catCompare").addEventListener("click", () => refreshCompare());
+    document.getElementById("catDiffOnly").addEventListener("change", () => {
+      if (lastCompareData) renderCompare(lastCompareData);
+      else refreshCompare();
+    });
+
+    document.getElementById("catReset").addEventListener("click", async () => {
+      if (!confirm("アクティブカタログを fixtures から作り直しますか？")) return;
+      const res = await fetch("/api/catalog/reset-active", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ confirm: true }),
+      });
+      const data = await res.json();
+      setStatus(
+        document.getElementById("catApplyStatus"),
+        data.ok ? "アクティブカタログをリセットしました" : (data.error || "失敗"),
+        data.ok ? "ok" : "err"
+      );
+      refreshCatalogStatus();
+    });
+
+    document.getElementById("catPull").addEventListener("click", async () => {
+      const btn = document.getElementById("catPull");
+      btn.disabled = true;
+      setStatus(document.getElementById("catPullStatus"), "RW pull / mine 実行中…");
+      try {
+        const res = await fetch("/api/catalog/pull", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ pull: true }),
+        });
+        const data = await res.json();
+        if (!data.ok) {
+          setStatus(document.getElementById("catPullStatus"), data.error || "失敗", "err");
+          return;
+        }
+        const m = data.mine || {};
+        setStatus(
+          document.getElementById("catPullStatus"),
+          `完了 (${data.pull_note}): 行 ${m.rows_total} · 生命科学 ${m.rows_life_science} · マップ Reason ${m.mapped_reason_rows} · 未マップ ${m.unmapped_life_reason_count}`,
+          "ok"
+        );
+        refreshCatalogStatus();
+      } catch (err) {
+        setStatus(document.getElementById("catPullStatus"), String(err), "err");
+      } finally {
+        btn.disabled = false;
+      }
+    });
+
+    document.getElementById("catTriage").addEventListener("click", async () => {
+      const btn = document.getElementById("catTriage");
+      btn.disabled = true;
+      setStatus(document.getElementById("catTriageStatus"), "仕分け中…（LLM 初回は時間がかかることがあります）");
+      try {
+        const res = await fetch("/api/catalog/triage", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            pull: false,
+            use_llm: !!(document.getElementById("catUseLlm").checked),
+            include_already_curated: !!(document.getElementById("catIncludeCurated").checked),
+            legend_llm_prefer: "auto",
+            legend_llm_profile: catLlmProfile.value || null,
+          }),
+        });
+        const data = await res.json();
+        if (!data.ok) {
+          setStatus(document.getElementById("catTriageStatus"), data.error || "失敗", "err");
+          return;
+        }
+        const t = data.triage || {};
+        setStatus(
+          document.getElementById("catTriageStatus"),
+          `完了: backend=${t.backend || "?"} · ${(data.queue && data.queue.items || []).length} 件` +
+            (data.queue && data.queue.skipped_already_curated
+              ? `（既適用除外 ${data.queue.skipped_already_curated}）`
+              : ""),
+          "ok"
+        );
+        document.getElementById("catTriageSummary").textContent = t.summary_ja || "";
+        renderQueue(data.queue);
+        refreshCatalogStatus();
+      } catch (err) {
+        setStatus(document.getElementById("catTriageStatus"), String(err), "err");
+      } finally {
+        btn.disabled = false;
+      }
+    });
+
+    document.getElementById("catApply").addEventListener("click", async () => {
+      const decisions = [];
+      document.querySelectorAll(".q-sel").forEach((cb) => {
+        if (!cb.checked) return;
+        const i = Number(cb.getAttribute("data-i"));
+        const item = queueItems[i];
+        if (!item) return;
+        const act = document.querySelector(`.q-act[data-i="${i}"]`);
+        const pri = document.querySelector(`.q-pri[data-i="${i}"]`);
+        const action = act ? act.value : item.suggested_action;
+        if (action === "skip" || action === "map_reason") return;
+        decisions.push({
+          pattern_id: item.pattern_id,
+          action,
+          priority: pri ? pri.value : item.suggested_priority,
+          llm_rationale: item.rationale,
+          abstract_rule: item.abstract_rule,
+          warning_tags: item.warning_tags,
+          taxonomy: item.taxonomy,
+          note: item.reason
+            ? `reason:${item.reason}`
+            : item.source_pdf
+              ? `pdf:${item.source_pdf}`
+              : undefined,
+        });
+      });
+      if (!decisions.length) {
+        setStatus(document.getElementById("catApplyStatus"), "採用チェックがありません（map_reason/skip は保留）。", "err");
+        return;
+      }
+      const res = await fetch("/api/catalog/apply", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          decisions,
+          also_update_fixtures: !!(document.getElementById("catAlsoFixtures").checked),
+        }),
+      });
+      const data = await res.json();
+      if (!data.ok && data.error) {
+        setStatus(document.getElementById("catApplyStatus"), data.error, "err");
+        return;
+      }
+      setStatus(
+        document.getElementById("catApplyStatus"),
+        `適用 ${((data.applied || []).length)} 件 · スキップ ${((data.skipped || []).length)}` +
+          (document.getElementById("catAlsoFixtures").checked
+            ? " · fixtures にも反映済"
+            : " · アクティブのみ") +
+          " · 比較表を確認してください",
+        "ok"
+      );
+      if (data.queue) renderQueue(data.queue);
+      refreshCatalogStatus();
+    });
+
+    // --- PubPeer PDF drop ---
+    const pdfDrop = document.getElementById("pdfDrop");
+    const pdfInput = document.getElementById("pdfInput");
+    async function ingestPdfFiles(fileList) {
+      const files = Array.from(fileList || []).filter((f) =>
+        (f.name || "").toLowerCase().endsWith(".pdf")
+      );
+      if (!files.length) {
+        setStatus(document.getElementById("pdfIngestStatus"), "PDF を選んでください。", "err");
+        return;
+      }
+      setStatus(
+        document.getElementById("pdfIngestStatus"),
+        `${files.length} 件を取り込み中…`
+      );
+      let okN = 0;
+      let lastQueue = null;
+      for (const f of files) {
+        const fd = new FormData();
+        fd.append("file", f, f.name);
+        fd.append("use_llm", document.getElementById("pdfUseLlm").checked ? "true" : "false");
+        fd.append("legend_llm_prefer", "auto");
+        if (catLlmProfile && catLlmProfile.value) {
+          fd.append("legend_llm_profile", catLlmProfile.value);
+        }
+        try {
+          const res = await fetch("/api/catalog/ingest-pdf", { method: "POST", body: fd });
+          const data = await res.json();
+          if (!data.ok) {
+            setStatus(
+              document.getElementById("pdfIngestStatus"),
+              `${f.name}: ${data.error || "失敗"}`,
+              "err"
+            );
+            continue;
+          }
+          okN += 1;
+          lastQueue = data.queue;
+        } catch (err) {
+          setStatus(document.getElementById("pdfIngestStatus"), String(err), "err");
+        }
+      }
+      if (okN) {
+        setStatus(
+          document.getElementById("pdfIngestStatus"),
+          `${okN} 件取込完了。下のキュレーション表で確認・適用してください。`,
+          "ok"
+        );
+        if (lastQueue) renderQueue(lastQueue);
+        refreshCatalogStatus();
+      }
+    }
+    if (pdfDrop && pdfInput) {
+      pdfDrop.addEventListener("click", () => pdfInput.click());
+      pdfInput.addEventListener("change", () => ingestPdfFiles(pdfInput.files));
+      ["dragenter", "dragover"].forEach((ev) => {
+        pdfDrop.addEventListener(ev, (e) => {
+          e.preventDefault();
+          pdfDrop.classList.add("dragover");
+        });
+      });
+      ["dragleave", "drop"].forEach((ev) => {
+        pdfDrop.addEventListener(ev, (e) => {
+          e.preventDefault();
+          pdfDrop.classList.remove("dragover");
+        });
+      });
+      pdfDrop.addEventListener("drop", (e) => {
+        ingestPdfFiles(e.dataTransfer && e.dataTransfer.files);
+      });
+    }
+
+    async function shareCatalog(mode) {
+      const preview = document.getElementById("catSharePreview");
+      setStatus(document.getElementById("catShareStatus"), mode + " 準備中…");
+      preview.classList.add("hidden");
+      try {
+        const res = await fetch("/api/catalog/share", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ mode, include_active_diff: true }),
+        });
+        const data = await res.json();
+        if (!data.ok) {
+          setStatus(
+            document.getElementById("catShareStatus"),
+            data.error || "失敗",
+            "err"
+          );
+          if (data.draft_body || data.body_markdown) {
+            preview.textContent = data.draft_body || data.body_markdown;
+            preview.classList.remove("hidden");
+          }
+          return;
+        }
+        if (mode === "draft") {
+          preview.textContent = data.body_markdown || JSON.stringify(data.payload, null, 2);
+          preview.classList.remove("hidden");
+          setStatus(document.getElementById("catShareStatus"), "下書きを表示しました", "ok");
+          return;
+        }
+        if (mode === "pr" || mode === "pr_cli") {
+          const cli = data.cli_commands || "";
+          preview.textContent = cli + (data.body_markdown ? "\n\n# --- PR body preview ---\n" + data.body_markdown : "");
+          preview.classList.remove("hidden");
+          try {
+            await navigator.clipboard.writeText(cli);
+            setStatus(
+              document.getElementById("catShareStatus"),
+              (data.hint || "CLI をコピーしました") +
+                (data.draft_body ? " · " + data.draft_body : ""),
+              "ok"
+            );
+          } catch (_) {
+            setStatus(
+              document.getElementById("catShareStatus"),
+              "CLI を下に表示しました（クリップボードは拒否されました。手動コピーしてください）",
+              "ok"
+            );
+          }
+          return;
+        }
+        // issue intent
+        const url = data.intent_url || data.url;
+        setStatus(
+          document.getElementById("catShareStatus"),
+          (data.hint || "Issue 下書きを開きます") +
+            (data.url_truncated ? "（URL 短縮あり）" : ""),
+          "ok"
+        );
+        preview.innerHTML = "";
+        if (url) {
+          const a = document.createElement("a");
+          a.href = url;
+          a.target = "_blank";
+          a.rel = "noopener";
+          a.textContent = "GitHub で Issue 下書きを開く";
+          a.className = "report-link";
+          preview.appendChild(a);
+          preview.appendChild(document.createElement("br"));
+          const note = document.createElement("div");
+          note.style.marginTop = "0.5rem";
+          note.style.fontSize = "0.85rem";
+          note.textContent = url.length > 120 ? url.slice(0, 120) + "…" : url;
+          preview.appendChild(note);
+          if (data.body_markdown) {
+            const details = document.createElement("pre");
+            details.style.marginTop = "0.75rem";
+            details.style.whiteSpace = "pre-wrap";
+            details.textContent = data.body_markdown;
+            preview.appendChild(details);
+          }
+          preview.classList.remove("hidden");
+          window.open(url, "_blank", "noopener");
+        }
+      } catch (err) {
+        setStatus(document.getElementById("catShareStatus"), String(err), "err");
+      }
+    }
+    const shareDraft = document.getElementById("catShareDraft");
+    if (shareDraft) {
+      shareDraft.addEventListener("click", () => shareCatalog("draft"));
+      document.getElementById("catShareIssue").addEventListener("click", () => {
+        shareCatalog("issue");
+      });
+      document.getElementById("catSharePr").addEventListener("click", () => {
+        shareCatalog("pr");
+      });
+    }
+  </script>
+</body>
+</html>

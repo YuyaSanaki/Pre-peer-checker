@@ -1,0 +1,10 @@
+	Welch Two Sample t-test
+
+data:  x and y
+t = 12.34, df = 8, p-value = 1.2e-06
+alternative hypothesis: true difference in means is not equal to 0
+95 percent confidence interval:
+ 8.1 12.2
+sample estimates:
+ mean of x  mean of y
+      10.0       20.0

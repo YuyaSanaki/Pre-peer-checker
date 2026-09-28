@@ -1,0 +1,30 @@
+{
+  "schema_version": "1.0",
+  "case_id": "methods_claim",
+  "benchmark_only": false,
+  "generalization": "Synthetic G12: Methods stoichiometry disagrees with Figure legend.",
+  "items": [
+    {
+      "id": "G12",
+      "pattern_id": "P-METHODS-CLAIM-MISMATCH",
+      "expected_tags": [
+        "Warning [設定・アノテーション不整合]"
+      ],
+      "severity": "required",
+      "panels": [
+        {
+          "figure": "Figure 1"
+        }
+      ],
+      "evidence_paths": [
+        "manuscript.docx"
+      ],
+      "detection_hints": [
+        "Methods ratio 1:1 vs Figure 1:2"
+      ],
+      "citations": [
+        "fixtures/synthetic/methods_claim"
+      ]
+    }
+  ]
+}

@@ -1,0 +1,52 @@
+{
+  "schema_version": "1.0",
+  "case_id": "CASE_ID_PLACEHOLDER",
+  "role": "benchmark_case",
+  "description": "TEMPLATE — copy to case_manifest.json locally. Do not commit filled manifests that embed private manuscript paths or real n.",
+  "root_relative": "input/CASE_ID_PLACEHOLDER",
+  "docker_root": "/data/input/CASE_ID_PLACEHOLDER",
+  "canonical_paths": {
+    "manuscript_docx": "Manuscript/word/manuscript.final.docx",
+    "supplement_docx": "Manuscript/word/supplement.final.docx",
+    "methods_docx": "Manuscript/word/methods.docx",
+    "main_figures_pdf": "Manuscript/figures_main.pdf",
+    "supp_figures_pdf": "Manuscript/figures_supp.pdf",
+    "quant_fig1c_xlsx": "Manuscript/data/Fig1C/quant_condition_A.xlsx",
+    "quant_fig1h_xlsx": "Manuscript/data/Fig1H/quant_condition_B.xlsx",
+    "plot_residue_dir": "Manuscript/data/Fig1/plot_residue",
+    "rplot_alphaexp_pdf": "Manuscript/data/Fig1/plot_residue/Rplot_A.pdf",
+    "rplot_betaexp_pdf": "Manuscript/data/Fig1/plot_residue/Rplot_B.pdf",
+    "r_project": "Manuscript/data/Fig1/plot_residue/analysis.Rproj",
+    "r_history": "Manuscript/data/Fig1/plot_residue/.Rhistory"
+  },
+  "path_notes": [
+    "Fill from local private input/. Keep case_manifest.json gitignored when it points at identifiable private data."
+  ],
+  "ignore_globs": ["**/~$*", "**/.DS_Store", "**/.Rproj.user/**"],
+  "group_schema": {
+    "condition_a": {
+      "source": "quant_fig1c_xlsx",
+      "sheet": "graph",
+      "value_col": "value",
+      "label_col": "label",
+      "groups": [
+        {"label": 1, "genotype": "control", "panel_group": "F", "n_expected_from_data": null},
+        {"label": 2, "genotype": "mutant", "panel_group": "G", "n_expected_from_data": null}
+      ]
+    },
+    "condition_b": {
+      "source": "quant_fig1h_xlsx",
+      "sheet": "graph",
+      "value_col": "value",
+      "label_col": "label",
+      "groups": [
+        {"label": 1, "genotype": "control", "panel_group": "N", "n_expected_from_data": null},
+        {"label": 2, "genotype": "knockdown", "panel_group": "O", "n_expected_from_data": null}
+      ]
+    }
+  },
+  "eval_command": {
+    "verify": "pre-peer-checker input/CASE_ID_PLACEHOLDER -o outputs/report.html --json outputs/warnings.json",
+    "gold": "python -m pre_peer_checker.eval.gold_eval --case CASE_ID_PLACEHOLDER --warnings outputs/warnings.json"
+  }
+}

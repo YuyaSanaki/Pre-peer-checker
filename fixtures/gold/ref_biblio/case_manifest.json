@@ -1,0 +1,13 @@
+{
+  "schema_version": "1.0",
+  "case_id": "ref_biblio",
+  "role": "synthetic_regression",
+  "description": "Bibliography integrity: missing cite, duplicate keys, meta year conflict.",
+  "root_relative": "fixtures/synthetic/ref_biblio",
+  "docker_root": "/app/fixtures/synthetic/ref_biblio",
+  "canonical_paths": {},
+  "ignore_globs": [],
+  "eval_command": {
+    "gold": "python -m pre_peer_checker.eval.gold_eval --case ref_biblio --run --input fixtures/synthetic/ref_biblio"
+  }
+}

@@ -1,0 +1,36 @@
+{
+  "schema_version": "1.0",
+  "case_id": "blot_lane",
+  "benchmark_only": false,
+  "generalization": "Synthetic G2: shared vertical lane between blot panels.",
+  "items": [
+    {
+      "id": "G2",
+      "pattern_id": "P-BLOT-LANE-REUSE",
+      "expected_tags": [
+        "Warning [画像重複・再利用（要出典確認）]"
+      ],
+      "severity": "required",
+      "panels": [
+        {
+          "figure": "Figure 1",
+          "panel": "A"
+        },
+        {
+          "figure": "Figure 1",
+          "panel": "B"
+        }
+      ],
+      "evidence_paths": [
+        "panel_a.png",
+        "panel_b.png"
+      ],
+      "detection_hints": [
+        "Middle lane strip identical; flanking lanes differ"
+      ],
+      "citations": [
+        "fixtures/synthetic/blot_lane"
+      ]
+    }
+  ]
+}

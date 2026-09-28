@@ -1,0 +1,1171 @@
+"""検証パイプライン・オーケストレーション（Phase 1 決定論的コア）。"""
+
+from __future__ import annotations
+
+import tempfile
+from collections import defaultdict
+from dataclasses import dataclass, field
+from pathlib import Path
+
+from pre_peer_checker.data.group_vectors import (
+    GroupVector,
+    experiments_look_distinct,
+    extract_group_vectors,
+    find_cross_table_matches,
+)
+from pre_peer_checker.data.stats_recalc import analyze_table_file
+from pre_peer_checker.engine.case_profile import get_case_profile
+from pre_peer_checker.engine.n_and_names import (
+    N_AUTHORITY_FOOTER,
+    filename_content_warnings,
+    is_plot_quant_table,
+    match_legend_n_to_vectors,
+    warnings_from_n_mismatches,
+    warnings_inconsistent_n_identical_plots,
+)
+from pre_peer_checker.engine.n_matrix import build_n_matrix, n_matrix_to_artifact
+from pre_peer_checker.engine.panel_plot_identity import (
+    is_publication_figure_pdf,
+    warnings_from_figure_panel_identity,
+)
+from pre_peer_checker.engine.plot_table_match import (
+    best_table_for_plot,
+    warnings_from_cross_plot_identity,
+    warnings_from_plot_table_mismatch,
+)
+from pre_peer_checker.engine.shared_control import (
+    warnings_from_shared_controls,
+)
+from pre_peer_checker.engine.source_values import (
+    warnings_from_source_duplicates,
+    warnings_from_source_ratio_artifacts,
+)
+from pre_peer_checker.engine.numeric_crossref import warnings_from_numeric_crossref
+from pre_peer_checker.engine.methods_claim import warnings_from_methods_claims
+from pre_peer_checker.engine.errorbar_sem_sd import warnings_from_errorbar_sem_sd
+from pre_peer_checker.engine.multiplicity import warnings_from_multiplicity_gap
+from pre_peer_checker.engine.survival_count import warnings_from_survival_counts
+from pre_peer_checker.engine.scale_mag import warnings_from_scale_mag
+from pre_peer_checker.engine.microscopy_meta import warnings_from_microscopy_meta
+from pre_peer_checker.engine.count_n import warnings_from_count_n
+from pre_peer_checker.engine.stat_method import warnings_from_stat_method
+from pre_peer_checker.engine.config_annotation import warnings_from_config_annotation
+from pre_peer_checker.engine.ref_label import warnings_from_ref_labels
+from pre_peer_checker.engine.ref_biblio import orphan_entry_keys, warnings_from_ref_biblio
+from pre_peer_checker.engine.ref_pdf_meta import match_bib_to_pdfs, warnings_from_ref_pdf_meta
+from pre_peer_checker.engine.ref_claim import review_claims_against_pdfs
+from pre_peer_checker.engine.exclusion_trace import warnings_from_exclusion_id_trace
+from pre_peer_checker.llm.claim_cite_schema import claims_from_in_text
+from pre_peer_checker.parsers.references import parse_references_from_docx
+from pre_peer_checker.parsers.cited_paper_ingest import ensure_pdfs_ingested
+from pre_peer_checker.parsers.figure_panel_labels import collect_panel_labels_by_figure
+from pre_peer_checker.engine.stats_residue_match import (
+    match_residue_to_tables,
+    warnings_from_residue_stats,
+    warnings_residue_plot_table_divergence,
+)
+from pre_peer_checker.imaging.blot_lane import scan_blot_lane_reuse
+from pre_peer_checker.imaging.corpus_scan import scan_against_corpus
+from pre_peer_checker.imaging.duplicate_scan import scan_image_duplicates_auto
+from pre_peer_checker.imaging.microscopy_scan import scan_microscopy_duplicates
+from pre_peer_checker.io_bundle import FileKind, InputBundle, collect_inputs, is_r_history_name
+from pre_peer_checker.data.tenx_matrix import scan_tenx_matrices
+from pre_peer_checker.llm.legend_extract import (
+    extract_legends_with_backend,
+    legend_json_to_panel_ns,
+    legends_any_citation,
+    legends_to_artifact,
+    merge_panel_ns,
+    summarize_legend_llm_meta,
+)
+from pre_peer_checker.parsers.legend_struct import all_panel_ns, extract_structured_legends
+from pre_peer_checker.parsers.pdf_figures import extract_pdf
+from pre_peer_checker.parsers.pdf_images import export_embedded_images
+from pre_peer_checker.parsers.pdf_plot_digitize import digitize_plot_pdf, find_plot_pdfs
+from pre_peer_checker.engine.script_dag import warnings_from_python_dag, warnings_from_r_dag
+from pre_peer_checker.engine.script_resolve import (
+    enrich_python_dag_with_local_paths,
+    enrich_r_dag_with_local_paths,
+    python_dag_to_artifact_dict,
+    r_dag_to_artifact_dict,
+)
+from pre_peer_checker.parsers.python_ast import analyze_python_dag_file
+from pre_peer_checker.parsers.r_residue import find_residue_files, parse_textclipping
+from pre_peer_checker.parsers.r_treesitter import analyze_r_dag_file, analyze_r_file
+from pre_peer_checker.parsers.prism_pzfx import is_prism_binary, parse_pzfx
+from pre_peer_checker.parsers.kaleida import kaleida_to_artifact, parse_kaleida_file
+from pre_peer_checker.parsers.yaml_config import extract_group_defs, parse_yaml_config
+from pre_peer_checker.pipeline.run_coverage import build_run_coverage
+from pre_peer_checker.report.html_report import write_html_report
+from pre_peer_checker.warnings import WarningItem, WarningTag
+
+
+@dataclass
+class VerificationResult:
+    bundle: InputBundle
+    warnings: list[WarningItem] = field(default_factory=list)
+    artifacts: dict[str, object] = field(default_factory=dict)
+
+    def write_report(self, out_path: Path | str) -> Path:
+        names = ", ".join(p.name for p in self.bundle.all_paths()[:8])
+        if len(self.bundle.all_paths()) > 8:
+            names += ", ..."
+        coverage = self.artifacts.get("run_coverage")
+        return write_html_report(
+            self.warnings,
+            out_path,
+            file_summary=names,
+            coverage=coverage if isinstance(coverage, dict) else None,
+        )
+
+
+def _select_docx_for_legend(docx_files: list[Path]) -> list[Path]:
+    """Pick manuscript Word files for legend extraction (avoid response / loose copies)."""
+    if not docx_files:
+        return []
+
+    def _score(p: Path) -> tuple[int, int, str]:
+        name = p.name.lower()
+        score = 0
+        if "response" in name or "responce" in name:
+            score -= 100
+        if "highlight" in name or "etoc" in name or "template" in name:
+            score -= 50
+        if "suppl" in name or "supplement" in name:
+            score -= 5
+        if " copy" in name or name.endswith(" copy.docx"):
+            score -= 20
+        if "final" in name:
+            score += 30
+        if "text" in name:
+            score += 20
+        # Prefer shorter, non-copy names when scores tie
+        return (score, -len(name), name)
+
+    ranked = sorted(docx_files, key=_score, reverse=True)
+    best = _score(ranked[0])[0]
+    if best < 0:
+        return list(docx_files)
+    # Keep top tier (same score band) so Suppl + main text finals both run when tied high
+    top = [p for p in ranked if _score(p)[0] >= max(best - 10, 0)]
+    return top or ranked[:1]
+
+
+def run_verification(
+    paths: list[Path | str],
+    *,
+    corpus: list[Path | str] | None = None,
+    cited_papers: list[Path | str] | None = None,
+    legend_llm: bool = False,
+    legend_llm_prefer: str = "auto",
+    legend_llm_model: str | None = None,
+    legend_llm_profile: str | None = None,
+    vlm_profile: str | None = None,
+    vlm_assist: bool = False,
+    vlm_prefer: str = "auto",
+    vlm_model: str | None = None,
+    patterns_path: Path | str | None = None,
+) -> VerificationResult:
+    """検証パイプライン（読む＝LLM/VLM、比べる＝決定論）。
+
+    corpus: 過去論文画像コーパス（H3 外部照合）。未指定ならスキップ。
+    cited_papers: 引用先 PDF／そのディレクトリ（文献メタ＋引用整合）。未指定ならスキップ。
+    legend_llm: True のとき MLX/CUDA で Legend／Fig チャンク → チェック項目 JSON（読む本線）。
+    legend_llm_profile / vlm_profile: ``llm/model_registry.yaml`` のプロファイル ID。
+    vlm_assist: True のときベクターパネル分割が空の出版 Fig に VLM パネル地図を補助。
+    patterns_path: 照合カタログ JSON。未指定時はアクティブカタログ → fixtures。
+    """
+    from pre_peer_checker.catalog.runtime import (
+        enabled_pattern_ids,
+        filter_warnings_by_catalog,
+        load_runtime_catalog,
+        resolve_patterns_path,
+    )
+    from pre_peer_checker.llm.registry import resolve_model
+
+    catalog_path = resolve_patterns_path(patterns_path)
+    catalog = load_runtime_catalog(catalog_path)
+
+    bundle = collect_inputs(paths)
+    result = VerificationResult(bundle=bundle)
+    result.artifacts["patterns_catalog"] = {
+        "path": str(catalog_path),
+        "n_patterns": len(catalog.get("patterns") or []),
+        "n_enabled": len(enabled_pattern_ids(catalog)),
+        "revision": (catalog.get("catalog_policy") or {}).get("catalog_revision"),
+    }
+    result.artifacts["llm_selection"] = {
+        "llm": resolve_model(
+            role="text",
+            profile_id=legend_llm_profile,
+            model_id=legend_llm_model,
+            prefer=None
+            if (legend_llm_prefer or "auto").lower() == "auto"
+            else legend_llm_prefer,
+        ).to_dict(),
+        "vlm": resolve_model(role="vision", profile_id=vlm_profile).to_dict(),
+    }
+    if bundle.extracted_from:
+        result.artifacts["extracted_zips"] = list(bundle.extracted_from)
+    roots = [Path(p).resolve() for p in paths]
+    corpus_roots = [Path(p).resolve() for p in (corpus or [])]
+    cited_paper_roots = [Path(p).resolve() for p in (cited_papers or [])]
+
+    # --- スクリプト DAG（Python ast / R tree-sitter / Rhistory） ---
+    table_paths_early = bundle.get(FileKind.CSV) + bundle.get(FileKind.EXCEL)
+
+    py_plots = []
+    for p in list(bundle.get(FileKind.PYTHON)) + list(bundle.get(FileKind.NOTEBOOK)):
+        source_kind = "notebook" if p.suffix.lower() == ".ipynb" else "python"
+        try:
+            dag = analyze_python_dag_file(p)
+        except Exception as exc:  # noqa: BLE001
+            result.artifacts.setdefault("script_parse_errors", []).append(
+                {"path": str(p), "error": str(exc), "source_kind": source_kind}
+            )
+            continue
+        enrich_python_dag_with_local_paths(
+            dag, script_path=p, table_paths=table_paths_early
+        )
+        py_plots.append(
+            python_dag_to_artifact_dict(dag, script_path=p, source_kind=source_kind)
+        )
+        result.warnings.extend(warnings_from_python_dag(p, dag))
+    result.artifacts["python"] = py_plots
+
+    r_bindings = []
+    for p in bundle.get(FileKind.R_SCRIPT):
+        source_kind = "rhistory" if is_r_history_name(p.name) else (
+            "rmd" if p.suffix.lower() == ".rmd" else "rscript"
+        )
+        try:
+            dag = analyze_r_dag_file(p)
+        except Exception as exc:  # noqa: BLE001
+            result.artifacts.setdefault("script_parse_errors", []).append(
+                {"path": str(p), "error": str(exc), "source_kind": source_kind}
+            )
+            try:
+                bindings = analyze_r_file(p)
+                r_bindings.append(
+                    {
+                        "path": str(p),
+                        "bindings": [b.__dict__ for b in bindings],
+                        "backend": "error",
+                        "source_kind": source_kind,
+                    }
+                )
+            except Exception:  # noqa: BLE001
+                pass
+            continue
+        enrich_r_dag_with_local_paths(dag, script_path=p, table_paths=table_paths_early)
+        r_bindings.append(
+            r_dag_to_artifact_dict(dag, script_path=p, source_kind=source_kind)
+        )
+        if source_kind != "rhistory":
+            result.warnings.extend(warnings_from_r_dag(p, dag))
+    result.artifacts["r"] = r_bindings
+
+    # --- Prism (.pzfx) / KaleidaGraph (.qpd/.qpc) ---
+    prism_arts: list[dict] = []
+    prism_vectors: list[GroupVector] = []
+    for p in bundle.get(FileKind.PRISM):
+        if is_prism_binary(p) or p.suffix.lower() == ".pzf":
+            prism_arts.append(
+                {
+                    "path": str(p),
+                    "source_kind": "prism",
+                    "backend": "pzf-binary",
+                    "note": "binary .pzf — Save As .pzfx for table extraction",
+                    "reads": [],
+                    "plots": [],
+                    "saves": [],
+                }
+            )
+            continue
+        try:
+            pf = parse_pzfx(p)
+        except Exception as exc:  # noqa: BLE001
+            result.artifacts.setdefault("script_parse_errors", []).append(
+                {"path": str(p), "error": str(exc), "source_kind": "prism"}
+            )
+            continue
+        art = pf.to_dict()
+        prism_arts.append(art)
+        for table in pf.tables:
+            for group, values in table.y_vectors():
+                if len(values) < 1:
+                    continue
+                prism_vectors.append(
+                    GroupVector(
+                        source=p,
+                        group_key=f"{table.title}:{group}" if table.title else group,
+                        values=tuple(sorted(values)),
+                        n=len(values),
+                    )
+                )
+    result.artifacts["prism"] = prism_arts
+    result.artifacts["prism_vectors_n"] = len(prism_vectors)
+    # Stash for merge into group vectors after table extract
+    result.artifacts["_prism_group_vectors"] = prism_vectors
+
+    kaleida_arts: list[dict] = []
+    for p in bundle.get(FileKind.KALEIDA):
+        try:
+            ref = parse_kaleida_file(p)
+            kaleida_arts.append(
+                kaleida_to_artifact(ref, table_paths=table_paths_early)
+            )
+        except Exception as exc:  # noqa: BLE001
+            result.artifacts.setdefault("script_parse_errors", []).append(
+                {"path": str(p), "error": str(exc), "source_kind": "kaleida"}
+            )
+    result.artifacts["kaleida"] = kaleida_arts
+
+    for p in bundle.get(FileKind.YAML):
+        cfg = parse_yaml_config(p)
+        result.artifacts.setdefault("yaml", []).append(
+            {"path": str(p), "groups": extract_group_defs(cfg)}
+        )
+
+    # Prefer primary manuscript docx to reduce duplicate legends from versioned copies
+    docx_files = bundle.get(FileKind.DOCX)
+    docx_for_legend = _select_docx_for_legend(docx_files)
+
+    panel_ns = []
+    docx_arts = []
+    for p in docx_for_legend:
+        try:
+            legends = extract_structured_legends(p)
+        except Exception as exc:  # noqa: BLE001
+            msg = str(exc)
+            if "Package not found" in msg:
+                msg = (
+                    "Word ファイルとして開けませんでした"
+                    "（Office の一時ファイル、同期途中、または破損の可能性）。"
+                    " Word で一度開いて再保存するか、コピー／~$ 一時ファイルを除いて再実行してください。"
+                    f" 詳細: {exc}"
+                )
+            result.warnings.append(
+                WarningItem(
+                    tag=WarningTag.CONFIG_MISMATCH,
+                    title=f"Word 読込失敗: {p.name}",
+                    location=str(p),
+                    reason=msg,
+                    sources=[str(p)],
+                )
+            )
+            continue
+        pns = all_panel_ns(legends)
+        panel_ns.extend(pns)
+        docx_arts.append(
+            {
+                "path": str(p),
+                "figures": [
+                    {
+                        "figure": leg.figure,
+                        "panel_ns": [pn.__dict__ for pn in leg.panel_ns],
+                        "tests": leg.tests,
+                    }
+                    for leg in legends
+                ],
+            }
+        )
+    result.artifacts["docx"] = docx_arts
+
+    # --- Legend / Figチャンク JSON（読む＝LLM 本線；失敗時は規則フォールバック） ---
+    legend_jsons = []
+    legend_llm_meta: list[dict] = []
+    figure_chunks_art: list[dict] = []
+    for p in docx_for_legend:
+        try:
+            legs, meta = extract_legends_with_backend(
+                p,
+                enabled=legend_llm,
+                prefer=legend_llm_prefer,
+                model_id=legend_llm_model,
+                profile_id=legend_llm_profile,
+                figure_pdfs=list(bundle.get(FileKind.PDF)),
+            )
+            legend_jsons.extend(legs)
+            figure_chunks_art.extend(meta.get("figure_chunks") or [])
+            legend_llm_meta.append(
+                {
+                    "path": str(p),
+                    **{k: v for k, v in meta.items() if k != "figure_chunks"},
+                }
+            )
+        except Exception:  # noqa: BLE001
+            continue
+    result.artifacts["legend_json"] = legends_to_artifact(legend_jsons)
+    result.artifacts["legend_llm"] = legend_llm_meta
+    result.artifacts["legend_llm_status"] = summarize_legend_llm_meta(legend_llm_meta)
+    result.artifacts["figure_chunks"] = figure_chunks_art
+    legend_cited = legends_any_citation(legend_jsons)
+    result.artifacts["legend_citation_mentioned"] = legend_cited
+    # When LLM produced panels, still merge with rules (rules lock on same key).
+    # prefer_llm exclusive mode dropped: it discarded F/N legend n and broke H2b.
+    llm_active = any(
+        getattr(j, "extractor", "") in {"llm", "llm+rules"} for j in legend_jsons
+    )
+    panel_ns = merge_panel_ns(
+        panel_ns,
+        legend_json_to_panel_ns(legend_jsons),
+        prefer_llm=False,
+    )
+    if llm_active:
+        result.artifacts["legend_panel_ns_merge"] = "rules_lock"
+
+    # --- 表: 群ベクトル + 統計 ---
+    table_paths = bundle.get(FileKind.CSV) + bundle.get(FileKind.EXCEL)
+    all_vectors = []
+    table_stats = []
+    table_load_errors: list[dict[str, str]] = []
+    for p in table_paths:
+        try:
+            all_vectors.extend(extract_group_vectors(p))
+            table_stats.append(analyze_table_file(p))
+        except Exception as exc:  # noqa: BLE001 — 顕微鏡 Detailed.csv 等は Quiet にスキップ
+            table_load_errors.append({"path": str(p), "error": str(exc)})
+    # Prism Y-columns participate in fingerprint linking
+    prism_vecs = result.artifacts.pop("_prism_group_vectors", None) or []
+    if isinstance(prism_vecs, list):
+        all_vectors.extend(prism_vecs)
+    result.artifacts["group_vectors"] = [
+        {"source": str(v.source), "group": v.group_key, "n": v.n} for v in all_vectors
+    ]
+    result.artifacts["table_load_errors"] = table_load_errors
+    result.artifacts["stats"] = [
+        {
+            "path": str(s.path),
+            "groups": [g.__dict__ for g in s.groups],
+            "pairwise": s.pairwise,
+            "anova": s.anova,
+            "hints": s.warnings_hints,
+        }
+        for s in table_stats
+    ]
+
+    # --- 10x Genomics matrices (barcodes.tsv.gz / features / matrix.mtx.gz) ---
+    tenx_paths = (
+        bundle.get(FileKind.TSV)
+        + bundle.get(FileKind.MTX)
+        + bundle.get(FileKind.CSV)
+        + bundle.get(FileKind.TEXT)
+    )
+    try:
+        tenx = scan_tenx_matrices(tenx_paths)
+        result.warnings.extend(tenx.warnings)
+        result.artifacts["tenx_matrices"] = tenx.artifacts
+    except Exception as exc:  # noqa: BLE001
+        result.artifacts["tenx_matrices"] = {
+            "n_matrices": 0,
+            "n_ok": 0,
+            "total_barcodes": 0,
+            "matrices": [],
+            "error": str(exc),
+        }
+
+    # --- P-DATA-SWAP: 別実験系の完全一致（コントロール以外） ---
+    plot_vectors = [v for v in all_vectors if is_plot_quant_table(v.source)]
+    for m in find_cross_table_matches(plot_vectors, min_n=5, jaccard_threshold=1.0):
+        if not m.exact:
+            continue
+        if m.a.source.name == m.b.source.name:
+            continue
+        distinct = experiments_look_distinct(m.a.source, m.b.source)
+        if not distinct:
+            continue  # shared-control path handles same-token paths
+        # control-like exact across distinct experiments → shared_control engine
+        gk = f"{m.a.group_key} {m.b.group_key}".lower()
+        if any(t in gk for t in ("ctrl", "control", "wt", "wild", "vehicle")):
+            continue
+        result.warnings.append(
+            WarningItem(
+                tag=WarningTag.DATA_SWAP,
+                title="別実験系ファイル間で群データが完全一致",
+                location=f"{m.a.source.name}[{m.a.group_key}] ↔ {m.b.source.name}[{m.b.group_key}]",
+                reason=(
+                    f"n={m.a.n}/{m.b.n}, exact match。"
+                    "別条件のはずの定量値が一致していないか確認してください。"
+                ),
+                sources=[str(m.a.source), str(m.b.source)],
+                metadata={"pattern_id": "P-DATA-SWAP-CROSS-CONDITION", "exact": True},
+            )
+        )
+
+    # --- P-SHARED-CONTROL: 完全一致 / 部分集合 / 端点欠落 ---
+    from pre_peer_checker.engine.shared_control import shared_control_disclosure
+
+    claim_texts: list[str] = []
+    for p in docx_for_legend:
+        try:
+            for leg in extract_structured_legends(p):
+                claim_texts.append(leg.text)
+        except Exception:
+            continue
+        # Methods / Results 本文も主張スパーン用に取り込む（Figure Legend 以外）
+        try:
+            from docx import Document as _Docx
+
+            for para in _Docx(str(p)).paragraphs:
+                t = (para.text or "").strip()
+                if t:
+                    claim_texts.append(t)
+        except Exception:
+            continue
+    for ch in figure_chunks_art:
+        if isinstance(ch, dict):
+            for key in ("text", "legend", "caption", "content"):
+                t = ch.get(key)
+                if isinstance(t, str) and t.strip():
+                    claim_texts.append(t)
+    for art in result.artifacts.get("legend_json") or []:
+        if not isinstance(art, dict):
+            continue
+        for key in ("evidence_span", "context", "text"):
+            t = art.get(key)
+            if isinstance(t, str) and t.strip():
+                claim_texts.append(t)
+        cit = art.get("citation") or {}
+        if isinstance(cit, dict):
+            for t in cit.get("spans") or []:
+                if isinstance(t, str):
+                    claim_texts.append(t)
+            rf = cit.get("reproduced_from")
+            if isinstance(rf, str) and rf.strip():
+                claim_texts.append(f"reproduced from {rf}")
+
+    disclosure = shared_control_disclosure(claim_texts)
+    result.artifacts["shared_control_claimed"] = disclosure == "explicit"
+    result.artifacts["shared_control_disclosure"] = disclosure
+    from pre_peer_checker.llm.legend_schema import detect_independence_claims
+
+    indep = detect_independence_claims("\n".join(claim_texts))
+    independence_claimed = bool(
+        indep.mentioned and indep.kind == "independent"
+    )
+    result.artifacts["independence_claimed"] = independence_claimed
+    result.artifacts["independence_spans"] = list(indep.spans or [])
+    result.warnings.extend(
+        warnings_from_shared_controls(
+            plot_vectors,
+            min_n=4,
+            disclosure=disclosure,
+            independence_claimed=independence_claimed,
+        )
+    )
+
+    # --- P-SOURCE-DUPLICATE-VALUES / P-SOURCE-RATIO-ARTIFACT（同一表内指紋） ---
+    result.warnings.extend(warnings_from_source_duplicates(plot_vectors, min_n=4))
+    result.warnings.extend(warnings_from_source_ratio_artifacts(plot_vectors, min_n=4))
+
+    # --- P-NUMERIC-CROSSREF-MISMATCH / P-METHODS-CLAIM-MISMATCH ---
+    result.warnings.extend(
+        warnings_from_numeric_crossref(claim_texts, plot_vectors)
+    )
+    result.warnings.extend(warnings_from_methods_claims(claim_texts))
+
+    # --- P1/P2: errorbar / multiplicity / survival / count-n ---
+    result.warnings.extend(
+        warnings_from_errorbar_sem_sd(claim_texts, plot_vectors)
+    )
+    result.warnings.extend(
+        warnings_from_multiplicity_gap(claim_texts, plot_vectors)
+    )
+    result.warnings.extend(
+        warnings_from_survival_counts(claim_texts, list(table_paths))
+    )
+    result.warnings.extend(warnings_from_count_n(claim_texts, all_vectors))
+
+    # --- deferred→配線: STAT-METHOD / CONFIG / REF ---
+    script_texts: list[str] = []
+    script_paths: list[Path] = []
+    for kind in (FileKind.R_SCRIPT, FileKind.PYTHON):
+        for sp in bundle.get(kind):
+            script_paths.append(Path(sp))
+            try:
+                script_texts.append(Path(sp).read_text(encoding="utf-8", errors="ignore")[:80_000])
+            except Exception:
+                continue
+    result.warnings.extend(
+        warnings_from_stat_method(
+            claim_texts,
+            plot_vectors,
+            script_texts=script_texts,
+            script_paths=script_paths,
+        )
+    )
+    result.warnings.extend(
+        warnings_from_config_annotation(
+            list(result.artifacts.get("yaml") or []),
+            all_vectors if all_vectors else plot_vectors,
+        )
+    )
+    fig_pdfs = [
+        p
+        for p in bundle.get(FileKind.PDF)
+        if is_publication_figure_pdf(p)
+    ]
+    labels_by_figure = collect_panel_labels_by_figure(fig_pdfs)
+    result.artifacts["figure_panel_labels"] = labels_by_figure
+    result.warnings.extend(
+        warnings_from_ref_labels(claim_texts, labels_by_figure)
+    )
+
+    # --- 参考文献メタ（原稿内）+ 任意: 引用先 PDF ---
+    ref_bundle = None
+    for p in bundle.get(FileKind.DOCX):
+        try:
+            ref_bundle = parse_references_from_docx(p)
+            if ref_bundle.entries or ref_bundle.in_text:
+                break
+        except Exception:
+            continue
+    if ref_bundle is not None:
+        result.artifacts["reference_bundle"] = ref_bundle.to_dict()
+        orphans = orphan_entry_keys(ref_bundle)
+        if orphans:
+            result.artifacts["reference_orphans"] = orphans
+        result.warnings.extend(warnings_from_ref_biblio(ref_bundle))
+
+        cited_entry_dirs: list[Path] = []
+        if cited_paper_roots:
+            try:
+                cited_entry_dirs = ensure_pdfs_ingested(cited_paper_roots)
+            except Exception as exc:  # noqa: BLE001
+                result.artifacts["cited_papers_error"] = str(exc)
+                cited_entry_dirs = []
+            result.artifacts["cited_paper_dirs"] = [str(p) for p in cited_entry_dirs]
+            link_report = match_bib_to_pdfs(ref_bundle, cited_entry_dirs)
+            result.artifacts["ref_pdf_link"] = {
+                "matches": link_report.get("matches"),
+                "ambiguous": link_report.get("ambiguous"),
+                "unmatched_bib": link_report.get("unmatched_bib"),
+                "n_pdf_entries": link_report.get("n_pdf_entries"),
+                "n_unmatched_pdf": len(link_report.get("unmatched_pdf") or []),
+            }
+            result.warnings.extend(warnings_from_ref_pdf_meta(link_report))
+            claims = claims_from_in_text(ref_bundle.in_text)
+            result.artifacts["citation_claims"] = [c.to_dict() for c in claims]
+            reviews, claim_warns = review_claims_against_pdfs(claims, link_report)
+            result.artifacts["citation_evidence_reviews"] = reviews
+            result.warnings.extend(claim_warns)
+        else:
+            result.artifacts["cited_paper_dirs"] = []
+            result.artifacts["ref_pdf_link"] = {"note": "cited_papers not provided"}
+    else:
+        result.artifacts["reference_bundle"] = {
+            "note": "no DOCX references parsed",
+            "entries": [],
+            "in_text": [],
+        }
+
+    # --- P-N-MISMATCH / P-EXCLUSION-UNDECLARED: Legend n vs 生データ ---
+    from pre_peer_checker.llm.legend_schema import detect_exclusion_criteria
+
+    exclusion_blobs: list[str] = list(claim_texts)
+    for j in legend_jsons:
+        excl = getattr(j, "exclusion_criteria", None)
+        if excl is not None and getattr(excl, "mentioned", False):
+            exclusion_blobs.extend(list(getattr(excl, "spans", None) or []) or ["exclusion"])
+        raw = getattr(j, "raw_excerpt", None)
+        if isinstance(raw, str) and raw.strip():
+            exclusion_blobs.append(raw)
+    exclusion_mentioned = detect_exclusion_criteria("\n".join(exclusion_blobs)).mentioned
+    result.artifacts["exclusion_criteria_mentioned"] = exclusion_mentioned
+    n_mismatches = match_legend_n_to_vectors(panel_ns, all_vectors)
+    result.warnings.extend(
+        warnings_from_n_mismatches(
+            n_mismatches, exclusion_mentioned=exclusion_mentioned
+        )
+    )
+    result.warnings.extend(
+        warnings_from_exclusion_id_trace(
+            exclusion_blobs,
+            list(table_paths),
+            exclusion_mentioned=exclusion_mentioned,
+        )
+    )
+    result.artifacts["legend_panel_ns"] = [pn.__dict__ for pn in panel_ns]
+
+    # Fallback: bare n= only when no structured panel n was extracted
+    if not panel_ns:
+        from pre_peer_checker.parsers.legend_struct import _N_BARE_RE, extract_structured_legends as _esl
+
+        bare_ns: list[tuple[str, int]] = []
+        for p in bundle.get(FileKind.DOCX):
+            try:
+                legs = _esl(p)
+            except Exception:
+                continue
+            for leg in legs:
+                if leg.panel_ns:
+                    continue
+                for m in _N_BARE_RE.finditer(leg.text):
+                    bare_ns.append((leg.figure, int(m.group(1))))
+        seen_bare: set[tuple[str, int]] = set()
+        for fig, legend_n in bare_ns:
+            key = (fig, legend_n)
+            if key in seen_bare:
+                continue
+            seen_bare.add(key)
+            for v in plot_vectors:
+                if v.n != legend_n and abs(v.n - legend_n) == 1 and v.n >= 5:
+                    result.warnings.append(
+                        WarningItem(
+                            tag=WarningTag.SAMPLE_SIZE,
+                            title=f"{fig}: サンプルサイズの乖離候補",
+                            location=f"{fig} / {v.source.name}[{v.group_key}]",
+                            reason=(
+                                f"Legend の n={legend_n} に対し生データ群 n={v.n}。"
+                                f"{N_AUTHORITY_FOOTER}"
+                                "パネル紐付けが無いため候補警告です。"
+                            ),
+                            sources=[str(v.source)],
+                            metadata={
+                                "pattern_id": "P-N-MISMATCH-LEGEND-VS-DATA",
+                                "bare": True,
+                                "n_authority": "raw_data_nrows",
+                            },
+                        )
+                    )
+                    break
+
+    # --- ファイル名ヒューリスティック ---
+    result.warnings.extend(filename_content_warnings(table_paths))
+
+    # --- R 残渣 + 統計突合 ---
+    cleaned = []
+    residue_paths: list[Path] = []
+    for root in roots:
+        base = root if root.is_dir() else root.parent
+        for rp in find_residue_files(base):
+            if not str(rp).endswith("textClipping"):
+                continue
+            residue_paths.append(rp)
+            try:
+                st = parse_textclipping(rp)
+                cleaned.append(
+                    {
+                        "path": str(st.path),
+                        "kind": st.kind,
+                        "means": st.means,
+                        "p_value": st.p_value,
+                    }
+                )
+            except Exception:
+                pass
+    result.artifacts["r_residue"] = cleaned
+
+    stats_by_path = {s.path.resolve(): s for s in table_stats}
+    result.warnings.extend(warnings_from_residue_stats(residue_paths, stats_by_path))
+
+    # --- H1/H4: Rplot 等のベクトル PDF 数字化 ↔ 同フォルダ表 ---
+    vectors_by_table: dict[Path, list] = defaultdict(list)
+    for v in all_vectors:
+        if is_plot_quant_table(v.source):
+            vectors_by_table[v.source.resolve()].append(v)
+
+    digitized_plots = []
+    plot_pdfs: list[Path] = []
+    for root in roots:
+        # Directory roots: scan for Rplot/graph residue PDFs only.
+        # Single-file PDF roots: digitize only if residue-like — never treat a
+        # publication multi-panel figure PDF as a ggplot export, and never
+        # rglob its parent (that floods H2b with unrelated residue plots).
+        if root.is_dir():
+            plot_pdfs.extend(find_plot_pdfs(root))
+        elif root.is_file() and root.suffix.lower() == ".pdf":
+            name = root.name.lower()
+            if name.startswith("rplot") or name.startswith("graph"):
+                plot_pdfs.append(root)
+    # also include bundle PDFs named Rplot*
+    for p in bundle.get(FileKind.PDF):
+        if p.name.lower().startswith("rplot") or p.name.lower().startswith("graph"):
+            plot_pdfs.append(p)
+    seen_pdf: set[Path] = set()
+    uniq_plots: list[Path] = []
+    for p in plot_pdfs:
+        rp = p.resolve()
+        if rp not in seen_pdf:
+            seen_pdf.add(rp)
+            uniq_plots.append(p)
+
+    dig_arts = []
+    seen_div: set[tuple[str, str, str, str]] = set()
+    for pdf in uniq_plots:
+        try:
+            plots = digitize_plot_pdf(pdf, max_pages=1)
+        except Exception:
+            continue
+        for plot in plots:
+            digitized_plots.append(plot)
+            dig_arts.append(
+                {
+                    "path": str(plot.path),
+                    "groups": [{"label": g.label, "n": g.n} for g in plot.groups],
+                }
+            )
+            # Prefer co-located tables; fall back to all plot quant tables
+            local = {
+                k: v
+                for k, v in vectors_by_table.items()
+                if k.parent.resolve() == plot.path.parent.resolve()
+            }
+            candidates = local or dict(vectors_by_table)
+            hits = best_table_for_plot(plot, candidates)
+            result.warnings.extend(warnings_from_plot_table_mismatch(plot, hits))
+            if hits and hits[0].mean_score >= 0.9:
+                plot_l = plot.path.name.lower()
+                for rp_path in residue_paths:
+                    if rp_path.parent.resolve() != plot.path.parent.resolve():
+                        continue
+                    res_l = rp_path.name.lower()
+                    # Same-side residue+plot only (<Side>Welch vs Rplot<Side>, not other side)
+                    same_side = any(
+                        t in plot_l and t in res_l
+                        for t in get_case_profile().side_label_tokens()
+                    )
+                    if not same_side:
+                        continue
+                    rhits = match_residue_to_tables(rp_path, stats_by_path)
+                    if not rhits or not rhits[0].matched:
+                        continue
+                    key = (
+                        rp_path.name,
+                        plot.path.name,
+                        rhits[0].table.name,
+                        hits[0].table.name,
+                    )
+                    if key in seen_div:
+                        continue
+                    seen_div.add(key)
+                    result.warnings.extend(
+                        warnings_residue_plot_table_divergence(
+                            residue_best_table=rhits[0].table,
+                            plot_best_table=hits[0].table,
+                            residue_path=rp_path,
+                            plot_path=plot.path,
+                        )
+                    )
+    result.warnings.extend(warnings_from_cross_plot_identity(digitized_plots))
+    result.warnings.extend(
+        warnings_inconsistent_n_identical_plots(panel_ns, all_vectors, digitized_plots)
+    )
+    result.artifacts["digitized_plots"] = dig_arts
+
+    # --- n 対照表（原稿 / 実験データ / 作図 / 統計）---
+    legend_json_by_panel: dict[tuple[str, str], dict] = {}
+    manuscript_by_figure: dict[str, str] = {}
+    for meta in legend_llm_meta:
+        docx_path = str(meta.get("path") or "")
+        for ch in meta.get("figure_chunks") or []:
+            fid = str(ch.get("figure_id") or ch.get("figure") or "")
+            if fid and docx_path:
+                manuscript_by_figure.setdefault(fid, docx_path)
+    for fig in legend_jsons:
+        if fig.figure and manuscript_by_figure.get(fig.figure) is None:
+            # fall back: first docx that produced this figure via legends
+            for meta in legend_llm_meta:
+                if meta.get("path"):
+                    manuscript_by_figure.setdefault(fig.figure, str(meta["path"]))
+                    break
+        for p in fig.panels:
+            if not p.panel:
+                continue
+            legend_json_by_panel[(fig.figure, p.panel.upper())] = {
+                "extractor": fig.extractor,
+                "evidence_span": p.evidence_span,
+                "n_scope": p.n_scope,
+                "confidence": p.confidence,
+                "n": p.n,
+                "groups": list(getattr(p, "groups", None) or []),
+            }
+    script_arts = (
+        list(result.artifacts.get("python") or [])
+        + list(result.artifacts.get("r") or [])
+        + list(result.artifacts.get("prism") or [])
+        + list(result.artifacts.get("kaleida") or [])
+    )
+    case_roots = [Path(r) if not isinstance(r, Path) else r for r in roots]
+
+    # Tier3 key proposals (rules + optional LLM) before n_matrix so linking can adopt
+    key_alias_map: dict[str, set[str]] | None = None
+    try:
+        from pre_peer_checker.engine.key_normalize import (
+            alias_map_from_candidates,
+            propose_key_candidates,
+            propose_llm_key_aliases,
+        )
+
+        legend_gs = sorted(
+            {
+                str(getattr(pn, "group", "") or "").strip()
+                for pn in panel_ns
+                if getattr(pn, "group", None)
+            }
+            | {
+                g
+                for meta in (legend_json_by_panel or {}).values()
+                for g in (meta.get("groups") or [])
+                if g
+            }
+        )
+        table_gs = sorted({v.group_key for v in all_vectors if v.group_key})
+        cands = propose_key_candidates(legend_gs, table_gs)
+        if legend_llm and legend_gs and table_gs:
+            try:
+                from pre_peer_checker.llm.backend import select_backend
+
+                backend = select_backend(
+                    legend_llm_prefer,
+                    model_id=legend_llm_model,
+                    profile_id=legend_llm_profile,
+                )
+                if backend is not None:
+
+                    def _alias_llm(prompt: str) -> str:
+                        return backend.generate(prompt, max_tokens=512)
+
+                    cands = cands + propose_llm_key_aliases(
+                        legend_gs, table_gs, _alias_llm
+                    )
+            except Exception:  # noqa: BLE001
+                pass
+        key_alias_map = alias_map_from_candidates(cands) or None
+        result.artifacts["tier3_key_candidates"] = [
+            {
+                "source": c.source,
+                "normalized": c.normalized,
+                "aliases": list(c.aliases),
+                "method": c.method,
+            }
+            for c in cands
+        ]
+    except Exception:  # noqa: BLE001
+        result.artifacts["tier3_key_candidates"] = []
+        key_alias_map = None
+
+    n_rows = build_n_matrix(
+        panel_ns,
+        all_vectors,
+        digitized_plots=digitized_plots,
+        legend_json_by_panel=legend_json_by_panel,
+        script_artifacts=script_arts,
+        manuscript_by_figure=manuscript_by_figure,
+        case_roots=case_roots,
+        table_paths=table_paths,
+        key_alias_map=key_alias_map,
+    )
+    result.artifacts["n_matrix"] = n_matrix_to_artifact(n_rows)
+
+    # --- H1 補完: 出版 Figure PDF の多パネル点列同一性 ---
+    pub_figs = [p for p in bundle.get(FileKind.PDF) if is_publication_figure_pdf(p)]
+    # Also discover Fig*.pdf under roots even if classify missed
+    for root in roots:
+        base = root if root.is_dir() else root.parent
+        for p in base.rglob("*.pdf"):
+            if is_publication_figure_pdf(p) and p.resolve() not in {x.resolve() for x in pub_figs}:
+                pub_figs.append(p)
+    panel_warns, panel_arts = warnings_from_figure_panel_identity(pub_figs)
+    result.warnings.extend(panel_warns)
+    result.artifacts["figure_panel_plots"] = panel_arts
+    # Paths only here; JPEG embed happens when writing HTML (keeps warnings.json small)
+    result.artifacts["figure_preview_sources"] = [str(p) for p in pub_figs]
+    # Phase 6A: vector panel geometry; optional VLM assist when empty
+    try:
+        from pre_peer_checker.llm.panel_map_assist import extract_panel_regions_vector_then_vlm
+
+        panel_regions, geom_status = extract_panel_regions_vector_then_vlm(
+            pub_figs[:6],
+            vlm_assist=bool(vlm_assist),
+            vlm_prefer=vlm_prefer,
+            vlm_profile=vlm_profile,
+            vlm_model=vlm_model,
+            max_pages_vector=4,
+            min_vector_panels=1,
+        )
+        result.artifacts["figure_panel_regions"] = panel_regions
+        result.artifacts["figure_panel_regions_n"] = len(panel_regions)
+        result.artifacts["panel_geometry_status"] = geom_status
+    except Exception as exc:  # noqa: BLE001
+        result.artifacts["figure_panel_regions"] = []
+        result.artifacts["figure_panel_regions_n"] = 0
+        result.artifacts["panel_geometry_status"] = {"error": str(exc)}
+
+    # --- PDF 埋め込み画像 + 顕微鏡/ラスタ同一セット重複 ---
+    pdf_meta = []
+    pdf_image_paths: list[Path] = []
+    tmp_dirs: list[Path] = []
+    try:
+        for p in bundle.get(FileKind.PDF):
+            meta = extract_pdf(p, extract_images=False)
+            pdf_meta.append({"path": str(p), "pages": len(meta.pages)})
+            name_l = p.name.lower()
+            if any(k in name_l for k in ("fig", "figure", "supp")) and "editorial" not in name_l:
+                td = Path(tempfile.mkdtemp(prefix="mc_pdfimg_"))
+                tmp_dirs.append(td)
+                pdf_image_paths.extend(
+                    export_embedded_images(p, td, min_side=120, max_images=60)
+                )
+        result.artifacts["pdf"] = pdf_meta
+
+        if len(pdf_image_paths) >= 2:
+            matches, method = scan_image_duplicates_auto(
+                pdf_image_paths, prefer_dino=True, fallback_threshold=0.998
+            )
+            dupes = [m for m in matches if m.likely_duplicate]
+            result.artifacts["image_pair_duplicates"] = len(dupes)
+            result.artifacts["pdf_image_scan_method"] = method
+            seen_pairs: set[tuple[str, str]] = set()
+            for m in dupes:
+                key = tuple(sorted((m.path_a.name, m.path_b.name)))
+                if key in seen_pairs:
+                    continue
+                seen_pairs.add(key)
+                result.warnings.append(
+                    WarningItem(
+                        tag=WarningTag.DATA_SWAP,
+                        title="Figure PDF 内の高類似度画像ペア",
+                        location=f"{m.path_a.name} ↔ {m.path_b.name}",
+                        reason=(
+                            f"類似度 {m.cosine_similarity:.4f}（method={m.method}）。"
+                            "別パネル間でのプロット／画像取り違えの可能性があります。"
+                        ),
+                        sources=[str(m.path_a), str(m.path_b)],
+                        metadata={
+                            "pattern_id": "P-DATA-SWAP-CROSS-CONDITION",
+                            "similarity": m.cosine_similarity,
+                            "method": m.method,
+                        },
+                    )
+                )
+
+        micro = scan_microscopy_duplicates(
+            bundle.get(FileKind.LIF) + bundle.get(FileKind.CZI),
+            bundle.get(FileKind.IMAGE),
+            max_files=36,
+            prefer_dino=True,
+        )
+        result.warnings.extend(micro.warnings)
+        result.artifacts["microscopy_scan"] = micro.artifacts
+
+        blot_imgs = list(bundle.get(FileKind.IMAGE))
+        if pdf_image_paths:
+            blot_imgs = list(pdf_image_paths) + blot_imgs
+        blot_result = scan_blot_lane_reuse(
+            blot_imgs[:24],
+            legend_has_reuse_note=legend_cited,
+        )
+        result.warnings.extend(blot_result.warnings)
+        result.artifacts["blot_lane_scan"] = blot_result.artifacts
+
+        result.warnings.extend(
+            warnings_from_scale_mag(claim_texts, blot_imgs[:36])
+        )
+        # LIF/CZI acquisition meta × Legend（顕微鏡接地・内部照合）
+        micro_paths = (
+            list(bundle.get(FileKind.LIF))
+            + list(bundle.get(FileKind.CZI))
+            + blot_imgs[:24]
+        )
+        from pre_peer_checker.imaging.czi_meta import collect_czi_acquisition_meta
+        from pre_peer_checker.imaging.lif_meta import collect_lif_acquisition_meta
+
+        lif_acq = collect_lif_acquisition_meta(list(bundle.get(FileKind.LIF)), max_files=48)
+        czi_acq = collect_czi_acquisition_meta(list(bundle.get(FileKind.CZI)), max_files=48)
+        result.artifacts["lif_acquisition_meta"] = [m.to_dict() for m in lif_acq]
+        result.artifacts["czi_acquisition_meta"] = [m.to_dict() for m in czi_acq]
+        result.warnings.extend(
+            warnings_from_microscopy_meta(
+                claim_texts,
+                micro_paths[:64],
+                lif_meta=lif_acq,
+                czi_meta=czi_acq,
+            )
+        )
+
+        # --- H3: 外部コーパス照合（指定時のみ） ---
+        if corpus_roots:
+            query_imgs = (
+                list(bundle.get(FileKind.IMAGE))
+                + list(bundle.get(FileKind.LIF))
+                + list(bundle.get(FileKind.CZI))
+            )
+            # Prefer exported PDF embeds as query when present
+            if pdf_image_paths:
+                query_imgs = list(pdf_image_paths) + query_imgs
+            corpus_result = scan_against_corpus(
+                query_imgs,
+                corpus_roots,
+                legend_has_citation=legend_cited,
+                prefer_dino=True,
+                prefer_lightglue=True,
+            )
+            result.warnings.extend(corpus_result.warnings)
+            result.artifacts["corpus_scan"] = corpus_result.artifacts
+            result.artifacts["corpus_present"] = corpus_result.corpus_present
+        else:
+            result.artifacts["corpus_present"] = False
+            result.artifacts["corpus_scan"] = {
+                "note": "corpus not provided — H3 external match skipped"
+            }
+    finally:
+        import shutil
+
+        # Coverage must be built before wiping zip extracts (paths still listed on bundle).
+        try:
+            result.artifacts["run_coverage"] = build_run_coverage(
+                bundle,
+                result.artifacts,
+                corpus_provided=bool(corpus_roots),
+                cited_papers_provided=bool(cited_paper_roots),
+            )
+        except Exception as exc:  # noqa: BLE001
+            result.artifacts["run_coverage"] = {
+                "file_counts": {},
+                "sample_files": {},
+                "docx_used_for_legend": [],
+                "extracted_zips": list(getattr(bundle, "extracted_from", []) or []),
+                "checks": [
+                    {
+                        "id": "coverage_error",
+                        "name": "カバレッジ集計",
+                        "status": "skipped",
+                        "detail": f"集計に失敗: {exc}",
+                    }
+                ],
+                "notes": ["カバレッジの一部を生成できませんでした。"],
+            }
+        for td in tmp_dirs:
+            shutil.rmtree(td, ignore_errors=True)
+        bundle.cleanup_extracts()
+
+    # アクティブカタログで無効な pattern_id の Warning を抑制
+    kept, suppressed = filter_warnings_by_catalog(result.warnings, catalog=catalog)
+    result.warnings = list(kept)
+    result.artifacts["patterns_catalog_filter"] = {
+        "kept": len(kept),
+        "suppressed": len(suppressed),
+        "suppressed_pattern_ids": sorted(
+            {
+                str((getattr(w, "metadata", None) or {}).get("pattern_id") or "")
+                for w in suppressed
+                if (getattr(w, "metadata", None) or {}).get("pattern_id")
+            }
+        ),
+    }
+    # カバレッジ再生成（フィルタ後件数を反映）
+    cov = result.artifacts.get("run_coverage")
+    if isinstance(cov, dict):
+        notes = list(cov.get("notes") or [])
+        notes.append(
+            f"照合カタログ: {catalog_path.name}（有効 {len(enabled_pattern_ids(catalog))} / "
+            f"抑制 Warning {len(suppressed)}）"
+        )
+        cov["notes"] = notes
+        result.artifacts["run_coverage"] = cov
+
+    # 統計手法ヒントは Warning 洪水になるため artifacts のみ（Legend 突合は Phase 2）
+    # R/Python 同一 data 多重作図・保存名不一致は script_dag で付与済み
+    return result

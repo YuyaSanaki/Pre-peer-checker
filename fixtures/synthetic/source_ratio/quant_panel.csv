@@ -1,0 +1,11 @@
+group,value
+cond_lo,1.0
+cond_lo,1.5
+cond_lo,2.0
+cond_lo,2.5
+cond_lo,3.0
+cond_hi,10.0
+cond_hi,15.0
+cond_hi,20.0
+cond_hi,25.0
+cond_hi,30.0

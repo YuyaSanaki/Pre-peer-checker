@@ -1,0 +1,64 @@
+{
+  "schema_version": "1.0",
+  "case_id": "CASE_ID_PLACEHOLDER",
+  "benchmark_only": true,
+  "generalization": "Bind each item.pattern_id to fixtures/patterns/pubpeer_patterns.json. Do not commit filled gold_warnings.json that encodes private panel/n facts from real manuscripts.",
+  "items": [
+    {
+      "id": "H1",
+      "pattern_id": "P-DATA-SWAP-CROSS-CONDITION",
+      "expected_tags": ["Warning [データ取り違え]"],
+      "severity": "required",
+      "panels": [
+        {"figure": "Fig.1C", "group": "G", "condition": "condition_A"},
+        {"figure": "Fig.1H", "group": "O", "condition": "condition_B"}
+      ],
+      "evidence_paths": ["Manuscript/figures_main.pdf"],
+      "detection_hints": ["Cross-condition identical plot vectors"],
+      "citations": ["local check_reference notes (private)"]
+    },
+    {
+      "id": "H2a",
+      "pattern_id": "P-N-MISMATCH-LEGEND-VS-DATA",
+      "expected_tags": ["Warning [サンプルサイズ記載誤記]"],
+      "severity": "required",
+      "panels": [{"figure": "Fig.1C", "group": "F"}],
+      "evidence_paths": ["Manuscript/word/manuscript.final.docx"],
+      "detection_hints": ["Legend n vs table nrows; ignore visible jitter count"],
+      "citations": ["local check_reference notes (private)"]
+    },
+    {
+      "id": "H2b",
+      "pattern_id": "P-N-INCONSISTENT-ACROSS-IDENTICAL-PLOTS",
+      "expected_tags": ["Warning [サンプルサイズ記載誤記]", "Warning [データ取り違え]"],
+      "severity": "required",
+      "panels": [
+        {"figure": "Fig.1C", "group": "F"},
+        {"figure": "Fig.1H", "group": "N"}
+      ],
+      "evidence_paths": ["Manuscript/word/manuscript.final.docx"],
+      "detection_hints": ["Same points but different legend n"],
+      "citations": ["local check_reference notes (private)"]
+    },
+    {
+      "id": "H3",
+      "pattern_id": "P-IMAGE-REUSE-UNCITED",
+      "expected_tags": ["Warning [画像重複・再利用（要出典確認）]"],
+      "severity": "required_when_corpus_present",
+      "panels": [{"figure": "Fig.S1A"}],
+      "evidence_paths": ["Manuscript/figures_supp.pdf"],
+      "detection_hints": ["Match vs optional past-paper corpus; skip if corpus absent"],
+      "citations": ["local check_reference notes (private)"]
+    },
+    {
+      "id": "H4",
+      "pattern_id": "P-FILENAME-CONTENT-MISMATCH",
+      "expected_tags": ["Warning [データ取り違え]"],
+      "severity": "desirable",
+      "panels": [{"figure": "Fig.1H", "artifact": "Rplot_B.pdf"}],
+      "evidence_paths": ["Manuscript/data/Fig1/plot_residue/Rplot_B.pdf"],
+      "detection_hints": ["Filename implies condition B but content matches condition A"],
+      "citations": ["local check_reference notes (private)"]
+    }
+  ]
+}

@@ -1,0 +1,107 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "pre-peer-checker"
+version = "0.1.0"
+description = "論文投稿前データ照合AI — 原稿・コード・生データ・Figureの整合性をローカル検証"
+readme = "README.md"
+requires-python = ">=3.11"
+license = "MIT"
+authors = [{ name = "Pre-peer-checker Contributors" }]
+dependencies = [
+  "numpy>=1.26",
+  "pandas>=2.2",
+  "scipy>=1.12",
+  "statsmodels>=0.14",
+  "openpyxl>=3.1",
+  "ruamel.yaml>=0.18",
+  "python-docx>=1.1",
+  "pymupdf>=1.24",
+  "pillow>=10.0",
+  "jinja2>=3.1",
+  "nbformat>=5.10",
+]
+
+[project.optional-dependencies]
+# R AST 本線（wheel 付き grammar pack。専用 tree_sitter_r があればそちら優先）
+r-ast = [
+  "tree-sitter>=0.22",
+  "tree-sitter-language-pack>=0.7",
+]
+# 画像スタック（DINOv2 / LIF / CZI）
+imaging = [
+  "torch>=2.2",
+  "torchvision>=0.17",
+  "pylibCZIrw>=4.0",
+  "readlif>=0.6",
+  "aicsimageio>=4.14",
+  "opencv-python-headless>=4.8",
+  # LightGlue: pip install git+https://github.com/cvg/LightGlue.git
+]
+gui = [
+  "PyQt6>=6.6",
+]
+web = [
+  "fastapi>=0.110",
+  "uvicorn[standard]>=0.27",
+  "python-multipart>=0.0.9",
+]
+mlx = [
+  "mlx>=0.15",
+  "mlx-lm>=0.15",
+]
+# DGX / Linux Legend LLM（読む本線の CUDA バックエンド）
+llm-cuda = [
+  "torch>=2.2",
+  "transformers>=4.40",
+  "accelerate>=0.30",
+]
+# 6A JSON schema 強制（Outlines）。mlx / llm-cuda と併用
+llm-json = [
+  "outlines>=0.1",
+]
+# VLM パネル地図補助（Mac）
+vlm-mlx = [
+  "mlx>=0.15",
+  "mlx-vlm>=0.1",
+]
+# VLM パネル地図補助（CUDA）
+vlm-cuda = [
+  "torch>=2.2",
+  "transformers>=4.45",
+  "accelerate>=0.30",
+  "Pillow>=10.0",
+]
+dev = [
+  "pytest>=8.0",
+  "ruff>=0.4",
+  "httpx>=0.27",
+]
+# Phase 4 packaging (freeze / .app). Mac notarization uses system codesign/notarytool.
+packaging = [
+  "pyinstaller>=6.3",
+]
+
+[project.scripts]
+pre-peer-checker = "pre_peer_checker.cli:main"
+pre-peer-checker-gui = "pre_peer_checker.gui.app:main"
+pre-peer-checker-web = "pre_peer_checker.web.app:main"
+pre-peer-checker-catalog = "pre_peer_checker.catalog.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/pre_peer_checker"]
+
+[tool.hatch.build.targets.wheel.force-include]
+"src/pre_peer_checker/resources/pubpeer_patterns.json" = "pre_peer_checker/resources/pubpeer_patterns.json"
+"src/pre_peer_checker/web/templates/index.html" = "pre_peer_checker/web/templates/index.html"
+"src/pre_peer_checker/llm/model_registry.yaml" = "pre_peer_checker/llm/model_registry.yaml"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"

@@ -1,0 +1,17 @@
+{
+  "schema_version": "1.0",
+  "case_id": "script_swap",
+  "role": "synthetic_regression",
+  "description": "Anonymous script DAG bug: ggplot uses DF_A but ggsave names output with a conflicting experiment token. Synthetic only; no real paper files.",
+  "root_relative": "fixtures/synthetic/script_swap",
+  "docker_root": "/app/fixtures/synthetic/script_swap",
+  "canonical_paths": {
+    "r_script": "plot_fig.R",
+    "table_alphaexp": "graph_alphaexp.csv",
+    "table_betaexp": "graph_betaexp.csv"
+  },
+  "ignore_globs": [],
+  "eval_command": {
+    "gold": "python -m pre_peer_checker.eval.gold_eval --case script_swap --run --input fixtures/synthetic/script_swap"
+  }
+}

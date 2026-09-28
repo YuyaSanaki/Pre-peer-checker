@@ -1,0 +1,870 @@
+{
+  "schema_version": "1.4",
+  "purpose": "生命科学論文一般に適用する検知パターン。特定論文パスに依存しない。benchmark ケース（private_benchmark 等）は pattern_id でここに紐づける。研究公正文献・人手キュレーション由来の類型も含む。",
+  "product_goal": "配布により広く投稿前検証を行い、研究公正上・PubPeer 上で問題視されやすい不整合を未然に防ぐ。開発用の過去事例・実データは評価と回帰のためであり、エンジンの適用範囲をそれに限定しない。",
+  "catalog_policy": {
+    "sources": [
+      "retraction_watch_crossref",
+      "ori_case_summaries",
+      "cope_case_database",
+      "literature",
+      "curated_pubpeer",
+      "check_reference",
+      "benchmark"
+    ],
+    "absolute_rules": [
+      "no_verbatim_expression: コメント原文・長い引用・PDF/図の再配布（git/Issue/PR/配布物）をしない",
+      "abstract_to_inspection_spec: abstract_rule / pattern_id / Warning タグのみ。有罪断定・告発文は入れない",
+      "no_commenter_targeting: コメント者の名指し・攻撃をしない。カタログは方法論"
+    ],
+    "forbidden": [
+      "pubpeer_automated_scrape",
+      "guilt_score_ml",
+      "verbatim_comment_corpora",
+      "retracted_paper_figures_in_git",
+      "pdf_or_comment_text_in_git_issue_pr",
+      "naming_or_attacking_commenters_in_catalog"
+    ],
+    "rule_store": "fixtures/patterns/pubpeer_patterns.json",
+    "taxonomy": "DETECTION_AND_MODELS.md §2.0.1 (A–F)",
+    "ethics_canonical": "DETECTION_AND_MODELS.md カタログ倫理の絶対ルール",
+    "catalog_revision": "ethics-absolute-rules 2026-09-24"
+  },
+  "patterns": [
+    {
+      "id": "P-DATA-SWAP-CROSS-CONDITION",
+      "status": "implemented",
+      "phase": "1-2",
+      "source_kinds": [
+        "benchmark",
+        "check_reference",
+        "cope_case_database",
+        "ori_case_summaries"
+      ],
+      "warning_tags": [
+        "Warning [データ取り違え]"
+      ],
+      "abstract_rule": "ラベル上は別実験・別条件のパネル／群なのに、プロット数値ベクトル（または作図に渡った DF）が同一または実質同一。",
+      "inputs": [
+        "table_vectors",
+        "code_dag",
+        "figure_panels"
+      ],
+      "not_sufficient": [
+        "結果の方向性が同じであることだけの類似"
+      ],
+      "taxonomy": [
+        "B1"
+      ],
+      "enabled": true,
+      "priority": "P0",
+      "curation": {
+        "reviewed_at": "2026-09-24T06:52:17.824039+00:00",
+        "llm_rationale": "生命科学系 RW ヒット約 15743（規則ベース）",
+        "decision": "enabled"
+      }
+    },
+    {
+      "id": "P-N-MISMATCH-LEGEND-VS-DATA",
+      "status": "implemented",
+      "phase": "1-2",
+      "source_kinds": [
+        "benchmark",
+        "check_reference",
+        "cope_case_database",
+        "literature"
+      ],
+      "warning_tags": [
+        "Warning [サンプルサイズ記載誤記]"
+      ],
+      "abstract_rule": "Figure Legend / 本文の n と、生データ有効行数（またはスクリプト入力 n）が一致しない。",
+      "inputs": [
+        "legend_n",
+        "table_nrows"
+      ],
+      "not_sufficient": [
+        "ggplot geom_point の可視ドット数"
+      ],
+      "taxonomy": [
+        "C1"
+      ],
+      "enabled": true,
+      "priority": "P0",
+      "curation": {
+        "reviewed_at": "2026-09-24T06:52:17.824045+00:00",
+        "llm_rationale": "生命科学系 RW ヒット約 13058（規則ベース）",
+        "decision": "enabled"
+      }
+    },
+    {
+      "id": "P-N-INCONSISTENT-ACROSS-IDENTICAL-PLOTS",
+      "status": "implemented",
+      "phase": "1-2",
+      "source_kinds": [
+        "benchmark",
+        "check_reference"
+      ],
+      "warning_tags": [
+        "Warning [サンプルサイズ記載誤記]",
+        "Warning [データ取り違え]"
+      ],
+      "abstract_rule": "点列が同一なのにパネル間で Legend n が異なる。",
+      "inputs": [
+        "figure_panels",
+        "legend_n"
+      ],
+      "taxonomy": [
+        "C2"
+      ]
+    },
+    {
+      "id": "P-IMAGE-REUSE-UNCITED",
+      "status": "implemented",
+      "phase": "1-2",
+      "source_kinds": [
+        "check_reference",
+        "curated_pubpeer",
+        "literature",
+        "retraction_watch_crossref"
+      ],
+      "warning_tags": [
+        "Warning [画像重複・再利用（要出典確認）]"
+      ],
+      "abstract_rule": "同一論文内またはユーザー指定の過去論文コーパスと画像特徴が閾値以上で一致し、Legend に出典が無い。",
+      "inputs": [
+        "images",
+        "legend_citation_flags"
+      ],
+      "taxonomy": [
+        "A1",
+        "A4"
+      ],
+      "enabled": true,
+      "priority": "P0",
+      "curation": {
+        "reviewed_at": "2026-09-24T06:52:17.824048+00:00",
+        "llm_rationale": "生命科学系 RW ヒット約 11336（規則ベース）",
+        "decision": "enabled"
+      }
+    },
+    {
+      "id": "P-FILENAME-CONTENT-MISMATCH",
+      "status": "implemented",
+      "phase": "1-2",
+      "source_kinds": [
+        "benchmark",
+        "check_reference"
+      ],
+      "warning_tags": [
+        "Warning [データ取り違え]"
+      ],
+      "abstract_rule": "出力ファイル名／実験系ラベルと、プロットに使われたデータ内容の系統が矛盾する。",
+      "inputs": [
+        "filenames",
+        "table_vectors",
+        "code_dag",
+        "plot_residue"
+      ],
+      "taxonomy": [
+        "B1"
+      ],
+      "enabled": true,
+      "priority": "P1",
+      "curation": {
+        "reviewed_at": "2026-09-24T06:52:17.824055+00:00",
+        "llm_rationale": "生命科学系 RW ヒット約 1647（規則ベース）",
+        "decision": "enabled"
+      }
+    },
+    {
+      "id": "P-SHARED-CONTROL-UNDISCLOSED",
+      "status": "implemented",
+      "phase": "2",
+      "source_kinds": [
+        "check_reference",
+        "cope_case_database",
+        "curated_pubpeer",
+        "ori_case_summaries"
+      ],
+      "warning_tags": [
+        "Warning [コントロール群共有]"
+      ],
+      "abstract_rule": "複数パネルでコントロール（または同一 genotype）の点列が完全一致／高重複／端点欠落の部分集合。本文が独立実験に読める場合は明示共有の記載が無ければ Warning。",
+      "inputs": [
+        "table_vectors",
+        "figure_panels",
+        "manuscript_claims"
+      ],
+      "benchmark_sources": [
+        "multi-panel shared-control case studies (private reference corpus)"
+      ],
+      "taxonomy": [
+        "B2"
+      ],
+      "enabled": true,
+      "priority": "P1",
+      "curation": {
+        "reviewed_at": "2026-09-24T06:52:17.824057+00:00",
+        "llm_rationale": "生命科学系 RW ヒット約 1524（規則ベース）",
+        "decision": "enabled"
+      }
+    },
+    {
+      "id": "P-STATS-RECALC-MISMATCH",
+      "status": "implemented",
+      "phase": "1-2",
+      "source_kinds": [
+        "benchmark",
+        "cope_case_database",
+        "literature",
+        "check_reference",
+        "ori_case_summaries"
+      ],
+      "warning_tags": [
+        "Warning [実験データとの不一致]"
+      ],
+      "abstract_rule": "生データから再計算した記述統計・p が Legend/本文と許容誤差外で不一致。",
+      "inputs": [
+        "tables",
+        "legend_stats"
+      ],
+      "taxonomy": [
+        "D3"
+      ],
+      "enabled": true,
+      "priority": "P0",
+      "curation": {
+        "reviewed_at": "2026-09-24T06:52:17.824024+00:00",
+        "llm_rationale": "生命科学系 RW ヒット約 36786（規則ベース）",
+        "decision": "enabled"
+      }
+    },
+    {
+      "id": "P-STAT-METHOD-INCONSISTENT",
+      "status": "implemented",
+      "phase": "1-2",
+      "source_kinds": [
+        "benchmark",
+        "literature"
+      ],
+      "warning_tags": [
+        "Warning [統計手法の不整合]"
+      ],
+      "abstract_rule": "群構造と適用検定（多重比較の有無、対応の有無）またはスクリプトと本文の検定名が矛盾。",
+      "inputs": [
+        "tables",
+        "code",
+        "legend_methods"
+      ],
+      "taxonomy": [
+        "D1",
+        "D2"
+      ],
+      "enabled": true,
+      "priority": "P1",
+      "curation": {
+        "reviewed_at": "2026-09-24T06:52:17.824053+00:00",
+        "llm_rationale": "生命科学系 RW ヒット約 2048（規則ベース）",
+        "decision": "enabled"
+      }
+    },
+    {
+      "id": "P-CONFIG-ANNOTATION-MISMATCH",
+      "status": "implemented",
+      "phase": "1-2",
+      "source_kinds": [
+        "benchmark"
+      ],
+      "warning_tags": [
+        "Warning [設定・アノテーション不整合]"
+      ],
+      "abstract_rule": "YAML/設定の群・n と実 DF・Word 条件名が不一致。",
+      "inputs": [
+        "yaml",
+        "tables",
+        "manuscript"
+      ],
+      "taxonomy": [
+        "E2"
+      ]
+    },
+    {
+      "id": "P-REF-LABEL-MISMATCH",
+      "status": "implemented",
+      "phase": "1-2",
+      "source_kinds": [
+        "benchmark"
+      ],
+      "warning_tags": [
+        "Warning [表記揺れ・参照不整合]"
+      ],
+      "abstract_rule": "本文の Fig パネル参照と PDF ラベル・genotype 表記が食い違う。",
+      "inputs": [
+        "manuscript",
+        "figure_labels"
+      ],
+      "taxonomy": [
+        "E1",
+        "E2"
+      ]
+    },
+    {
+      "id": "P-IMAGE-PARTIAL-REUSE",
+      "status": "implemented",
+      "phase": "5",
+      "priority": "P0",
+      "source_kinds": [
+        "curated_pubpeer",
+        "literature",
+        "retraction_watch_crossref"
+      ],
+      "warning_tags": [
+        "Warning [画像重複・再利用（要出典確認）]"
+      ],
+      "abstract_rule": "回転・クロップ・コントラスト変更など変形後も、部分領域の画像特徴が閾値以上で一致し、出典が無い。",
+      "inputs": [
+        "images",
+        "legend_citation_flags",
+        "panel_map"
+      ],
+      "not_sufficient": [
+        "出典が明示された意図的再掲"
+      ],
+      "synthetic_fixture_hint": "同一 PNG をクロップ／回転して原稿側とコーパス側に配置",
+      "taxonomy": [
+        "A2"
+      ],
+      "enabled": true,
+      "curation": {
+        "reviewed_at": "2026-09-24T06:52:17.824046+00:00",
+        "llm_rationale": "生命科学系 RW ヒット約 11942（規則ベース）",
+        "decision": "enabled",
+        "note": "[2026-09-25 initial engine + synthetic CI]"
+      }
+    },
+    {
+      "id": "P-BLOT-LANE-REUSE",
+      "status": "implemented",
+      "phase": "5",
+      "priority": "P0",
+      "source_kinds": [
+        "literature",
+        "retraction_watch_crossref"
+      ],
+      "warning_tags": [
+        "Warning [画像重複・再利用（要出典確認）]"
+      ],
+      "abstract_rule": "ゲル／ウェスタン等でレーン帯または loading control 領域が別実験パネルと閾値以上で一致し、正当な再表示の明示が無い。",
+      "inputs": [
+        "images",
+        "blot_lane_regions",
+        "legend_citation_flags"
+      ],
+      "not_sufficient": [
+        "同一ゲルの正当な再表示＋明示"
+      ],
+      "synthetic_fixture_hint": "合成レーン帯画像の使い回しペア",
+      "taxonomy": [
+        "A3"
+      ],
+      "enabled": true,
+      "curation": {
+        "reviewed_at": "2026-09-24T06:52:17.824050+00:00",
+        "llm_rationale": "生命科学系 RW ヒット約 6489（規則ベース）",
+        "decision": "enabled",
+        "note": "[2026-09-25 initial engine + synthetic CI]"
+      }
+    },
+    {
+      "id": "P-VECTOR-SUBSET-UNDISCLOSED",
+      "status": "implemented",
+      "phase": "5",
+      "priority": "P0",
+      "source_kinds": [
+        "check_reference",
+        "curated_pubpeer"
+      ],
+      "warning_tags": [
+        "Warning [コントロール群共有]"
+      ],
+      "abstract_rule": "他パネルの点列の真部分集合（端点欠落・外れ値削除など）なのに、独立実験と読める記述で共有が明示されない。",
+      "inputs": [
+        "table_vectors",
+        "figure_panels",
+        "manuscript_claims"
+      ],
+      "not_sufficient": [
+        "本文が shared control を明示"
+      ],
+      "synthetic_fixture_hint": "shared_control 拡張（max/min 欠落）",
+      "taxonomy": [
+        "B2"
+      ],
+      "enabled": true,
+      "curation": {
+        "decision": "enabled",
+        "note": "[2026-09-25 initial engine + synthetic CI]"
+      }
+    },
+    {
+      "id": "P-ERRORBAR-SEM-SD-MISMATCH",
+      "status": "implemented",
+      "phase": "5",
+      "priority": "P1",
+      "source_kinds": [
+        "literature"
+      ],
+      "warning_tags": [
+        "Warning [実験データとの不一致]",
+        "Warning [統計手法の不整合]"
+      ],
+      "abstract_rule": "Legend／本文の誤差棒種別（SEM/SD/CI）と、生データから再計算した誤差が許容範囲外で矛盾する。",
+      "inputs": [
+        "legend_error_bar_type",
+        "tables",
+        "legend_stats"
+      ],
+      "not_sufficient": [
+        "error_bar_type 未抽出のみ"
+      ],
+      "synthetic_fixture_hint": "短い Legend（SEM 表記）+ CSV（SD 相当の数値）",
+      "taxonomy": [
+        "D3"
+      ],
+      "enabled": true,
+      "curation": {
+        "decision": "enabled",
+        "note": "[2026-09-25 P1/P2 initial]"
+      }
+    },
+    {
+      "id": "P-STAT-MULTIPLICITY-GAP",
+      "status": "implemented",
+      "phase": "5",
+      "priority": "P1",
+      "source_kinds": [
+        "cope_case_database",
+        "literature"
+      ],
+      "warning_tags": [
+        "Warning [統計手法の不整合]"
+      ],
+      "abstract_rule": "群数が 3 以上なのに多重比較補正なしの対比較 t 検定など、群構造と適用検定が矛盾する。",
+      "inputs": [
+        "tables",
+        "legend_methods",
+        "group_counts"
+      ],
+      "not_sufficient": [
+        "群数不明"
+      ],
+      "synthetic_fixture_hint": "3 群表 + Legend「Student t」",
+      "taxonomy": [
+        "D1"
+      ],
+      "enabled": true,
+      "curation": {
+        "decision": "enabled",
+        "note": "[2026-09-25 P1/P2 initial]"
+      }
+    },
+    {
+      "id": "P-NUMERIC-CROSSREF-MISMATCH",
+      "status": "implemented",
+      "phase": "5",
+      "priority": "P0",
+      "source_kinds": [
+        "literature"
+      ],
+      "warning_tags": [
+        "Warning [実験データとの不一致]",
+        "Warning [表記揺れ・参照不整合]"
+      ],
+      "abstract_rule": "Results／Legend の mean・p・n 等の数値が、表または Fig 由来の対応数値と許容誤差外で不一致。",
+      "inputs": [
+        "manuscript_numeric_claims",
+        "tables",
+        "legend_stats"
+      ],
+      "not_sufficient": [
+        "丸め差のみ"
+      ],
+      "synthetic_fixture_hint": "docx に誤 mean、xlsx に正 mean",
+      "taxonomy": [
+        "C2",
+        "D3"
+      ],
+      "enabled": true,
+      "curation": {
+        "reviewed_at": "2026-09-24T06:52:17.824036+00:00",
+        "llm_rationale": "生命科学系 RW ヒット約 20037（規則ベース）",
+        "decision": "enabled",
+        "note": "[2026-09-25 initial engine + synthetic CI]"
+      }
+    },
+    {
+      "id": "P-SCALE-MAG-INCONSISTENT",
+      "status": "implemented",
+      "phase": "5",
+      "priority": "P2",
+      "source_kinds": [
+        "literature"
+      ],
+      "warning_tags": [
+        "Warning [設定・アノテーション不整合]",
+        "Warning [画像重複・再利用（要出典確認）]"
+      ],
+      "abstract_rule": "画像特徴が同一または実質同一なのに、倍率・スケールバー記載が矛盾する。",
+      "inputs": [
+        "images",
+        "legend_magnification",
+        "scale_bar_meta"
+      ],
+      "not_sufficient": [
+        "画像非同一"
+      ],
+      "synthetic_fixture_hint": "同一 TIFF + 異なる倍率 Legend",
+      "taxonomy": [
+        "A2",
+        "E2"
+      ],
+      "enabled": true,
+      "curation": {
+        "decision": "enabled",
+        "note": "[2026-09-25 P1/P2 initial]"
+      }
+    },
+    {
+      "id": "P-COUNT-N-MISMATCH",
+      "status": "implemented",
+      "phase": "5",
+      "priority": "P2",
+      "source_kinds": [
+        "literature",
+        "check_reference"
+      ],
+      "warning_tags": [
+        "Warning [サンプルサイズ記載誤記]"
+      ],
+      "abstract_rule": "フローサイトメトリー・コロニー等のカウント表の有効 n と Legend 記載 n が一致しない（既存 n 系エンジンへの寄せも可）。",
+      "inputs": [
+        "count_tables",
+        "legend_n"
+      ],
+      "not_sufficient": [
+        "カウント表が無い"
+      ],
+      "synthetic_fixture_hint": "カウント CSV + 不一致 Legend",
+      "taxonomy": [
+        "C2"
+      ],
+      "enabled": true,
+      "curation": {
+        "decision": "enabled",
+        "note": "[2026-09-25 P1/P2 initial]"
+      }
+    },
+    {
+      "id": "P-SOURCE-DUPLICATE-VALUES",
+      "status": "implemented",
+      "phase": "5-6",
+      "priority": "P0",
+      "source_kinds": [
+        "check_reference",
+        "curated_pubpeer"
+      ],
+      "warning_tags": [
+        "Warning [データ取り違え]",
+        "Warning [実験データとの不一致]"
+      ],
+      "abstract_rule": "独立サンプル／別条件と読めるソースデータ内で、測定値が厳密に同一（または不自然な丸め桁の一致）が、測定分解能から期待される頻度を超えて現れる。",
+      "inputs": [
+        "source_tables",
+        "figure_panels",
+        "independence_claims"
+      ],
+      "not_sufficient": [
+        "離散カウントで一致が自然に起きうる場合",
+        "機器分解能の説明のみ（有罪断定しない）"
+      ],
+      "synthetic_fixture_hint": "独立群 CSV に同一 float を複数仕込み、別条件ラベルを付与",
+      "taxonomy": [
+        "F1"
+      ],
+      "enabled": true,
+      "curation": {
+        "reviewed_at": "2026-09-24T06:52:17.824041+00:00",
+        "llm_rationale": "生命科学系 RW ヒット約 15647（規則ベース）",
+        "decision": "accepted_planned"
+      }
+    },
+    {
+      "id": "P-SOURCE-RATIO-ARTIFACT",
+      "status": "implemented",
+      "phase": "5-6",
+      "priority": "P0",
+      "source_kinds": [
+        "check_reference",
+        "curated_pubpeer"
+      ],
+      "warning_tags": [
+        "Warning [データ取り違え]",
+        "Warning [実験データとの不一致]"
+      ],
+      "abstract_rule": "別条件・別遺伝子・独立実験と読める測定値のあいだで、比が正確に整数（2/3/10/100 等）に揃う、小数部だけが群横断で一致する、または棒＋誤差棒が定数倍で同一形状になる。",
+      "inputs": [
+        "source_tables",
+        "figure_panels",
+        "legend_stats"
+      ],
+      "not_sufficient": [
+        "ΔΔCt 等で単発の 2 倍が出るだけ（Methods と整合し頻度が低い）"
+      ],
+      "synthetic_fixture_hint": "2 群表で全行が定数 k 倍、または小数部コピー",
+      "taxonomy": [
+        "F2"
+      ],
+      "enabled": true,
+      "curation": {
+        "reviewed_at": "2026-09-24T06:52:17.824043+00:00",
+        "llm_rationale": "生命科学系 RW ヒット約 14682（規則ベース）",
+        "decision": "accepted_planned"
+      }
+    },
+    {
+      "id": "P-SURVIVAL-COUNT-NONINTEGER",
+      "status": "implemented",
+      "phase": "5",
+      "priority": "P1",
+      "source_kinds": [
+        "check_reference",
+        "curated_pubpeer"
+      ],
+      "warning_tags": [
+        "Warning [サンプルサイズ記載誤記]",
+        "Warning [実験データとの不一致]"
+      ],
+      "abstract_rule": "Methods／Legend がバイアルあたり固定個体数 N を謳うのに、生存率×N から復元した生存個体数が非整数になる時点がある。",
+      "inputs": [
+        "survival_tables",
+        "vial_or_cohort_size",
+        "legend_methods"
+      ],
+      "not_sufficient": [
+        "Methods が「約 N」と明示",
+        "丸め誤差のみ（例: 0.999→1）"
+      ],
+      "synthetic_fixture_hint": "Legend「20 flies/vial」+ 生存率 CSV で 0.5 羽相当",
+      "taxonomy": [
+        "F3",
+        "C2"
+      ],
+      "enabled": true,
+      "curation": {
+        "decision": "enabled",
+        "note": "[2026-09-25 P1/P2 initial]"
+      }
+    },
+    {
+      "id": "P-METHODS-CLAIM-MISMATCH",
+      "status": "implemented",
+      "phase": "5",
+      "priority": "P0",
+      "source_kinds": [
+        "check_reference",
+        "curated_pubpeer"
+      ],
+      "warning_tags": [
+        "Warning [設定・アノテーション不整合]",
+        "Warning [表記揺れ・参照不整合]"
+      ],
+      "abstract_rule": "Methods／本文の定量的主張（結合比・サンプリング範囲・モデル名・n／再現の有無など）が、図・Extended Data・表メタと許容範囲外で矛盾する。",
+      "inputs": [
+        "methods_claims",
+        "figure_meta",
+        "tables"
+      ],
+      "not_sufficient": [
+        "主張スパーン未抽出"
+      ],
+      "synthetic_fixture_hint": "Methods「1:1」+ Legend「1:2」の短い docx",
+      "taxonomy": [
+        "E3"
+      ],
+      "enabled": true,
+      "curation": {
+        "reviewed_at": "2026-09-24T06:52:17.824052+00:00",
+        "llm_rationale": "生命科学系 RW ヒット約 2100（規則ベース）",
+        "decision": "enabled",
+        "note": "[2026-09-25 initial engine + synthetic CI]"
+      }
+    },
+    {
+      "id": "P-EXCLUSION-UNDECLARED",
+      "status": "implemented",
+      "phase": "5-6",
+      "priority": "P0",
+      "source_kinds": [
+        "check_reference",
+        "ori_case_summaries",
+        "cope_case_database",
+        "curated_pubpeer"
+      ],
+      "warning_tags": [
+        "Warning [サンプルサイズ記載誤記]",
+        "Warning [実験データとの不一致]"
+      ],
+      "abstract_rule": "Methods／Legend の記載 n よりソース表の有効個体・行が多く、除外基準の明示が無い。除外後の再計算（生存曲線・検定）が記載結果と食い違う場合も含む。",
+      "inputs": [
+        "source_tables",
+        "legend_n",
+        "exclusion_criteria",
+        "legend_stats"
+      ],
+      "not_sufficient": [
+        "除外基準が Methods に明示され除外 ID がトレース可能"
+      ],
+      "synthetic_fixture_hint": "Legend n=6 + CSV 8 行（除外列なし）",
+      "taxonomy": [
+        "C3"
+      ],
+      "enabled": true,
+      "curation": {
+        "reviewed_at": "2026-09-25T00:00:00+00:00",
+        "llm_rationale": "初期エンジン: data_n>legend_n かつ exclusion_criteria 未検出 → Warning。合成 exclusion_undeclared。",
+        "decision": "enabled"
+      }
+    },
+    {
+      "id": "P-REF-MISSING-ENTRY",
+      "status": "implemented",
+      "phase": "7",
+      "priority": "P1",
+      "source_kinds": [
+        "literature"
+      ],
+      "warning_tags": [
+        "Warning [表記揺れ・参照不整合]"
+      ],
+      "abstract_rule": "本文の引用キー（番号／author–year）に対応する References エントリが無い。",
+      "inputs": [
+        "manuscript",
+        "references"
+      ],
+      "taxonomy": [
+        "E4"
+      ],
+      "enabled": true,
+      "synthetic_fixture_hint": "fixtures/synthetic/ref_biblio"
+    },
+    {
+      "id": "P-REF-DUPLICATE-KEY",
+      "status": "implemented",
+      "phase": "7",
+      "priority": "P1",
+      "source_kinds": [
+        "literature"
+      ],
+      "warning_tags": [
+        "Warning [表記揺れ・参照不整合]"
+      ],
+      "abstract_rule": "References で同一番号／同一キーが重複している。",
+      "inputs": [
+        "references"
+      ],
+      "taxonomy": [
+        "E4"
+      ],
+      "enabled": true,
+      "synthetic_fixture_hint": "fixtures/synthetic/ref_biblio"
+    },
+    {
+      "id": "P-REF-META-INCONSISTENT",
+      "status": "implemented",
+      "phase": "7",
+      "priority": "P1",
+      "source_kinds": [
+        "literature"
+      ],
+      "warning_tags": [
+        "Warning [表記揺れ・参照不整合]"
+      ],
+      "abstract_rule": "同一参考文献エントリ内で年・DOI・著者／タイトルの明らかな自己矛盾または必須メタ欠落。",
+      "inputs": [
+        "references"
+      ],
+      "taxonomy": [
+        "E4"
+      ],
+      "enabled": true,
+      "synthetic_fixture_hint": "fixtures/synthetic/ref_biblio"
+    },
+    {
+      "id": "P-REF-ORPHAN-ENTRY",
+      "status": "implemented",
+      "phase": "7",
+      "priority": "P2",
+      "source_kinds": [
+        "literature"
+      ],
+      "warning_tags": [
+        "Warning [表記揺れ・参照不整合]"
+      ],
+      "abstract_rule": "References にあるが本文で一度も引用されていない（初期は coverage note／情報寄り）。",
+      "inputs": [
+        "manuscript",
+        "references"
+      ],
+      "taxonomy": [
+        "E4"
+      ],
+      "enabled": false,
+      "synthetic_fixture_hint": "fixtures/synthetic/ref_biblio"
+    },
+    {
+      "id": "P-REF-PDF-META-MISMATCH",
+      "status": "implemented",
+      "phase": "7",
+      "priority": "P1",
+      "source_kinds": [
+        "literature"
+      ],
+      "warning_tags": [
+        "Warning [表記揺れ・参照不整合]"
+      ],
+      "abstract_rule": "参考文献メタ（DOI／年／タイトル）がユーザー提供の引用先 PDF メタと決定論的に食い違う。",
+      "inputs": [
+        "references",
+        "cited_paper_pdfs"
+      ],
+      "taxonomy": [
+        "E4"
+      ],
+      "enabled": true,
+      "synthetic_fixture_hint": "fixtures/synthetic/ref_claim"
+    },
+    {
+      "id": "P-REF-CLAIM-CONTRADICTION",
+      "status": "implemented",
+      "phase": "7",
+      "priority": "P1",
+      "source_kinds": [
+        "literature"
+      ],
+      "warning_tags": [
+        "Warning [表記揺れ・参照不整合]"
+      ],
+      "abstract_rule": "本文の引用主張（数値・極性・年）が、紐付いた引用先 PDF 根拠文と決定論的に矛盾する。",
+      "inputs": [
+        "manuscript",
+        "references",
+        "cited_paper_pdfs"
+      ],
+      "taxonomy": [
+        "E5"
+      ],
+      "enabled": true,
+      "synthetic_fixture_hint": "fixtures/synthetic/ref_claim"
+    }
+  ]
+}

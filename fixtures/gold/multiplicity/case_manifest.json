@@ -1,0 +1,16 @@
+{
+  "schema_version": "1.0",
+  "case_id": "multiplicity",
+  "role": "synthetic_regression",
+  "description": "3-group table + Student t without correction → P-STAT-MULTIPLICITY-GAP.",
+  "root_relative": "fixtures/synthetic/multiplicity",
+  "docker_root": "/app/fixtures/synthetic/multiplicity",
+  "canonical_paths": {
+    "table": "fig1a/quant_panel.csv",
+    "manuscript": "manuscript.docx"
+  },
+  "ignore_globs": [],
+  "eval_command": {
+    "gold": "python -m pre_peer_checker.eval.gold_eval --case multiplicity --run --input fixtures/synthetic/multiplicity"
+  }
+}

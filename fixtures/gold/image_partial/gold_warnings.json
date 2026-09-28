@@ -1,0 +1,31 @@
+{
+  "schema_version": "1.0",
+  "case_id": "image_partial",
+  "benchmark_only": false,
+  "generalization": "Synthetic G1: crop containment vs past-paper corpus without citation.",
+  "items": [
+    {
+      "id": "G1",
+      "pattern_id": "P-IMAGE-PARTIAL-REUSE",
+      "expected_tags": [
+        "Warning [画像重複・再利用（要出典確認）]"
+      ],
+      "severity": "required",
+      "panels": [
+        {
+          "figure": "Fig.S1"
+        }
+      ],
+      "evidence_paths": [
+        "panel_s1.png",
+        "../corpus/past_paper_crop.png"
+      ],
+      "detection_hints": [
+        "Crop of manuscript panel appears in corpus; no reproduced-from citation"
+      ],
+      "citations": [
+        "fixtures/synthetic/image_partial"
+      ]
+    }
+  ]
+}

@@ -1,0 +1,16 @@
+{
+  "schema_version": "1.0",
+  "case_id": "exclusion_undeclared",
+  "role": "synthetic_regression",
+  "description": "Legend n=6 (A) vs CSV 8 rows, no exclusion criteria → P-EXCLUSION-UNDECLARED.",
+  "root_relative": "fixtures/synthetic/exclusion_undeclared",
+  "docker_root": "/app/fixtures/synthetic/exclusion_undeclared",
+  "canonical_paths": {
+    "table": "fig1a/quant_panel.csv",
+    "manuscript": "manuscript.docx"
+  },
+  "ignore_globs": [],
+  "eval_command": {
+    "gold": "python -m pre_peer_checker.eval.gold_eval --case exclusion_undeclared --run --input fixtures/synthetic/exclusion_undeclared"
+  }
+}

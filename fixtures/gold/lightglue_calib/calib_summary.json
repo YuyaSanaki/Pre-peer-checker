@@ -1,0 +1,14 @@
+{
+  "schema_version": "1.1",
+  "role": "lightglue_threshold_calibration",
+  "device": "cuda",
+  "date": "2026-09-26",
+  "extractor": "SuperPoint max_num_keypoints=1024 + LightGlue",
+  "must_pos_min": 153,
+  "must_neg_max": 17,
+  "hard_pos_rot90": 47,
+  "chosen_DEFAULT_MIN_MATCHES": 35,
+  "rationale": "must_neg_max(17) < 35 ≤ must_pos_min(153); also passes hard_pos rot90 (47). Band ≈18–153; 30–40 all separate.",
+  "repro": ".venv/bin/python scripts/dev_lightglue_threshold_calib.py --write outputs/lightglue_calib.json",
+  "install": ".venv/bin/pip install 'git+https://github.com/cvg/LightGlue.git'"
+}

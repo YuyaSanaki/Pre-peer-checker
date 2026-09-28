@@ -1,0 +1,147 @@
+{
+  "schema_version": "1.0",
+  "purpose": "読む JSON（Legend パネル n／群）合成ゴールド。ci_required=true は rules 経路で pytest 必須再現（GPU 不要）。",
+  "role": "legend_json_synthetic_gold",
+  "notes": [
+    "Fig2A 型: multi-group timepoint under one panel",
+    "Fig2C 型: four-way genotype×timepoint",
+    "Fig2M 型: lowercase (a)/(b) are groups, not panels",
+    "Fig4K 型: section letter ≠ n-panel letters (H/I/J)",
+    "Fig5E 型: dose 1x/4x on graph panel only",
+    "Fig1 typo 型: (k)/(l) → L/M under quantification section",
+    "文脈: shared D/E/G/H、R 配下 N–Q、J 遺伝子型、chunk+panel_labels"
+  ],
+  "entries": [
+    {
+      "id": "LJ-F2A-timepoint",
+      "ci_required": true,
+      "figure": "Figure 2",
+      "legend_text": "Figure 2. (A) Quantification of body size. n=4 (early L3) and 3 (late L3). (B) Representative images.",
+      "expect": [
+        {"panel": "A", "n": 4, "group": "early L3"},
+        {"panel": "A", "n": 3, "group": "late L3"}
+      ],
+      "forbid": [{"panel": "B", "n": 4}, {"panel": "B", "n": 3}]
+    },
+    {
+      "id": "LJ-F2C-fourway",
+      "ci_required": true,
+      "figure": "Figure 2",
+      "legend_text": "Figure 2. (C) Quantification. n=9 (control, early L3), 8 (mutx+/-, early L3), 8 (control, late L3), and 5 (mutx+/-, late L3).",
+      "expect": [
+        {"panel": "C", "n": 9, "group": "control, early L3", "aliases_group": ["control (early L3)"]},
+        {"panel": "C", "n": 8, "group": "mutx+/-, early L3", "aliases_group": ["mutx+/- (early L3)"]},
+        {"panel": "C", "n": 8, "group": "control, late L3", "aliases_group": ["control (late L3)"]},
+        {"panel": "C", "n": 5, "group": "mutx+/-, late L3", "aliases_group": ["mutx+/- (late L3)"]}
+      ]
+    },
+    {
+      "id": "LJ-F2M-ab-groups",
+      "ci_required": true,
+      "figure": "Figure 2",
+      "legend_text": "(K-M) Eye discs bearing ubi-GFP-labeled geneY-/- clones in control (K), with forced HormoneX release (L), and quantification of geneY-/- clone volume(M). n=18 (a) and 10 (b). ***p<0.001 by Welch's t-test.",
+      "expect": [
+        {"panel": "M", "n": 18, "group": "a"},
+        {"panel": "M", "n": 10, "group": "b"}
+      ],
+      "forbid": [{"panel": "A", "n": 18}, {"panel": "B", "n": 10}]
+    },
+    {
+      "id": "LJ-F4K-hij",
+      "ci_required": true,
+      "figure": "Figure 4",
+      "legend_text": "Figure 4. (K) Quantification of clones. n=11 (H), 20 (I), and 9 (J).",
+      "expect": [
+        {"panel": "H", "n": 11, "group": ""},
+        {"panel": "I", "n": 20, "group": ""},
+        {"panel": "J", "n": 9, "group": ""}
+      ],
+      "forbid": [{"panel": "K", "n": 11}, {"panel": "K", "n": 20}, {"panel": "K", "n": 9}]
+    },
+    {
+      "id": "LJ-F5E-dose",
+      "ci_required": true,
+      "figure": "Figure 5",
+      "legend_text": "Figure 5. (A) photo 1x. (D) photo 4x. (E) Quantification of fluorescence. n=5 (1x), 8 (4x).",
+      "expect": [
+        {"panel": "E", "n": 5, "group": "1x"},
+        {"panel": "E", "n": 8, "group": "4x"}
+      ],
+      "forbid": [{"panel": "A", "n": 5}, {"panel": "D", "n": 8}]
+    },
+    {
+      "id": "LJ-F1-typo-kl",
+      "ci_required": true,
+      "figure": "Figure 1",
+      "legend_text": "(P) Quantification of adult phenotype frequency, n=140 (k) and 88 (l). p<0.001 by Pearson's Chi-squared test.",
+      "expect": [
+        {"panel": "L", "n": 140, "group": ""},
+        {"panel": "M", "n": 88, "group": ""}
+      ],
+      "forbid": [{"panel": "K", "n": 140}, {"panel": "P", "n": 140}]
+    },
+    {
+      "id": "LJ-F2-shared-DEGH",
+      "ci_required": true,
+      "figure": "Figure 2",
+      "legend_text": "Figure 2. (D-H) Representative and quantification. n=10 (D, E, G and H).",
+      "expect": [
+        {"panel": "D", "n": 10, "group": ""},
+        {"panel": "E", "n": 10, "group": ""},
+        {"panel": "G", "n": 10, "group": ""},
+        {"panel": "H", "n": 10, "group": ""}
+      ],
+      "forbid": [{"panel": "F", "n": 10}]
+    },
+    {
+      "id": "LJ-F1-R-NQ-seq",
+      "ci_required": true,
+      "figure": "Figure 1",
+      "legend_text": "Figure 1. (R) Quantification of clone ratios. n=10 (N), 9 (O), 10 (P), and 10 (Q).",
+      "expect": [
+        {"panel": "N", "n": 10, "group": ""},
+        {"panel": "O", "n": 9, "group": ""},
+        {"panel": "P", "n": 10, "group": ""},
+        {"panel": "Q", "n": 10, "group": ""}
+      ],
+      "forbid": [{"panel": "R", "n": 10}, {"panel": "R", "n": 9}]
+    },
+    {
+      "id": "LJ-F2-J-genotypes",
+      "ci_required": true,
+      "figure": "Figure 2",
+      "legend_text": "Figure 2. (J) Quantification. n=13 (WT), 10 (mutx+/-).",
+      "expect": [
+        {"panel": "J", "n": 13, "group": "WT", "aliases_group": ["wild-type", "control"]},
+        {"panel": "J", "n": 10, "group": "mutx+/-", "aliases_group": ["mutx het"]}
+      ]
+    },
+    {
+      "id": "LJ-F3-ab-groups-vs-panels",
+      "ci_required": true,
+      "figure": "Figure 3",
+      "legend_text": "Figure 3. (A) Images. (B) Quantification of control vs mutant. n=8 (a) and 12 (b).",
+      "expect": [
+        {"panel": "B", "n": 8, "group": "a"},
+        {"panel": "B", "n": 12, "group": "b"}
+      ],
+      "forbid": [{"panel": "A", "n": 8}, {"panel": "A", "n": 12}]
+    },
+    {
+      "id": "LJ-F1-typo-with-panel-labels",
+      "ci_required": true,
+      "figure": "Figure 1",
+      "legend_text": "(P) Quantification of adult phenotype frequency, n=140 (k) and 88 (l).",
+      "chunk": {
+        "panel_labels_from_figure": ["K", "L", "M", "N", "O", "P"],
+        "results": ["Quantification panels L and M correspond to conditions k and l in the text."]
+      },
+      "expect": [
+        {"panel": "L", "n": 140, "group": ""},
+        {"panel": "M", "n": 88, "group": ""}
+      ],
+      "forbid": [{"panel": "K", "n": 140}, {"panel": "P", "n": 140}],
+      "prompt_must_contain": ["[figure_panel_labels]", "L, M"]
+    }
+  ]
+}

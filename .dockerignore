@@ -1,0 +1,35 @@
+# Git / IDE
+.git
+.github
+.venv
+venv
+__pycache__
+*.py[cod]
+.pytest_cache
+.mypy_cache
+.ruff_cache
+.idea
+.vscode
+*.egg-info
+dist
+build
+
+# Local data & artifacts (mount at runtime)
+input/
+outputs/
+models/
+tmp/
+check_reference/
+*.log
+.DS_Store
+
+# Large / local-only
+*.pt
+*.safetensors
+*.bin
+*.gguf
+*.czi
+*.lif
+*.docx
+*.pdf
+!.gitkeep

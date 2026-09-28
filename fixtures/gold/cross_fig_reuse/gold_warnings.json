@@ -1,0 +1,38 @@
+{
+  "schema_version": "1.0",
+  "case_id": "cross_fig_reuse",
+  "benchmark_only": false,
+  "generalization": "Synthetic multi-figure identical vectors (cross-figure identical-vector theme). pattern_ids link to fixtures/patterns/pubpeer_patterns.json.",
+  "items": [
+    {
+      "id": "Y1",
+      "pattern_id": "P-DATA-SWAP-CROSS-CONDITION",
+      "expected_tags": ["Warning [データ取り違え]"],
+      "severity": "required",
+      "panels": [
+        {"figure": "Fig.2", "group": "mut"},
+        {"figure": "Fig.4", "group": "mut"}
+      ],
+      "evidence_paths": ["fig2a/quant_fig2.csv", "fig4b/quant_fig4.csv"],
+      "detection_hints": [
+        "mut group vectors are bitwise-identical across Fig.2 and Fig.4 despite independent-replicate claims"
+      ],
+      "citations": ["fixtures/synthetic/cross_fig_reuse"]
+    },
+    {
+      "id": "Y2",
+      "pattern_id": "P-SHARED-CONTROL-UNDISCLOSED",
+      "expected_tags": ["Warning [コントロール群共有]"],
+      "severity": "required",
+      "panels": [
+        {"figure": "Fig.2", "group": "wt"},
+        {"figure": "Fig.4", "group": "wt"}
+      ],
+      "evidence_paths": ["fig2a/quant_fig2.csv", "fig4b/quant_fig4.csv"],
+      "detection_hints": [
+        "wt vectors identical across figures; Legend claims independent replicates without shared-control disclosure"
+      ],
+      "citations": ["fixtures/synthetic/cross_fig_reuse"]
+    }
+  ]
+}

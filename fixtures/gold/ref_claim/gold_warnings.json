@@ -1,0 +1,28 @@
+{
+  "schema_version": "1.0",
+  "case_id": "ref_claim",
+  "benchmark_only": false,
+  "generalization": "User-provided cited PDFs: bib year vs PDF year mismatch; claim polarity/numeric contradiction.",
+  "items": [
+    {
+      "id": "E4d",
+      "pattern_id": "P-REF-PDF-META-MISMATCH",
+      "expected_tags": ["Warning [表記揺れ・参照不整合]"],
+      "severity": "required",
+      "panels": [],
+      "evidence_paths": ["manuscript.docx", "cited_pdfs/notch_2021.pdf"],
+      "detection_hints": ["bib year 2019 vs PDF year 2021 for same DOI"],
+      "citations": ["fixtures/synthetic/ref_claim"]
+    },
+    {
+      "id": "E5a",
+      "pattern_id": "P-REF-CLAIM-CONTRADICTION",
+      "expected_tags": ["Warning [表記揺れ・参照不整合]"],
+      "severity": "required",
+      "panels": [],
+      "evidence_paths": ["manuscript.docx", "cited_pdfs/notch_2021.pdf"],
+      "detection_hints": ["claim increases 50% vs PDF decreases 10%"],
+      "citations": ["fixtures/synthetic/ref_claim"]
+    }
+  ]
+}

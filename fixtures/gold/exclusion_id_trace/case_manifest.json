@@ -1,0 +1,13 @@
+{
+  "schema_version": "1.0",
+  "case_id": "exclusion_id_trace",
+  "role": "synthetic_regression",
+  "description": "Exclusion claimed but omitted IDs F5/F6 not listed.",
+  "root_relative": "fixtures/synthetic/exclusion_id_trace",
+  "docker_root": "/app/fixtures/synthetic/exclusion_id_trace",
+  "canonical_paths": {},
+  "ignore_globs": [],
+  "eval_command": {
+    "gold": "python -m pre_peer_checker.eval.gold_eval --case exclusion_id_trace --run --input fixtures/synthetic/exclusion_id_trace"
+  }
+}

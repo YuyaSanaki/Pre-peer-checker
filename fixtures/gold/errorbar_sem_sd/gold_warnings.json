@@ -1,0 +1,32 @@
+{
+  "schema_version": "1.0",
+  "case_id": "errorbar_sem_sd",
+  "benchmark_only": false,
+  "generalization": "Synthetic G4: SEM wording but ± equals SD.",
+  "items": [
+    {
+      "id": "G4",
+      "pattern_id": "P-ERRORBAR-SEM-SD-MISMATCH",
+      "expected_tags": [
+        "Warning [実験データとの不一致]"
+      ],
+      "severity": "required",
+      "panels": [
+        {
+          "figure": "Figure 1",
+          "panel": "A"
+        }
+      ],
+      "evidence_paths": [
+        "fig1a/quant_panel.csv",
+        "manuscript.docx"
+      ],
+      "detection_hints": [
+        "mean ± SEM claimed; 3.16 matches SD not SEM"
+      ],
+      "citations": [
+        "fixtures/synthetic/errorbar_sem_sd"
+      ]
+    }
+  ]
+}

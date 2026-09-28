@@ -1,0 +1,32 @@
+{
+  "schema_version": "1.0",
+  "case_id": "multiplicity",
+  "benchmark_only": false,
+  "generalization": "Synthetic G5: ≥3 groups with uncorrected t-test claim.",
+  "items": [
+    {
+      "id": "G5",
+      "pattern_id": "P-STAT-MULTIPLICITY-GAP",
+      "expected_tags": [
+        "Warning [統計手法の不整合]"
+      ],
+      "severity": "required",
+      "panels": [
+        {
+          "figure": "Figure 1",
+          "panel": "A"
+        }
+      ],
+      "evidence_paths": [
+        "fig1a/quant_panel.csv",
+        "manuscript.docx"
+      ],
+      "detection_hints": [
+        "3 groups; Student t; no ANOVA/Tukey/Bonferroni"
+      ],
+      "citations": [
+        "fixtures/synthetic/multiplicity"
+      ]
+    }
+  ]
+}

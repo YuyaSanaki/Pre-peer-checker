@@ -1,0 +1,31 @@
+{
+  "schema_version": "1.0",
+  "purpose": "COPE Case Database 類型から人手で抽出した抽象照合ルール（ケース全文は git に入れない）。",
+  "source_policy": "https://publicationethics.org/guidance/case — 検索可能な公開ケースの類型コードのみ",
+  "rules": [
+    {
+      "id": "COPE-SEED-SHARED-CTRL",
+      "abstract_rule": "複数パネルでコントロール群の点列が一致／包含なのに、独立実験と読める記述で共有が明示されない。",
+      "pattern_ids": ["P-SHARED-CONTROL-UNDISCLOSED", "P-VECTOR-SUBSET-UNDISCLOSED"],
+      "taxonomy": ["B2"]
+    },
+    {
+      "id": "COPE-SEED-SAMPLE-SIZE",
+      "abstract_rule": "本文・Legend・表・生データのサンプルサイズ記載が相互に食い違う。",
+      "pattern_ids": ["P-N-MISMATCH-LEGEND-VS-DATA", "P-N-INCONSISTENT-ACROSS-IDENTICAL-PLOTS", "P-COUNT-N-MISMATCH"],
+      "taxonomy": ["C1", "C2"]
+    },
+    {
+      "id": "COPE-SEED-STAT-MISUSE",
+      "abstract_rule": "群構造に対して不適切な検定（多重比較欠落、対応の誤りなど）が Methods／Legend に記載されている。",
+      "pattern_ids": ["P-STAT-METHOD-INCONSISTENT", "P-STAT-MULTIPLICITY-GAP"],
+      "taxonomy": ["D1", "D2"]
+    },
+    {
+      "id": "COPE-SEED-SELECTIVE-EXCLUSION",
+      "abstract_rule": "解析から個体・観測が除外されているが、除外基準が Methods に無い、または生データ行数と記載 n が矛盾する。",
+      "pattern_ids": ["P-EXCLUSION-UNDECLARED", "P-N-MISMATCH-LEGEND-VS-DATA"],
+      "taxonomy": ["C3", "C1"]
+    }
+  ]
+}

@@ -1,0 +1,20 @@
+{
+  "schema_version": "1.0",
+  "case_id": "script_swap",
+  "benchmark_only": false,
+  "generalization": "Synthetic R DAG filename/content mismatch. pattern_ids link to fixtures/patterns/pubpeer_patterns.json.",
+  "items": [
+    {
+      "id": "S1",
+      "pattern_id": "P-FILENAME-CONTENT-MISMATCH",
+      "expected_tags": ["Warning [データ取り違え]"],
+      "severity": "required",
+      "panels": [],
+      "evidence_paths": ["plot_fig.R", "graph_alphaexp.csv", "graph_betaexp.csv"],
+      "detection_hints": [
+        "ggplot(data=df_a) but ggsave name uses a conflicting experiment token"
+      ],
+      "citations": ["fixtures/synthetic/script_swap"]
+    }
+  ]
+}

@@ -1,0 +1,16 @@
+{
+  "schema_version": "1.0",
+  "case_id": "errorbar_sem_sd",
+  "role": "synthetic_regression",
+  "description": "Legend mean±SEM with numeric ± matching SD → P-ERRORBAR-SEM-SD-MISMATCH.",
+  "root_relative": "fixtures/synthetic/errorbar_sem_sd",
+  "docker_root": "/app/fixtures/synthetic/errorbar_sem_sd",
+  "canonical_paths": {
+    "table": "fig1a/quant_panel.csv",
+    "manuscript": "manuscript.docx"
+  },
+  "ignore_globs": [],
+  "eval_command": {
+    "gold": "python -m pre_peer_checker.eval.gold_eval --case errorbar_sem_sd --run --input fixtures/synthetic/errorbar_sem_sd"
+  }
+}

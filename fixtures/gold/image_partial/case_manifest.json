@@ -1,0 +1,17 @@
+{
+  "schema_version": "1.0",
+  "case_id": "image_partial",
+  "role": "synthetic_regression",
+  "description": "Full PNG in manuscript; cropped patch in corpus → P-IMAGE-PARTIAL-REUSE.",
+  "root_relative": "fixtures/synthetic/image_partial/manuscript",
+  "corpus_relative": "fixtures/synthetic/image_partial/corpus",
+  "docker_root": "/app/fixtures/synthetic/image_partial/manuscript",
+  "canonical_paths": {
+    "manuscript": "main.docx",
+    "image": "panel_s1.png"
+  },
+  "ignore_globs": [],
+  "eval_command": {
+    "gold": "python -m pre_peer_checker.eval.gold_eval --case image_partial --run --input fixtures/synthetic/image_partial/manuscript --corpus fixtures/synthetic/image_partial/corpus"
+  }
+}

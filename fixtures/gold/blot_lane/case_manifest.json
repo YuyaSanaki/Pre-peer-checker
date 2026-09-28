@@ -1,0 +1,17 @@
+{
+  "schema_version": "1.0",
+  "case_id": "blot_lane",
+  "role": "synthetic_regression",
+  "description": "Two blot panels share middle lane strip → P-BLOT-LANE-REUSE.",
+  "root_relative": "fixtures/synthetic/blot_lane",
+  "docker_root": "/app/fixtures/synthetic/blot_lane",
+  "canonical_paths": {
+    "manuscript": "manuscript.docx",
+    "image_a": "panel_a.png",
+    "image_b": "panel_b.png"
+  },
+  "ignore_globs": [],
+  "eval_command": {
+    "gold": "python -m pre_peer_checker.eval.gold_eval --case blot_lane --run --input fixtures/synthetic/blot_lane"
+  }
+}

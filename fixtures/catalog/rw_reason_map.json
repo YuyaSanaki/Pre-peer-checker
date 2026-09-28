@@ -1,0 +1,544 @@
+{
+  "schema_version": "1.1",
+  "purpose": "Retraction Watch Reason タグ → 本システムの pattern_id。有罪ラベルではなく照合方法の発見用。製品外の運用・出版プロセス系は pattern_ids=[] + note で明示し、未マップ候補から外す。",
+  "source": "https://gitlab.com/crossref/retraction-watch-data",
+  "updated": "2026-09-26",
+  "life_science_subject_prefixes": [
+    "(BLS)",
+    "(HSC)",
+    "(ENV) Environmental",
+    "(SOC) Psychology"
+  ],
+  "mappings": [
+    {
+      "reason": "Duplication of/in Image",
+      "pattern_ids": ["P-IMAGE-REUSE-UNCITED", "P-IMAGE-PARTIAL-REUSE"],
+      "taxonomy": ["A1", "A2"]
+    },
+    {
+      "reason": "Concerns/Issues about Image",
+      "pattern_ids": ["P-IMAGE-REUSE-UNCITED", "P-IMAGE-PARTIAL-REUSE", "P-BLOT-LANE-REUSE"],
+      "taxonomy": ["A1", "A2", "A3"]
+    },
+    {
+      "reason": "Error in Image",
+      "pattern_ids": ["P-IMAGE-REUSE-UNCITED", "P-IMAGE-PARTIAL-REUSE", "P-BLOT-LANE-REUSE"],
+      "taxonomy": ["A1", "A2", "A3"]
+    },
+    {
+      "reason": "Manipulation of Images",
+      "pattern_ids": ["P-IMAGE-PARTIAL-REUSE", "P-BLOT-LANE-REUSE"],
+      "taxonomy": ["A2", "A3"]
+    },
+    {
+      "reason": "Falsification/Fabrication of Image",
+      "pattern_ids": ["P-IMAGE-PARTIAL-REUSE", "P-BLOT-LANE-REUSE", "P-IMAGE-REUSE-UNCITED"],
+      "taxonomy": ["A1", "A2", "A3"]
+    },
+    {
+      "reason": "Plagiarism of Image",
+      "pattern_ids": ["P-IMAGE-REUSE-UNCITED"],
+      "taxonomy": ["A4"]
+    },
+    {
+      "reason": "Unreliable Image",
+      "pattern_ids": ["P-IMAGE-REUSE-UNCITED", "P-IMAGE-PARTIAL-REUSE"],
+      "taxonomy": ["A1", "A2"]
+    },
+    {
+      "reason": "Duplication of Data",
+      "pattern_ids": ["P-DATA-SWAP-CROSS-CONDITION", "P-SHARED-CONTROL-UNDISCLOSED", "P-SOURCE-DUPLICATE-VALUES"],
+      "taxonomy": ["B1", "B2", "F1"]
+    },
+    {
+      "reason": "Concerns/Issues about Data",
+      "pattern_ids": ["P-DATA-SWAP-CROSS-CONDITION", "P-SOURCE-DUPLICATE-VALUES", "P-SOURCE-RATIO-ARTIFACT", "P-STATS-RECALC-MISMATCH"],
+      "taxonomy": ["B1", "F1", "F2", "D3"]
+    },
+    {
+      "reason": "Error in Data",
+      "pattern_ids": ["P-DATA-SWAP-CROSS-CONDITION", "P-FILENAME-CONTENT-MISMATCH", "P-STATS-RECALC-MISMATCH"],
+      "taxonomy": ["B1", "D3"]
+    },
+    {
+      "reason": "Unreliable Data",
+      "pattern_ids": ["P-SOURCE-DUPLICATE-VALUES", "P-SOURCE-RATIO-ARTIFACT", "P-STATS-RECALC-MISMATCH"],
+      "taxonomy": ["F1", "F2", "D3"]
+    },
+    {
+      "reason": "Falsification/Fabrication of Data",
+      "pattern_ids": ["P-SOURCE-DUPLICATE-VALUES", "P-SOURCE-RATIO-ARTIFACT", "P-DATA-SWAP-CROSS-CONDITION"],
+      "taxonomy": ["F1", "F2", "B1"]
+    },
+    {
+      "reason": "Manipulation of Data",
+      "pattern_ids": ["P-SOURCE-RATIO-ARTIFACT", "P-VECTOR-SUBSET-UNDISCLOSED", "P-EXCLUSION-UNDECLARED"],
+      "taxonomy": ["F2", "B2", "C3"]
+    },
+    {
+      "reason": "Plagiarism of Data",
+      "pattern_ids": ["P-DATA-SWAP-CROSS-CONDITION", "P-SHARED-CONTROL-UNDISCLOSED"],
+      "taxonomy": ["B1", "B2"]
+    },
+    {
+      "reason": "Error in Analyses",
+      "pattern_ids": ["P-STATS-RECALC-MISMATCH", "P-STAT-METHOD-INCONSISTENT", "P-STAT-MULTIPLICITY-GAP"],
+      "taxonomy": ["D1", "D2", "D3"]
+    },
+    {
+      "reason": "Error in Methods",
+      "pattern_ids": ["P-METHODS-CLAIM-MISMATCH", "P-STAT-METHOD-INCONSISTENT", "P-CONFIG-ANNOTATION-MISMATCH"],
+      "taxonomy": ["E3", "D1", "E2"]
+    },
+    {
+      "reason": "Concerns/Issues about Methods",
+      "pattern_ids": ["P-METHODS-CLAIM-MISMATCH", "P-CONFIG-ANNOTATION-MISMATCH"],
+      "taxonomy": ["E3", "E2"]
+    },
+    {
+      "reason": "Error in Results and/or Conclusions",
+      "pattern_ids": ["P-NUMERIC-CROSSREF-MISMATCH", "P-STATS-RECALC-MISMATCH"],
+      "taxonomy": ["C2", "D3"]
+    },
+    {
+      "reason": "Unreliable Results and/or Conclusions",
+      "pattern_ids": ["P-STATS-RECALC-MISMATCH", "P-NUMERIC-CROSSREF-MISMATCH", "P-N-MISMATCH-LEGEND-VS-DATA"],
+      "taxonomy": ["D3", "C1", "C2"]
+    },
+    {
+      "reason": "Concerns/Issues about Results and/or Conclusions",
+      "pattern_ids": ["P-STATS-RECALC-MISMATCH", "P-NUMERIC-CROSSREF-MISMATCH"],
+      "taxonomy": ["D3", "C2"]
+    },
+    {
+      "reason": "Results Not Reproducible",
+      "pattern_ids": ["P-STATS-RECALC-MISMATCH", "P-METHODS-CLAIM-MISMATCH"],
+      "taxonomy": ["D3", "E3"]
+    },
+    {
+      "reason": "Original Data and/or Images not Provided and/or not Available",
+      "pattern_ids": [],
+      "taxonomy": [],
+      "note": "カバレッジ／入力ギャップの運用シグナル。単独では pattern 化しない"
+    },
+    {
+      "reason": "Error in Cell Lines/Tissues",
+      "pattern_ids": ["P-CONFIG-ANNOTATION-MISMATCH", "P-METHODS-CLAIM-MISMATCH"],
+      "taxonomy": ["E2", "E3"]
+    },
+    {
+      "reason": "Contamination of Cell Lines/Tissues",
+      "pattern_ids": ["P-CONFIG-ANNOTATION-MISMATCH", "P-METHODS-CLAIM-MISMATCH"],
+      "taxonomy": ["E2", "E3"],
+      "note": "細胞株・組織の取り違え／汚染は設定・Methods 表記との突合で間接検知"
+    },
+    {
+      "reason": "Error in Materials",
+      "pattern_ids": ["P-METHODS-CLAIM-MISMATCH", "P-CONFIG-ANNOTATION-MISMATCH"],
+      "taxonomy": ["E3", "E2"]
+    },
+    {
+      "reason": "Falsification/Fabrication of Results",
+      "pattern_ids": ["P-STATS-RECALC-MISMATCH", "P-SOURCE-DUPLICATE-VALUES", "P-NUMERIC-CROSSREF-MISMATCH"],
+      "taxonomy": ["D3", "F1", "C2"]
+    },
+    {
+      "reason": "Manipulation of Results",
+      "pattern_ids": ["P-STATS-RECALC-MISMATCH", "P-VECTOR-SUBSET-UNDISCLOSED", "P-EXCLUSION-UNDECLARED"],
+      "taxonomy": ["D3", "B2", "C3"]
+    },
+    {
+      "reason": "Concerns/Issues about Referencing/Attributions",
+      "pattern_ids": ["P-IMAGE-REUSE-UNCITED", "P-REF-LABEL-MISMATCH"],
+      "taxonomy": ["A4", "E1"],
+      "note": "出典・帰属の欠落は画像再利用＋参照ラベル系でカバー"
+    },
+    {
+      "reason": "Duplication of/in Article",
+      "pattern_ids": ["P-IMAGE-REUSE-UNCITED", "P-DATA-SWAP-CROSS-CONDITION", "P-SHARED-CONTROL-UNDISCLOSED"],
+      "taxonomy": ["A4", "B1", "B2"]
+    },
+    {
+      "reason": "Euphemisms for Duplication",
+      "pattern_ids": ["P-IMAGE-REUSE-UNCITED", "P-DATA-SWAP-CROSS-CONDITION", "P-SHARED-CONTROL-UNDISCLOSED"],
+      "taxonomy": ["A1", "B1", "B2"]
+    },
+    {
+      "reason": "Euphemisms for Plagiarism",
+      "pattern_ids": ["P-IMAGE-REUSE-UNCITED", "P-DATA-SWAP-CROSS-CONDITION"],
+      "taxonomy": ["A4", "B1"]
+    },
+    {
+      "reason": "Plagiarism of/in Article",
+      "pattern_ids": ["P-IMAGE-REUSE-UNCITED", "P-DATA-SWAP-CROSS-CONDITION"],
+      "taxonomy": ["A4", "B1"]
+    },
+    {
+      "reason": "Concerns/Issues about Article",
+      "pattern_ids": ["P-STATS-RECALC-MISMATCH", "P-NUMERIC-CROSSREF-MISMATCH", "P-IMAGE-REUSE-UNCITED"],
+      "taxonomy": ["D3", "C2", "A1"],
+      "note": "包括タグ。具体 Reason が無いときの緩いヒートマップ用"
+    },
+    {
+      "reason": "Sabotage of Materials/Methods",
+      "pattern_ids": ["P-METHODS-CLAIM-MISMATCH", "P-CONFIG-ANNOTATION-MISMATCH"],
+      "taxonomy": ["E3", "E2"],
+      "note": "稀少。Methods／設定突合の参考のみ"
+    },
+
+    {
+      "reason": "Investigation by Journal/Publisher",
+      "pattern_ids": [],
+      "taxonomy": [],
+      "note": "製品外: 調査プロセス。機械照合パターンにしない"
+    },
+    {
+      "reason": "Investigation by Third Party",
+      "pattern_ids": [],
+      "taxonomy": [],
+      "note": "製品外: 調査プロセス"
+    },
+    {
+      "reason": "Investigation by Company/Institution",
+      "pattern_ids": [],
+      "taxonomy": [],
+      "note": "製品外: 調査プロセス"
+    },
+    {
+      "reason": "Investigation by ORI",
+      "pattern_ids": [],
+      "taxonomy": [],
+      "note": "製品外: 調査プロセス（ORI 種は ori_seed_rules で別管理）"
+    },
+    {
+      "reason": "Paper Mill",
+      "pattern_ids": [],
+      "taxonomy": [],
+      "note": "製品外: 製紙所／論文工場。投稿前 Fig↔データ突合の対象外"
+    },
+    {
+      "reason": "Concerns/Issues about Peer Review",
+      "pattern_ids": [],
+      "taxonomy": [],
+      "note": "製品外: 査読プロセス"
+    },
+    {
+      "reason": "Compromised Peer Review",
+      "pattern_ids": [],
+      "taxonomy": [],
+      "note": "製品外: 査読改ざん"
+    },
+    {
+      "reason": "Computer-Aided Content or Computer-Generated Content",
+      "pattern_ids": [],
+      "taxonomy": [],
+      "note": "製品外: AI 生成論文検出は本線外"
+    },
+    {
+      "reason": "Notice - Limited or No Information",
+      "pattern_ids": [],
+      "taxonomy": [],
+      "note": "製品外: 撤回通知のメタ情報不足"
+    },
+    {
+      "reason": "Notice - Lack of",
+      "pattern_ids": [],
+      "taxonomy": [],
+      "note": "製品外: 通知メタ"
+    },
+    {
+      "reason": "Notice - Unable to Access via current resources",
+      "pattern_ids": [],
+      "taxonomy": [],
+      "note": "製品外: 通知アクセス不可"
+    },
+    {
+      "reason": "Objections by Author(s)",
+      "pattern_ids": [],
+      "taxonomy": [],
+      "note": "製品外: 著者異議"
+    },
+    {
+      "reason": "Objections by Third Party",
+      "pattern_ids": [],
+      "taxonomy": [],
+      "note": "製品外: 第三者異議"
+    },
+    {
+      "reason": "Date of Article and/or Notice Unknown",
+      "pattern_ids": [],
+      "taxonomy": [],
+      "note": "製品外: 日付メタ"
+    },
+    {
+      "reason": "Author Unresponsive",
+      "pattern_ids": [],
+      "taxonomy": [],
+      "note": "製品外: 連絡不能"
+    },
+    {
+      "reason": "Lack of IRB/IACUC Approval and/or Compliance",
+      "pattern_ids": [],
+      "taxonomy": [],
+      "note": "製品外: 倫理審査（動物福祉テキスト検知は将来可だが現状 pattern なし）"
+    },
+    {
+      "reason": "Concerns/Issues about Authorship/Affiliation",
+      "pattern_ids": [],
+      "taxonomy": [],
+      "note": "製品外: 著者・所属"
+    },
+    {
+      "reason": "False/Forged Authorship",
+      "pattern_ids": [],
+      "taxonomy": [],
+      "note": "製品外: 偽著者"
+    },
+    {
+      "reason": "Removed",
+      "pattern_ids": [],
+      "taxonomy": [],
+      "note": "製品外: レコード状態"
+    },
+    {
+      "reason": "Upgrade/Update of Prior Notice(s)",
+      "pattern_ids": [],
+      "taxonomy": [],
+      "note": "製品外: 通知更新"
+    },
+    {
+      "reason": "Updated to Retraction",
+      "pattern_ids": [],
+      "taxonomy": [],
+      "note": "製品外: 通知更新"
+    },
+    {
+      "reason": "Updated to Expression of Concern",
+      "pattern_ids": [],
+      "taxonomy": [],
+      "note": "製品外: 通知更新"
+    },
+    {
+      "reason": "Retract and Replace",
+      "pattern_ids": [],
+      "taxonomy": [],
+      "note": "製品外: 出版プロセス"
+    },
+    {
+      "reason": "Misconduct by Author",
+      "pattern_ids": [],
+      "taxonomy": [],
+      "note": "製品外: 包括的不正行為ラベル（具体 Reason を優先）"
+    },
+    {
+      "reason": "Misconduct - Official Investigation(s) and/or Finding(s)",
+      "pattern_ids": [],
+      "taxonomy": [],
+      "note": "製品外: 公式調査結果"
+    },
+    {
+      "reason": "Rogue Editor",
+      "pattern_ids": [],
+      "taxonomy": [],
+      "note": "製品外: 編集プロセス"
+    },
+    {
+      "reason": "Informed/Patient Consent - None/Withdrawn",
+      "pattern_ids": [],
+      "taxonomy": [],
+      "note": "製品外: 同意・倫理"
+    },
+    {
+      "reason": "Breach of Policy by Author",
+      "pattern_ids": [],
+      "taxonomy": [],
+      "note": "製品外: ポリシー違反包括"
+    },
+    {
+      "reason": "Ethical Violations by Author",
+      "pattern_ids": [],
+      "taxonomy": [],
+      "note": "製品外: 倫理包括"
+    },
+    {
+      "reason": "Plagiarism of Text",
+      "pattern_ids": [],
+      "taxonomy": [],
+      "note": "製品外: テキスト剽窃検知は本線外"
+    },
+    {
+      "reason": "Duplication of Text",
+      "pattern_ids": [],
+      "taxonomy": [],
+      "note": "製品外: テキスト重複"
+    },
+    {
+      "reason": "Error in Text",
+      "pattern_ids": [],
+      "taxonomy": [],
+      "note": "製品外: 本文誤記（数値転記は別 Reason／P-NUMERIC-CROSSREF）"
+    },
+    {
+      "reason": "Conflict of Interest",
+      "pattern_ids": [],
+      "taxonomy": [],
+      "note": "製品外: COI"
+    },
+    {
+      "reason": "Concerns/Issues about Human Subject Welfare",
+      "pattern_ids": [],
+      "taxonomy": [],
+      "note": "製品外: ヒト被験者福祉"
+    },
+    {
+      "reason": "Concerns/Issues about Animal Welfare",
+      "pattern_ids": [],
+      "taxonomy": [],
+      "note": "製品外: 動物福祉（IACUC 系）"
+    },
+    {
+      "reason": "Concerns/Issues about Third Party Involvement",
+      "pattern_ids": [],
+      "taxonomy": [],
+      "note": "製品外: 第三者関与"
+    },
+    {
+      "reason": "Error by Journal/Publisher",
+      "pattern_ids": [],
+      "taxonomy": [],
+      "note": "製品外: 出版社側誤記"
+    },
+    {
+      "reason": "Error by Third Party",
+      "pattern_ids": [],
+      "taxonomy": [],
+      "note": "製品外: 第三者誤記"
+    },
+    {
+      "reason": "Duplication of Content through Error by Journal/Publisher",
+      "pattern_ids": [],
+      "taxonomy": [],
+      "note": "製品外: 出版側の重複掲載"
+    },
+    {
+      "reason": "Copyright Claims",
+      "pattern_ids": [],
+      "taxonomy": [],
+      "note": "製品外: 著作権"
+    },
+    {
+      "reason": "Lack of Approval from Author",
+      "pattern_ids": [],
+      "taxonomy": [],
+      "note": "製品外: 承認プロセス"
+    },
+    {
+      "reason": "Lack of Approval from Third Party",
+      "pattern_ids": [],
+      "taxonomy": [],
+      "note": "製品外: 承認プロセス"
+    },
+    {
+      "reason": "Lack of Approval from Company/Institution",
+      "pattern_ids": [],
+      "taxonomy": [],
+      "note": "製品外: 承認プロセス"
+    },
+    {
+      "reason": "Legal Reasons and/or Threats",
+      "pattern_ids": [],
+      "taxonomy": [],
+      "note": "製品外: 法務"
+    },
+    {
+      "reason": "Civil Proceedings",
+      "pattern_ids": [],
+      "taxonomy": [],
+      "note": "製品外: 民事"
+    },
+    {
+      "reason": "Withdrawn as Out of Date",
+      "pattern_ids": [],
+      "taxonomy": [],
+      "note": "製品外: 陳腐化撤回"
+    },
+    {
+      "reason": "Cites Retracted Work",
+      "pattern_ids": [],
+      "taxonomy": [],
+      "note": "製品外: 撤回論文引用チェックは本線外"
+    },
+    {
+      "reason": "Contamination of Materials",
+      "pattern_ids": ["P-METHODS-CLAIM-MISMATCH", "P-CONFIG-ANNOTATION-MISMATCH"],
+      "taxonomy": ["E3", "E2"],
+      "note": "試薬・材料汚染。細胞株汚染は Contamination of Cell Lines/Tissues"
+    },
+    {
+      "reason": "Temporary Removal",
+      "pattern_ids": [],
+      "taxonomy": [],
+      "note": "製品外: 一時取り下げ"
+    },
+    {
+      "reason": "Withdrawn to Publish in Different Journal",
+      "pattern_ids": [],
+      "taxonomy": [],
+      "note": "製品外: 他誌投稿のための取り下げ"
+    },
+    {
+      "reason": "Taken from Dissertation/Thesis",
+      "pattern_ids": [],
+      "taxonomy": [],
+      "note": "製品外: 学位論文由来（重複出版ポリシー）"
+    },
+    {
+      "reason": "Doing the Right Thing",
+      "pattern_ids": [],
+      "taxonomy": [],
+      "note": "製品外: RW 運用ラベル"
+    },
+    {
+      "reason": "False/Forged Affiliation",
+      "pattern_ids": [],
+      "taxonomy": [],
+      "note": "製品外: 偽所属"
+    },
+    {
+      "reason": "Bias Issues or Lack of Balance",
+      "pattern_ids": [],
+      "taxonomy": [],
+      "note": "製品外: バイアス／バランス"
+    },
+    {
+      "reason": "Miscommunication with/by Author",
+      "pattern_ids": [],
+      "taxonomy": [],
+      "note": "製品外: 連絡ミス"
+    },
+    {
+      "reason": "Complaints about Author",
+      "pattern_ids": [],
+      "taxonomy": [],
+      "note": "製品外: 著者苦情"
+    },
+    {
+      "reason": "Criminal Proceedings",
+      "pattern_ids": [],
+      "taxonomy": [],
+      "note": "製品外: 刑事"
+    },
+    {
+      "reason": "Publishing Ban",
+      "pattern_ids": [],
+      "taxonomy": [],
+      "note": "製品外: 投稿禁止"
+    },
+    {
+      "reason": "Updated to Correction",
+      "pattern_ids": [],
+      "taxonomy": [],
+      "note": "製品外: 通知更新"
+    }
+  ]
+}

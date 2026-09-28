@@ -1,0 +1,37 @@
+{
+  "schema_version": "1.0",
+  "case_id": "vector_subset",
+  "benchmark_only": false,
+  "generalization": "Synthetic G3: subset/endpoint share while text claims independence.",
+  "items": [
+    {
+      "id": "G3",
+      "pattern_id": "P-VECTOR-SUBSET-UNDISCLOSED",
+      "expected_tags": [
+        "Warning [コントロール群共有]"
+      ],
+      "severity": "required",
+      "panels": [
+        {
+          "figure": "Fig.1A",
+          "group": "ctrl"
+        },
+        {
+          "figure": "Fig.1B",
+          "group": "ctrl"
+        }
+      ],
+      "evidence_paths": [
+        "fig1a/quant_panel.csv",
+        "fig1b/quant_panel.csv",
+        "manuscript.docx"
+      ],
+      "detection_hints": [
+        "fig1b ctrl is endpoint-trimmed fig1a ctrl; manuscript claims independent experiments"
+      ],
+      "citations": [
+        "fixtures/synthetic/vector_subset"
+      ]
+    }
+  ]
+}

@@ -1,0 +1,33 @@
+{
+  "schema_version": "1.0",
+  "case_id": "stat_method",
+  "benchmark_only": false,
+  "generalization": "Legend ANOVA vs R t.test only.",
+  "items": [
+    {
+      "id": "D6",
+      "pattern_id": "P-STAT-METHOD-INCONSISTENT",
+      "expected_tags": [
+        "Warning [統計手法の不整合]"
+      ],
+      "severity": "required",
+      "panels": [
+        {
+          "figure": "Figure 1",
+          "panel": "A"
+        }
+      ],
+      "evidence_paths": [
+        "fig1a/quant_panel.csv",
+        "analyze.R",
+        "manuscript.docx"
+      ],
+      "detection_hints": [
+        "anova claim; t.test script"
+      ],
+      "citations": [
+        "fixtures/synthetic/stat_method"
+      ]
+    }
+  ]
+}

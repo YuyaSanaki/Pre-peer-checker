@@ -1,0 +1,92 @@
+# Byte-compiled / cache
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Virtual envs
+.venv/
+venv/
+env/
+
+# Generated launchers (absolute paths from install.sh)
+Pre-peer-checker.command
+Pre-peer-checker.desktop
+
+# Build / packaging
+build/
+dist/
+*.egg-info/
+*.egg
+.eggs/
+
+# Models & large artifacts (download separately; may be trained on private runs)
+models/
+*.pt
+*.safetensors
+*.bin
+*.gguf
+*.embedding.npy
+*.faiss
+cache/
+cache/retraction-watch-data/
+
+# IDE / OS
+.idea/
+.vscode/
+.DS_Store
+*.swp
+*~
+
+# Secrets / local config
+.env
+.env.*
+!.env.example
+
+# Reports & temp (may contain excerpts from private runs)
+outputs/
+tmp/
+*.log
+
+# ---------------------------------------------------------------------------
+# Private real data & anything that lets outsiders infer it
+# (verification / train / inference CODE and synthetic fixtures stay tracked)
+# ---------------------------------------------------------------------------
+# Ignore private inputs, but keep the panel_extract scaffold README tracked.
+input/*
+!input/panel_extract/
+input/panel_extract/**
+!input/panel_extract/README.md
+check_reference/
+
+# Filled gold for private benchmark cases (paths, real n, identifiable panel maps).
+# Keep *.example.json, README, and synthetic fixtures/gold/demo/ committed.
+fixtures/gold/private_benchmark/case_manifest.json
+fixtures/gold/private_benchmark/gold_warnings.json
+fixtures/gold/private_benchmark/panel_extract_gold.json
+fixtures/gold/private/
+# Thin extra-paper extract cases: filled gold/draft only (examples stay tracked).
+fixtures/gold/panel_extract/*/panel_extract_gold.json
+fixtures/gold/panel_extract/*/panel_extract_draft.json
+fixtures/gold/panel_extract/*/case_manifest.json
+
+# Optional local case notes derived from private manuscripts
+docs/private/
+
+# Local case vocabulary profile (experiment-side tokens of private benchmark cases)
+rules/local_case_profile.json
+
+# Tests that only run against private benchmark data
+tests/private/
+
+# Local developer handoff (may name private cases / paths). Public stub: handoff.example.md
+handoff.md
+
+# Jupyter
+.ipynb_checkpoints/

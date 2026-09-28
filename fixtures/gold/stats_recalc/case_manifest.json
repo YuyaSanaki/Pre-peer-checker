@@ -1,0 +1,16 @@
+{
+  "schema_version": "1.0",
+  "case_id": "stats_recalc",
+  "role": "synthetic_regression",
+  "description": "Welch textClipping means disagree with sibling graph_betaexp.csv (P-STATS-RECALC-MISMATCH).",
+  "root_relative": "fixtures/synthetic/stats_recalc",
+  "docker_root": "/app/fixtures/synthetic/stats_recalc",
+  "canonical_paths": {
+    "table": "graph_betaexp.csv",
+    "residue": "BetaExpWelch Two Sample t-test--da.textClipping"
+  },
+  "ignore_globs": [],
+  "eval_command": {
+    "gold": "python -m pre_peer_checker.eval.gold_eval --case stats_recalc --run --input fixtures/synthetic/stats_recalc"
+  }
+}

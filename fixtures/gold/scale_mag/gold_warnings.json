@@ -1,0 +1,34 @@
+{
+  "schema_version": "1.0",
+  "case_id": "scale_mag",
+  "benchmark_only": false,
+  "generalization": "Synthetic G7: duplicate images with conflicting magnification.",
+  "items": [
+    {
+      "id": "G7",
+      "pattern_id": "P-SCALE-MAG-INCONSISTENT",
+      "expected_tags": [
+        "Warning [設定・アノテーション不整合]"
+      ],
+      "severity": "required",
+      "panels": [
+        {
+          "figure": "Figure 1"
+        },
+        {
+          "figure": "Figure 2"
+        }
+      ],
+      "evidence_paths": [
+        "panel_a.png",
+        "panel_b.png"
+      ],
+      "detection_hints": [
+        "Identical PNGs; 40× vs 60×"
+      ],
+      "citations": [
+        "fixtures/synthetic/scale_mag"
+      ]
+    }
+  ]
+}

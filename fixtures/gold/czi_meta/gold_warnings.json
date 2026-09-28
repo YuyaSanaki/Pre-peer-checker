@@ -1,0 +1,32 @@
+{
+  "schema_version": "1.0",
+  "case_id": "czi_meta",
+  "benchmark_only": false,
+  "generalization": "CZI NominalMagnification vs Legend claim.",
+  "items": [
+    {
+      "id": "G7d",
+      "pattern_id": "P-SCALE-MAG-INCONSISTENT",
+      "expected_tags": [
+        "Warning [設定・アノテーション不整合]"
+      ],
+      "severity": "required",
+      "panels": [
+        {
+          "figure": "Figure 1",
+          "panel": "A"
+        }
+      ],
+      "evidence_paths": [
+        "panel.czi",
+        "manuscript.docx"
+      ],
+      "detection_hints": [
+        "CZI NominalMagnification=40 vs Legend 63×"
+      ],
+      "citations": [
+        "fixtures/synthetic/czi_meta"
+      ]
+    }
+  ]
+}

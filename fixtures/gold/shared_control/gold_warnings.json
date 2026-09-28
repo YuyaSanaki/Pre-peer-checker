@@ -1,0 +1,23 @@
+{
+  "schema_version": "1.0",
+  "case_id": "shared_control",
+  "benchmark_only": false,
+  "generalization": "Synthetic proxy for shared-control / multi-figure shared-control PubPeer patterns (endpoint dropout).",
+  "items": [
+    {
+      "id": "SC1",
+      "pattern_id": "P-SHARED-CONTROL-UNDISCLOSED",
+      "expected_tags": ["Warning [コントロール群共有]"],
+      "severity": "required",
+      "panels": [
+        {"figure": "Fig.1A", "group": "ctrl"},
+        {"figure": "Fig.1B", "group": "ctrl"}
+      ],
+      "evidence_paths": ["fig1a/quant_panel.csv", "fig1b/quant_panel.csv"],
+      "detection_hints": [
+        "fig1b ctrl is fig1a ctrl with min/max endpoints removed"
+      ],
+      "citations": ["fixtures/synthetic/shared_control"]
+    }
+  ]
+}

@@ -1,0 +1,13 @@
+{
+  "schema_version": "1.0",
+  "case_id": "REPLACE_WITH_SLOT_ID",
+  "role": "panel_extract_thin_case",
+  "description": "Thin extract-only case: legend source under input/panel_extract/<case_id>/. No experimental data required.",
+  "inputs": [
+    {
+      "path": "input/panel_extract/REPLACE_WITH_SLOT_ID/",
+      "note": "Place published PDF and/or manuscript docx and optional legend_excerpt.txt here (gitignored)."
+    }
+  ],
+  "panel_extract_gold": "fixtures/gold/panel_extract/REPLACE_WITH_SLOT_ID/panel_extract_gold.json"
+}

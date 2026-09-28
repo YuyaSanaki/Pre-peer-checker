@@ -1,0 +1,46 @@
+{
+  "schema_version": "1.0",
+  "role": "panel_bbox_synthetic_gold",
+  "purpose": "複合マルチパネル PDF のベクター分割ゴールデン（パネル文字集合＋pct 許容）。",
+  "builder": "pre_peer_checker.parsers.pdf_panel_plots.build_synthetic_grid_multipanel_pdf",
+  "page": {"width": 600, "height": 400},
+  "tolerance_pct": 8.0,
+  "panels": [
+    {
+      "panel": "A",
+      "label_x_pct": 6.667,
+      "label_y_pct": 15.0,
+      "expect_left_max_pct": 55,
+      "expect_top_max_pct": 60,
+      "expect_width_min_pct": 20,
+      "expect_height_min_pct": 20
+    },
+    {
+      "panel": "B",
+      "label_x_pct": 53.333,
+      "label_y_pct": 15.0,
+      "expect_left_min_pct": 45,
+      "expect_top_max_pct": 60,
+      "expect_width_min_pct": 20,
+      "expect_height_min_pct": 20
+    },
+    {
+      "panel": "C",
+      "label_x_pct": 6.667,
+      "label_y_pct": 55.0,
+      "expect_left_max_pct": 55,
+      "expect_top_min_pct": 40,
+      "expect_width_min_pct": 20,
+      "expect_height_min_pct": 20
+    },
+    {
+      "panel": "D",
+      "label_x_pct": 53.333,
+      "label_y_pct": 55.0,
+      "expect_left_min_pct": 45,
+      "expect_top_min_pct": 40,
+      "expect_width_min_pct": 20,
+      "expect_height_min_pct": 20
+    }
+  ]
+}

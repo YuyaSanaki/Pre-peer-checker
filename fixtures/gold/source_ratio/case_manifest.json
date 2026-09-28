@@ -1,0 +1,15 @@
+{
+  "schema_version": "1.0",
+  "case_id": "source_ratio",
+  "role": "synthetic_regression",
+  "description": "Within-table groups related by exact integer scale factor k=10 (P-SOURCE-RATIO-ARTIFACT).",
+  "root_relative": "fixtures/synthetic/source_ratio",
+  "docker_root": "/app/fixtures/synthetic/source_ratio",
+  "canonical_paths": {
+    "panel": "quant_panel.csv"
+  },
+  "ignore_globs": [],
+  "eval_command": {
+    "gold": "python -m pre_peer_checker.eval.gold_eval --case source_ratio --run --input fixtures/synthetic/source_ratio"
+  }
+}

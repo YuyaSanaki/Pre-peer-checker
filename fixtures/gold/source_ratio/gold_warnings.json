@@ -1,0 +1,21 @@
+{
+  "schema_version": "1.0",
+  "case_id": "source_ratio",
+  "benchmark_only": false,
+  "generalization": "Synthetic G10: cond_hi = 10 × cond_lo elementwise.",
+  "items": [
+    {
+      "id": "G10",
+      "pattern_id": "P-SOURCE-RATIO-ARTIFACT",
+      "expected_tags": ["Warning [実験データとの不一致]"],
+      "severity": "required",
+      "panels": [
+        {"figure": "Fig.1", "group": "cond_lo"},
+        {"figure": "Fig.1", "group": "cond_hi"}
+      ],
+      "evidence_paths": ["quant_panel.csv"],
+      "detection_hints": ["every value in cond_hi equals 10 × cond_lo"],
+      "citations": ["fixtures/synthetic/source_ratio"]
+    }
+  ]
+}

@@ -1,0 +1,38 @@
+{
+  "schema_version": "1.0",
+  "case_id": "demo",
+  "role": "synthetic_regression",
+  "description": "Fully synthetic case for CI. No private manuscript content.",
+  "root_relative": "fixtures/synthetic/demo",
+  "docker_root": "/app/fixtures/synthetic/demo",
+  "canonical_paths": {
+    "manuscript_docx": "manuscript.docx",
+    "main_figures_pdf": "figures.pdf",
+    "quant_condition_a_csv": "quant_a.csv",
+    "quant_condition_b_csv": "quant_b.csv"
+  },
+  "ignore_globs": [],
+  "group_schema": {
+    "condition_a": {
+      "source": "quant_condition_a_csv",
+      "value_col": "value",
+      "label_col": "group",
+      "groups": [
+        {"label": "ctrl", "panel_group": "A1", "n_expected_from_data": 5},
+        {"label": "mut", "panel_group": "A2", "n_expected_from_data": 5}
+      ]
+    },
+    "condition_b": {
+      "source": "quant_condition_b_csv",
+      "value_col": "value",
+      "label_col": "group",
+      "groups": [
+        {"label": "ctrl", "panel_group": "B1", "n_expected_from_data": 5},
+        {"label": "kd", "panel_group": "B2", "n_expected_from_data": 5}
+      ]
+    }
+  },
+  "eval_command": {
+    "gold": "python -m pre_peer_checker.eval.gold_eval --case demo --warnings outputs/warnings.json"
+  }
+}

@@ -1,0 +1,23 @@
+{
+  "schema_version": "1.0",
+  "case_id": "stats_recalc",
+  "benchmark_only": false,
+  "generalization": "Synthetic D5: residue claims means 10/20 but table groups mean ~1/~2.",
+  "items": [
+    {
+      "id": "D5",
+      "pattern_id": "P-STATS-RECALC-MISMATCH",
+      "expected_tags": ["Warning [実験データとの不一致]"],
+      "severity": "required",
+      "panels": [{"figure": "Fig.1", "group": "betaexp"}],
+      "evidence_paths": [
+        "graph_betaexp.csv",
+        "BetaExpWelch Two Sample t-test--da.textClipping"
+      ],
+      "detection_hints": [
+        "textClipping Welch means far from sibling CSV group means"
+      ],
+      "citations": ["fixtures/synthetic/stats_recalc"]
+    }
+  ]
+}

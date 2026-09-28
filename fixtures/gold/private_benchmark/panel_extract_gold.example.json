@@ -1,0 +1,138 @@
+{
+  "schema_version": "1.0",
+  "case_id": "private_benchmark",
+  "role": "legend_panel_extract_gold",
+  "description": "Hard legend spans for extraction-quality eval (not Warning gold). Tracked template; filled panel_extract_gold.json is gitignored and may have more items.",
+  "notes": [
+    "Keys are (figure, panel, group). Empty group means panel-level n.",
+    "legend_typo: surface text may use wrong case/letters; gold is the intended panel.",
+    "Core hard spans shown below (Fig1 L/M, Fig2 A/C/J, Fig5 E). Filled gold may include Batch A+ expansions.",
+    "Used to decide teacher (32B) vs student (7B) before distill/LoRA."
+  ],
+  "items": [
+    {
+      "id": "PE-F1-L",
+      "figure": "Figure 1",
+      "panel": "L",
+      "group": "",
+      "n": 140,
+      "legend_typo": "(k) written for panel L",
+      "difficulty": "context_typo"
+    },
+    {
+      "id": "PE-F1-M",
+      "figure": "Figure 1",
+      "panel": "M",
+      "group": "",
+      "n": 88,
+      "legend_typo": "(l) written for panel M",
+      "difficulty": "context_typo"
+    },
+    {
+      "id": "PE-F2-A-early",
+      "figure": "Figure 2",
+      "panel": "A",
+      "group": "early L3",
+      "n": 4,
+      "difficulty": "multi_group_timepoint"
+    },
+    {
+      "id": "PE-F2-A-late",
+      "figure": "Figure 2",
+      "panel": "A",
+      "group": "late L3",
+      "n": 3,
+      "difficulty": "multi_group_timepoint"
+    },
+    {
+      "id": "PE-F2-C-early-control",
+      "figure": "Figure 2",
+      "panel": "C",
+      "group": "control (early L3)",
+      "n": 9,
+      "aliases_group": [
+        "control, early L3",
+        "early L3 control"
+      ],
+      "difficulty": "four_way_group"
+    },
+    {
+      "id": "PE-F2-C-early-mutx",
+      "figure": "Figure 2",
+      "panel": "C",
+      "group": "mutx+/- (early L3)",
+      "n": 8,
+      "aliases_group": [
+        "mutx+/-, early L3",
+        "early L3 mutx"
+      ],
+      "difficulty": "four_way_group"
+    },
+    {
+      "id": "PE-F2-C-late-control",
+      "figure": "Figure 2",
+      "panel": "C",
+      "group": "control (late L3)",
+      "n": 8,
+      "aliases_group": [
+        "control, late L3",
+        "late L3 control"
+      ],
+      "difficulty": "four_way_group"
+    },
+    {
+      "id": "PE-F2-C-late-mutx",
+      "figure": "Figure 2",
+      "panel": "C",
+      "group": "mutx+/- (late L3)",
+      "n": 5,
+      "aliases_group": [
+        "mutx+/-, late L3",
+        "late L3 mutx"
+      ],
+      "difficulty": "four_way_group"
+    },
+    {
+      "id": "PE-F2-J-WT",
+      "figure": "Figure 2",
+      "panel": "J",
+      "group": "WT",
+      "n": 13,
+      "difficulty": "multi_group"
+    },
+    {
+      "id": "PE-F2-J-mutx",
+      "figure": "Figure 2",
+      "panel": "J",
+      "group": "mutx+/-",
+      "n": 10,
+      "aliases_group": [
+        "mutx",
+        "mutx+/-"
+      ],
+      "difficulty": "multi_group"
+    },
+    {
+      "id": "PE-F5-E-1x",
+      "figure": "Figure 5",
+      "panel": "E",
+      "group": "1x",
+      "n": 5,
+      "forbid_panels": [
+        "A"
+      ],
+      "difficulty": "panel_letter"
+    },
+    {
+      "id": "PE-F5-E-4x",
+      "figure": "Figure 5",
+      "panel": "E",
+      "group": "4x",
+      "n": 8,
+      "forbid_panels": [
+        "A"
+      ],
+      "difficulty": "panel_letter"
+    }
+  ]
+}

@@ -1,0 +1,16 @@
+{
+  "schema_version": "1.0",
+  "case_id": "survival_noninteger",
+  "role": "synthetic_regression",
+  "description": "20 flies/vial × survival 0.775 → non-integer → P-SURVIVAL-COUNT-NONINTEGER.",
+  "root_relative": "fixtures/synthetic/survival_noninteger",
+  "docker_root": "/app/fixtures/synthetic/survival_noninteger",
+  "canonical_paths": {
+    "table": "survival.csv",
+    "manuscript": "manuscript.docx"
+  },
+  "ignore_globs": [],
+  "eval_command": {
+    "gold": "python -m pre_peer_checker.eval.gold_eval --case survival_noninteger --run --input fixtures/synthetic/survival_noninteger"
+  }
+}

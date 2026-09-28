@@ -1,0 +1,16 @@
+{
+  "schema_version": "1.0",
+  "case_id": "count_n",
+  "role": "synthetic_regression",
+  "description": "Colony count CSV 12 rows vs Legend 8 colonies → P-COUNT-N-MISMATCH.",
+  "root_relative": "fixtures/synthetic/count_n",
+  "docker_root": "/app/fixtures/synthetic/count_n",
+  "canonical_paths": {
+    "table": "colony_counts/counts.csv",
+    "manuscript": "manuscript.docx"
+  },
+  "ignore_globs": [],
+  "eval_command": {
+    "gold": "python -m pre_peer_checker.eval.gold_eval --case count_n --run --input fixtures/synthetic/count_n"
+  }
+}

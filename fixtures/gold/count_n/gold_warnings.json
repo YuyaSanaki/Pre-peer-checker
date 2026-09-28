@@ -1,0 +1,32 @@
+{
+  "schema_version": "1.0",
+  "case_id": "count_n",
+  "benchmark_only": false,
+  "generalization": "Synthetic G8: count-table nrows vs Legend colony n.",
+  "items": [
+    {
+      "id": "G8",
+      "pattern_id": "P-COUNT-N-MISMATCH",
+      "expected_tags": [
+        "Warning [サンプルサイズ記載誤記]"
+      ],
+      "severity": "required",
+      "panels": [
+        {
+          "figure": "Figure 1",
+          "panel": "A"
+        }
+      ],
+      "evidence_paths": [
+        "colony_counts/counts.csv",
+        "manuscript.docx"
+      ],
+      "detection_hints": [
+        "8 colonies counted; CSV has 12 rows"
+      ],
+      "citations": [
+        "fixtures/synthetic/count_n"
+      ]
+    }
+  ]
+}

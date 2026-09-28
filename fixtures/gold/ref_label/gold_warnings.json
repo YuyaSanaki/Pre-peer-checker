@@ -1,0 +1,32 @@
+{
+  "schema_version": "1.0",
+  "case_id": "ref_label",
+  "benchmark_only": false,
+  "generalization": "Body cites Fig.1E but PDF labels only A–C.",
+  "items": [
+    {
+      "id": "D8",
+      "pattern_id": "P-REF-LABEL-MISMATCH",
+      "expected_tags": [
+        "Warning [表記揺れ・参照不整合]"
+      ],
+      "severity": "required",
+      "panels": [
+        {
+          "figure": "Figure 1",
+          "panel": "E"
+        }
+      ],
+      "evidence_paths": [
+        "Fig1.pdf",
+        "manuscript.docx"
+      ],
+      "detection_hints": [
+        "Fig.1E missing on PDF"
+      ],
+      "citations": [
+        "fixtures/synthetic/ref_label"
+      ]
+    }
+  ]
+}

@@ -1,0 +1,17 @@
+{
+  "schema_version": "1.0",
+  "case_id": "cross_fig_reuse",
+  "role": "synthetic_regression",
+  "description": "Anonymous multi-figure reuse: identical group vectors under Fig.2 and Fig.4 labeled as independent. No real paper data.",
+  "root_relative": "fixtures/synthetic/cross_fig_reuse",
+  "docker_root": "/app/fixtures/synthetic/cross_fig_reuse",
+  "canonical_paths": {
+    "manuscript_docx": "manuscript.docx",
+    "fig2": "fig2a/quant_fig2.csv",
+    "fig4": "fig4b/quant_fig4.csv"
+  },
+  "ignore_globs": [],
+  "eval_command": {
+    "gold": "python -m pre_peer_checker.eval.gold_eval --case cross_fig_reuse --run --input fixtures/synthetic/cross_fig_reuse"
+  }
+}

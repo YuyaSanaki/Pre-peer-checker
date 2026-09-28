@@ -1,0 +1,13 @@
+{
+  "schema_version": "1.0",
+  "case_id": "microscopy_meta",
+  "role": "synthetic_regression",
+  "description": "Sidecar 40× vs Legend 63× → microscopy meta grounding.",
+  "root_relative": "fixtures/synthetic/microscopy_meta",
+  "docker_root": "/app/fixtures/synthetic/microscopy_meta",
+  "canonical_paths": {},
+  "ignore_globs": [],
+  "eval_command": {
+    "gold": "python -m pre_peer_checker.eval.gold_eval --case microscopy_meta --run --input fixtures/synthetic/microscopy_meta"
+  }
+}

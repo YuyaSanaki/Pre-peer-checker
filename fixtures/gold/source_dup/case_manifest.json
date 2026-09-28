@@ -1,0 +1,15 @@
+{
+  "schema_version": "1.0",
+  "case_id": "source_dup",
+  "role": "synthetic_regression",
+  "description": "Within-table independent groups with identical float vectors (P-SOURCE-DUPLICATE-VALUES).",
+  "root_relative": "fixtures/synthetic/source_dup",
+  "docker_root": "/app/fixtures/synthetic/source_dup",
+  "canonical_paths": {
+    "panel": "quant_panel.csv"
+  },
+  "ignore_globs": [],
+  "eval_command": {
+    "gold": "python -m pre_peer_checker.eval.gold_eval --case source_dup --run --input fixtures/synthetic/source_dup"
+  }
+}

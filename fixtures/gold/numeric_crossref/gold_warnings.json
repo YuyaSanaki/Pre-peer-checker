@@ -1,0 +1,32 @@
+{
+  "schema_version": "1.0",
+  "case_id": "numeric_crossref",
+  "benchmark_only": false,
+  "generalization": "Synthetic G6: manuscript mean disagrees with table group mean.",
+  "items": [
+    {
+      "id": "G6",
+      "pattern_id": "P-NUMERIC-CROSSREF-MISMATCH",
+      "expected_tags": [
+        "Warning [実験データとの不一致]"
+      ],
+      "severity": "required",
+      "panels": [
+        {
+          "figure": "Figure 1",
+          "panel": "A"
+        }
+      ],
+      "evidence_paths": [
+        "fig1a/quant_panel.csv",
+        "manuscript.docx"
+      ],
+      "detection_hints": [
+        "mean intensity was 12.5 but mut group mean is ~4.0"
+      ],
+      "citations": [
+        "fixtures/synthetic/numeric_crossref"
+      ]
+    }
+  ]
+}

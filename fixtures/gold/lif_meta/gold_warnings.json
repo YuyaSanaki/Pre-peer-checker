@@ -1,0 +1,32 @@
+{
+  "schema_version": "1.0",
+  "case_id": "lif_meta",
+  "benchmark_only": false,
+  "generalization": "LIF UTF-16 XML Magnification vs Legend claim.",
+  "items": [
+    {
+      "id": "G7c",
+      "pattern_id": "P-SCALE-MAG-INCONSISTENT",
+      "expected_tags": [
+        "Warning [設定・アノテーション不整合]"
+      ],
+      "severity": "required",
+      "panels": [
+        {
+          "figure": "Figure 1",
+          "panel": "A"
+        }
+      ],
+      "evidence_paths": [
+        "panel.lif",
+        "manuscript.docx"
+      ],
+      "detection_hints": [
+        "LIF Magnification=40 vs Legend 63×"
+      ],
+      "citations": [
+        "fixtures/synthetic/lif_meta"
+      ]
+    }
+  ]
+}

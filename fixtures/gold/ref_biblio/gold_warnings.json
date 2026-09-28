@@ -1,0 +1,38 @@
+{
+  "schema_version": "1.0",
+  "case_id": "ref_biblio",
+  "benchmark_only": false,
+  "generalization": "In-text cite missing from References; duplicate numbered keys; parenthetical year conflict in one entry.",
+  "items": [
+    {
+      "id": "E4a",
+      "pattern_id": "P-REF-MISSING-ENTRY",
+      "expected_tags": ["Warning [表記揺れ・参照不整合]"],
+      "severity": "required",
+      "panels": [],
+      "evidence_paths": ["manuscript.docx"],
+      "detection_hints": ["cite [3] missing from References"],
+      "citations": ["fixtures/synthetic/ref_biblio"]
+    },
+    {
+      "id": "E4b",
+      "pattern_id": "P-REF-DUPLICATE-KEY",
+      "expected_tags": ["Warning [表記揺れ・参照不整合]"],
+      "severity": "required",
+      "panels": [],
+      "evidence_paths": ["manuscript.docx"],
+      "detection_hints": ["two entries numbered 1"],
+      "citations": ["fixtures/synthetic/ref_biblio"]
+    },
+    {
+      "id": "E4c",
+      "pattern_id": "P-REF-META-INCONSISTENT",
+      "expected_tags": ["Warning [表記揺れ・参照不整合]"],
+      "severity": "required",
+      "panels": [],
+      "evidence_paths": ["manuscript.docx"],
+      "detection_hints": ["entry 2 has (2018) and (2019)"],
+      "citations": ["fixtures/synthetic/ref_biblio"]
+    }
+  ]
+}

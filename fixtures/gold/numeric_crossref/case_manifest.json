@@ -1,0 +1,16 @@
+{
+  "schema_version": "1.0",
+  "case_id": "numeric_crossref",
+  "role": "synthetic_regression",
+  "description": "Legend mean 12.5 vs table mut mean ~4.0 → P-NUMERIC-CROSSREF-MISMATCH.",
+  "root_relative": "fixtures/synthetic/numeric_crossref",
+  "docker_root": "/app/fixtures/synthetic/numeric_crossref",
+  "canonical_paths": {
+    "table": "fig1a/quant_panel.csv",
+    "manuscript": "manuscript.docx"
+  },
+  "ignore_globs": [],
+  "eval_command": {
+    "gold": "python -m pre_peer_checker.eval.gold_eval --case numeric_crossref --run --input fixtures/synthetic/numeric_crossref"
+  }
+}

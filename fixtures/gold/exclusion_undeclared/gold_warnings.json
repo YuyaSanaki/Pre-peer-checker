@@ -1,0 +1,22 @@
+{
+  "schema_version": "1.0",
+  "case_id": "exclusion_undeclared",
+  "benchmark_only": false,
+  "generalization": "Synthetic G13: legend n < data rows without exclusion criteria text.",
+  "items": [
+    {
+      "id": "G13",
+      "pattern_id": "P-EXCLUSION-UNDECLARED",
+      "expected_tags": ["Warning [サンプルサイズ記載誤記]"],
+      "severity": "required",
+      "panels": [
+        {"figure": "Figure 1", "panel": "A"}
+      ],
+      "evidence_paths": ["fig1a/quant_panel.csv", "manuscript.docx"],
+      "detection_hints": [
+        "Legend n=6 (A) while quant_panel has 8 rows; no exclusion criteria span"
+      ],
+      "citations": ["fixtures/synthetic/exclusion_undeclared"]
+    }
+  ]
+}

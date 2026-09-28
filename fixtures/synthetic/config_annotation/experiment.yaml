@@ -1,0 +1,5 @@
+genotypes:
+  - AlphaExp
+  - BetaExp-Gal4
+  - mutx
+n: 12

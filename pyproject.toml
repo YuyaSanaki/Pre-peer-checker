@@ -38,7 +38,7 @@ imaging = [
   "readlif>=0.6",
   "aicsimageio>=4.14",
   "opencv-python-headless>=4.8",
-  # LightGlue: pip install git+https://github.com/cvg/LightGlue.git
+  # LightGlue: install.sh がコミット固定で導入（LIGHTGLUE_COMMIT）
 ]
 gui = [
   "PyQt6>=6.6",

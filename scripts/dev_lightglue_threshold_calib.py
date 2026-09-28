@@ -154,7 +154,7 @@ def main() -> int:
     )
 
     if not lightglue_available():
-        print("LightGlue not installed — run ./install.sh to install it.")
+        print("LightGlue not installed — run ./install.sh (installs the pinned LightGlue).")
         return 2
     features = args.features or active_lightglue_features()
     current_default = default_min_matches(features)

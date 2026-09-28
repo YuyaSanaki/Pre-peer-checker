@@ -202,8 +202,11 @@ if [[ "${APPLE_SILICON}" == "1" ]]; then
   try_install "JSON スキーマ強制（Outlines）" -e ".[llm-json]"
   try_install "画像スタック（torch / torchvision / OpenCV）" \
     "torch>=2.2" "torchvision>=0.17" "opencv-python-headless>=4.8"
+  # 上流の変更（ライセンス・重み・API）を検知できるようコミット固定。更新時は再較正:
+  #   scripts/dev_lightglue_threshold_calib.py --features {superpoint,aliked}
+  LIGHTGLUE_COMMIT="eb42fee2d71449efb0aa5c10549752b5d75384d8"
   try_install "画像精密照合（LightGlue）" \
-    "lightglue @ https://github.com/cvg/LightGlue/archive/refs/heads/main.zip"
+    "lightglue @ https://github.com/cvg/LightGlue/archive/${LIGHTGLUE_COMMIT}.zip"
   try_install "顕微鏡 LIF（readlif）" "readlif>=0.6"
   try_install "顕微鏡 CZI（pylibCZIrw）" "pylibCZIrw>=4.0"
 fi

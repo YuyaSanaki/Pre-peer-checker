@@ -220,7 +220,7 @@ if [[ "${APPLE_SILICON}" == "1" && "${PRE_PEER_CHECKER_SKIP_MODELS:-0}" != "1" ]
   echo "==> 既定モデルの重みを取得中（メモリ ${MEM_GB}GB / 空きディスク ${FREE_GB}GB）…"
   if (( MEM_GB < 16 )); then
     echo "    注意: メモリ 16GB 未満では 7B モデルの推論が重くなります。"
-    echo "          WebUI の LLM で「Qwen2.5-3B」を選ぶと軽くなります。"
+    echo "          照合中は他のアプリを閉じてください。"
   fi
   if (( FREE_GB < 15 )); then
     echo "    警告: 空きディスクが 15GB 未満です。モデル取得を省略します"

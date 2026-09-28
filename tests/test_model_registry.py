@@ -19,8 +19,10 @@ def test_registry_loads_defaults():
     assert "qwen2.5-7b-mlx" in profiles
     assert "qwen2.5-7b-hf" in profiles
     assert "qwen2.5-vl-7b" in profiles
-    assert "internvl3-8b" in profiles
     assert "gemma3-12b" not in profiles
+    # Only Apache-2.0 models are offered (no Qwen Research / Qwen License / InternVL).
+    for pid in ("qwen2.5-3b-mlx", "qwen2.5-72b-hf", "internvl3-8b", "internvl3-38b"):
+        assert pid not in profiles
 
 
 def test_list_profiles_by_role():

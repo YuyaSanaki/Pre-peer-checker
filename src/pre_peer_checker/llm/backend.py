@@ -87,7 +87,7 @@ class TransformersBackend(LocalLLMBackend):
     ):
         self.model_id = model_id or os.environ.get(
             "PRE_PEER_CHECKER_LLM_MODEL",
-            "Qwen/Qwen2.5-3B-Instruct",
+            "Qwen/Qwen2.5-7B-Instruct",
         )
         self.device_override = device
         self._pipe = None
@@ -299,12 +299,8 @@ def _hf_text_model_from_mlx_id(model_id: str) -> str:
     if mid.startswith("Qwen/") or mid.startswith("google/"):
         return mid
     low = mid.lower()
-    if "3b" in low:
-        return "Qwen/Qwen2.5-3B-Instruct"
     if "32b" in low:
         return "Qwen/Qwen2.5-32B-Instruct"
-    if "72b" in low:
-        return "Qwen/Qwen2.5-72B-Instruct"
     return os.environ.get("PRE_PEER_CHECKER_LLM_MODEL") or "Qwen/Qwen2.5-7B-Instruct"
 
 

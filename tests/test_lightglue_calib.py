@@ -1,4 +1,4 @@
-"""LightGlue threshold: skip if unavailable; else verify DEFAULT_MIN_MATCHES separates."""
+"""LightGlue threshold: skip if unavailable; else verify per-extractor min_matches separates."""
 
 from __future__ import annotations
 
@@ -10,7 +10,7 @@ import pytest
 from PIL import Image, ImageDraw
 
 from pre_peer_checker.imaging.lightglue_match import (
-    DEFAULT_MIN_MATCHES,
+    MIN_MATCHES_BY_FEATURES,
     lightglue_available,
     verify_image_pair,
 )
@@ -19,14 +19,17 @@ ROOT = Path(__file__).resolve().parents[1]
 SUMMARY = ROOT / "fixtures" / "gold" / "lightglue_calib" / "calib_summary.json"
 
 
-def test_default_min_matches_matches_recorded_calib():
-    data = json.loads(SUMMARY.read_text(encoding="utf-8"))
-    assert data["chosen_DEFAULT_MIN_MATCHES"] == DEFAULT_MIN_MATCHES
-    assert data["must_neg_max"] < DEFAULT_MIN_MATCHES <= data["must_pos_min"]
+@pytest.mark.parametrize("features", sorted(MIN_MATCHES_BY_FEATURES))
+def test_min_matches_matches_recorded_calib(features: str):
+    data = json.loads(SUMMARY.read_text(encoding="utf-8"))["extractors"][features]
+    chosen = MIN_MATCHES_BY_FEATURES[features]
+    assert data["chosen_min_matches"] == chosen
+    assert data["must_neg_max"] < chosen <= data["must_pos_min"]
 
 
 @pytest.mark.skipif(not lightglue_available(), reason="lightglue+torch not installed")
-def test_lightglue_threshold_separates_probe_vs_noise(tmp_path: Path):
+@pytest.mark.parametrize("features", sorted(MIN_MATCHES_BY_FEATURES))
+def test_lightglue_threshold_separates_probe_vs_noise(tmp_path: Path, features: str):
     size = 192
     rng = np.random.default_rng(0)
     base = (rng.random((size, size)) * 40 + 80).astype(np.uint8)
@@ -54,21 +57,13 @@ def test_lightglue_threshold_separates_probe_vs_noise(tmp_path: Path):
     Image.fromarray(probe).save(b)
     Image.fromarray(unrelated).save(noise)
 
-    pos = verify_image_pair(
-        a, b, prefer_lightglue=True, require_lightglue=True, min_matches=0
-    )
-    neg = verify_image_pair(
-        a, noise, prefer_lightglue=True, require_lightglue=True, min_matches=0
-    )
-    assert pos.method == "lightglue+superpoint"
-    assert pos.num_matches > DEFAULT_MIN_MATCHES
-    assert neg.num_matches < DEFAULT_MIN_MATCHES
+    kw = {"prefer_lightglue": True, "require_lightglue": True, "features": features}
+    threshold = MIN_MATCHES_BY_FEATURES[features]
+    pos = verify_image_pair(a, b, min_matches=0, **kw)
+    neg = verify_image_pair(a, noise, min_matches=0, **kw)
+    assert pos.method == f"lightglue+{features}"
+    assert pos.num_matches > threshold
+    assert neg.num_matches < threshold
 
-    pos_gate = verify_image_pair(
-        a, b, prefer_lightglue=True, require_lightglue=True
-    )
-    neg_gate = verify_image_pair(
-        a, noise, prefer_lightglue=True, require_lightglue=True
-    )
-    assert pos_gate.verified is True
-    assert neg_gate.verified is False
+    assert verify_image_pair(a, b, **kw).verified is True
+    assert verify_image_pair(a, noise, **kw).verified is False

@@ -35,12 +35,19 @@ def test_precise_match_identical_and_different(tmp_path: Path):
     Image.fromarray(255 - arr).save(c)
     ok = verify_image_pair(a, b)
     assert ok.verified
-    assert ok.method in {"ncc-multiscale", "orb-ransac", "lightglue+superpoint"}
+    assert ok.method in {
+        "ncc-multiscale",
+        "orb-ransac",
+        "lightglue+superpoint",
+        "lightglue+aliked",
+    }
     bad = verify_image_pair(a, c)
     assert not bad.verified
 
 
-def test_scan_auto_refines_with_precise(tmp_path: Path):
+def test_scan_auto_refines_with_precise(tmp_path: Path, monkeypatch):
+    # 64px noise: ALIKED finds only ~26 matches (< 50); SuperPoint path is the one under test.
+    monkeypatch.setenv("PRE_PEER_CHECKER_USAGE", "academic")
     a = tmp_path / "a.png"
     b = tmp_path / "b.png"
     arr = np.random.default_rng(2).integers(30, 220, (64, 64, 3), dtype=np.uint8)

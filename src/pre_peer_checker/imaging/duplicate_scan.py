@@ -196,7 +196,6 @@ def scan_image_duplicates_auto(
 
     if refine_with_precise and matches:
         from pre_peer_checker.imaging.lightglue_match import (
-            DEFAULT_MIN_MATCHES,
             confirm_candidate_matches,
             verify_image_pair,
         )
@@ -213,7 +212,7 @@ def scan_image_duplicates_auto(
             matches,
             prefer_lightglue=prefer_lightglue,
             require_lightglue=require_lightglue,
-            min_matches=DEFAULT_MIN_MATCHES if min_matches is None else min_matches,
+            min_matches=min_matches,
             only_likely=True,
         )
         # Restore: pairs that were only candidates and failed precise stay non-dup

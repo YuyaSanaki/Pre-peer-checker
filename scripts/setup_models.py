@@ -53,11 +53,11 @@ def _lightglue() -> bool:
 
     if not lightglue_available():
         return False
-    from lightglue import LightGlue, SuperPoint
+    from pre_peer_checker.imaging.lightglue_match import _load_lightglue, active_lightglue_features
 
-    print("  - 画像精密照合: LightGlue + SuperPoint", flush=True)
-    SuperPoint(max_num_keypoints=2048)
-    LightGlue(features="superpoint")
+    features = active_lightglue_features()
+    print(f"  - 画像精密照合: LightGlue + {features}", flush=True)
+    _load_lightglue(features, "cpu")
     return True
 
 

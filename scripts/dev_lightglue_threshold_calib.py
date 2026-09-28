@@ -2,8 +2,9 @@
 """Calibrate LightGlue min_matches on synthetic identical / crop / unrelated pairs.
 
 Usage:
-  .venv/bin/python scripts/dev_lightglue_threshold_calib.py
-  .venv/bin/python scripts/dev_lightglue_threshold_calib.py --write outputs/lightglue_calib.json
+  .venv/bin/python scripts/dev_lightglue_threshold_calib.py --features aliked
+  .venv/bin/python scripts/dev_lightglue_threshold_calib.py --features superpoint \\
+    --write outputs/lightglue_calib_superpoint.json
 
 Unrelated synthetics must NOT share block layout with the probe image — aligned
 dummy geometry yields spurious SuperPoint matches and inflates neg_max.
@@ -126,6 +127,12 @@ def _suggest_threshold(rows: list[dict]) -> tuple[int, str]:
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
+        "--features",
+        choices=["superpoint", "aliked"],
+        default=None,
+        help="Extractor to calibrate (default: the one selected by the usage profile)",
+    )
+    parser.add_argument(
         "--min-candidates",
         type=int,
         nargs="+",
@@ -140,15 +147,18 @@ def main() -> int:
     args = parser.parse_args()
 
     from pre_peer_checker.imaging.lightglue_match import (
-        DEFAULT_MIN_MATCHES,
+        active_lightglue_features,
+        default_min_matches,
         lightglue_available,
         verify_image_pair,
     )
 
     if not lightglue_available():
-        print("LightGlue not installed — install lightglue+torch to calibrate.")
-        print("  .venv/bin/pip install 'git+https://github.com/cvg/LightGlue.git'")
+        print("LightGlue not installed — run ./install.sh to install it.")
         return 2
+    features = args.features or active_lightglue_features()
+    current_default = default_min_matches(features)
+    print(f"extractor: {features}")
 
     with tempfile.TemporaryDirectory(prefix="lg_calib_") as td:
         tmp = Path(td)
@@ -160,7 +170,12 @@ def main() -> int:
         rows: list[dict] = []
         for name, a, b, expect_pos, role in pairs:
             r = verify_image_pair(
-                a, b, prefer_lightglue=True, require_lightglue=True, min_matches=0
+                a,
+                b,
+                prefer_lightglue=True,
+                require_lightglue=True,
+                min_matches=0,
+                features=features,
             )
             n = int(r.num_matches)
             flags = {t: n >= t for t in args.min_candidates}
@@ -189,23 +204,24 @@ def main() -> int:
         print(f"must_pos_min={must_pos_min}  must_neg_max={must_neg_max}")
         if hard:
             print(f"hard_pos (rot90 etc.) min={min(hard)} — informational; rotation NCC covers many cases")
-        print(f"Suggested DEFAULT_MIN_MATCHES: {suggested}  ({note})")
-        print(f"Current package default: {DEFAULT_MIN_MATCHES}")
-        ok_current = must_neg_max < DEFAULT_MIN_MATCHES <= must_pos_min
+        print(f"Suggested MIN_MATCHES_BY_FEATURES[{features!r}]: {suggested}  ({note})")
+        print(f"Current package default: {current_default}")
+        ok_current = must_neg_max < current_default <= must_pos_min
         print(f"Current default separates must_pos/must_neg: {ok_current}")
 
         if args.write:
             args.write.parent.mkdir(parents=True, exist_ok=True)
             report = {
-                "schema_version": "1.1",
+                "schema_version": "1.2",
                 "generated_at": datetime.now(timezone.utc).isoformat(),
+                "features": features,
                 "device_hint": rows[0]["detail"] if rows else "",
                 "must_pos_min": must_pos_min,
                 "must_neg_max": must_neg_max,
                 "hard_pos_min": min(hard) if hard else None,
                 "suggested_min_matches": suggested,
                 "suggest_note": note,
-                "current_default": DEFAULT_MIN_MATCHES,
+                "current_default": current_default,
                 "current_separates_must": ok_current,
                 "thresholds_tested": list(args.min_candidates),
                 "pairs": rows,

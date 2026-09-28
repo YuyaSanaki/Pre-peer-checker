@@ -1,14 +1,29 @@
 {
-  "schema_version": "1.1",
+  "schema_version": "1.2",
   "role": "lightglue_threshold_calibration",
   "device": "cuda",
-  "date": "2026-09-26",
-  "extractor": "SuperPoint max_num_keypoints=1024 + LightGlue",
-  "must_pos_min": 153,
-  "must_neg_max": 17,
-  "hard_pos_rot90": 47,
-  "chosen_DEFAULT_MIN_MATCHES": 35,
-  "rationale": "must_neg_max(17) < 35 ≤ must_pos_min(153); also passes hard_pos rot90 (47). Band ≈18–153; 30–40 all separate.",
-  "repro": ".venv/bin/python scripts/dev_lightglue_threshold_calib.py --write outputs/lightglue_calib.json",
-  "install": ".venv/bin/pip install 'git+https://github.com/cvg/LightGlue.git'"
+  "date": "2026-09-28",
+  "lightglue_commit": "eb42fee2d71449efb0aa5c10549752b5d75384d8",
+  "max_num_keypoints": 1024,
+  "extractors": {
+    "superpoint": {
+      "usage": "academic",
+      "license": "Magic Leap non-commercial research (code + weights)",
+      "must_pos_min": 153,
+      "must_neg_max": 17,
+      "hard_pos_rot90": 47,
+      "chosen_min_matches": 35,
+      "rationale": "must_neg_max(17) < 35 ≤ must_pos_min(153); also passes hard_pos rot90 (47). Band ≈18–153."
+    },
+    "aliked": {
+      "usage": "commercial",
+      "license": "ALIKED BSD-3-Clause / LightGlue weights Apache-2.0",
+      "must_pos_min": 386,
+      "must_neg_max": 32,
+      "hard_pos_rot90": 32,
+      "chosen_min_matches": 50,
+      "rationale": "must_neg_max(32) < 50 ≤ must_pos_min(386); ≥18 margin above negatives as with SuperPoint. rot90 (32) equals the noise-pair max, so it cannot be separated by count."
+    }
+  },
+  "repro": ".venv/bin/python scripts/dev_lightglue_threshold_calib.py --features {superpoint,aliked} --write outputs/lightglue_calib_<features>.json"
 }

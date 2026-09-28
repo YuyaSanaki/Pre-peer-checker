@@ -22,7 +22,7 @@ from pre_peer_checker.engine.exclusion_trace import (
 from pre_peer_checker.engine.microscopy_meta import warnings_from_microscopy_meta
 from pre_peer_checker.engine.survival_count import audit_survival_curve
 from pre_peer_checker.imaging.lightglue_match import (
-    DEFAULT_MIN_MATCHES,
+    MIN_MATCHES_BY_FEATURES,
     verify_image_pair,
 )
 from pre_peer_checker.imaging.partial_match import (
@@ -213,9 +213,10 @@ def test_lightglue_require_and_default_threshold(tmp_path: Path):
     else:
         assert missing.method in {
             "lightglue+superpoint",
+            "lightglue+aliked",
             "lightglue-required-failed",
         }
-    assert DEFAULT_MIN_MATCHES == 35
+    assert MIN_MATCHES_BY_FEATURES == {"superpoint": 35, "aliked": 50}
 
 
 def test_survival_curve_recalc_audit():

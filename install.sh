@@ -8,6 +8,7 @@
 #   PRE_PEER_CHECKER_PYTHON=/path/to/python3   使う Python を明示（3.11 以上）
 #   PRE_PEER_CHECKER_SKIP_MODELS=1             モデル重みの事前ダウンロードを省略
 #   PRE_PEER_CHECKER_EXTRAS=dev,gui            追加で入れる extras（カンマ区切り）
+#   PRE_PEER_CHECKER_USAGE=academic|commercial 利用区分の質問を省略（非対話実行用）
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")" && pwd)"
@@ -38,6 +39,52 @@ if [[ "${APPLE_SILICON}" == "1" ]]; then
 else
   echo "    環境: ${OS} $(uname -m)"
 fi
+
+# ---------------------------------------------------------------------------
+# 利用区分（ライセンス上の利用条件が付くコンポーネントを切り替える）
+# ---------------------------------------------------------------------------
+USAGE_FILE="${ROOT}/usage_profile.json"
+usage_label() {
+  case "$1" in
+    academic) echo "大学・非営利組織による非商用研究（SuperPoint を使用）" ;;
+    *) echo "企業・商用研究・その他（ALIKED を使用）" ;;
+  esac
+}
+CURRENT_USAGE=""
+if [[ -f "${USAGE_FILE}" ]]; then
+  CURRENT_USAGE="$(sed -n 's/.*"usage"[[:space:]]*:[[:space:]]*"\([a-z]*\)".*/\1/p' "${USAGE_FILE}" | head -n 1)"
+fi
+USAGE="${PRE_PEER_CHECKER_USAGE:-}"
+if [[ -n "${USAGE}" && "${USAGE}" != "academic" && "${USAGE}" != "commercial" ]]; then
+  echo "ERROR: PRE_PEER_CHECKER_USAGE は academic か commercial を指定してください（指定値: ${USAGE}）。" >&2
+  exit 1
+fi
+if [[ -z "${USAGE}" ]] && (: </dev/tty) 2>/dev/null; then
+  DEFAULT_CHOICE=2
+  [[ "${CURRENT_USAGE}" == "academic" ]] && DEFAULT_CHOICE=1
+  echo
+  echo "==> 利用区分を選んでください"
+  echo "    画像精密照合の特徴点抽出 SuperPoint は、開発元 Magic Leap のライセンスにより"
+  echo "    「大学・非営利組織による非商用研究」でのみ利用できます。"
+  echo "    企業の研究所・製薬企業・CRO など営利組織での利用（自社論文のチェックを含む）は対象外です。"
+  echo "      1) 大学・非営利組織による非商用研究 — SuperPoint を使用"
+  echo "      2) 上記以外（企業・商用研究・判断がつかない場合）— ALIKED（BSD-3）を使用"
+  while [[ -z "${USAGE}" ]]; do
+    ANSWER=""
+    read -r -p "    番号を入力 [既定: ${DEFAULT_CHOICE}]: " ANSWER </dev/tty || ANSWER=""
+    case "${ANSWER:-${DEFAULT_CHOICE}}" in
+      1) USAGE="academic" ;;
+      2) USAGE="commercial" ;;
+      *) echo "    1 か 2 を入力してください。" ;;
+    esac
+  done
+fi
+USAGE="${USAGE:-${CURRENT_USAGE:-commercial}}"
+cat > "${USAGE_FILE}" <<EOF
+{"usage": "${USAGE}", "selected_at": "$(date -u +%Y-%m-%dT%H:%M:%SZ)"}
+EOF
+echo "    利用区分: $(usage_label "${USAGE}")"
+echo "    （変更するには ./install.sh を再実行してください）"
 
 # ---------------------------------------------------------------------------
 # Python（3.11 以上。Apple Silicon ではネイティブ arm64 が必須）

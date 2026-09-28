@@ -1,6 +1,7 @@
 """DINOv2 候補ペアの精密マッチ再検証.
 
-優先: LightGlue (+ SuperPoint) — `pip install 'pre-peer-checker[imaging]'` かつ lightglue
+優先: LightGlue — `pip install 'pre-peer-checker[imaging]'` かつ lightglue
+      特徴点抽出器は利用区分で切替（academic: SuperPoint / commercial: ALIKED）
 次点: OpenCV ORB + RANSAC ホモグラフィ
 常時: マルチスケール正規化相互相関（依存なし）
 """
@@ -26,7 +27,7 @@ class PreciseMatchResult:
 def lightglue_available() -> bool:
     try:
         import torch  # noqa: F401
-        from lightglue import LightGlue, SuperPoint  # noqa: F401
+        from lightglue import LightGlue  # noqa: F401
 
         return True
     except Exception:
@@ -148,46 +149,68 @@ def _verify_orb(path_a: Path, path_b: Path, *, min_inliers: int = 12) -> Precise
     )
 
 
-_LIGHTGLUE_CACHE: dict[str, object] = {}
+_LIGHTGLUE_CACHE: dict[str, tuple[object, object, str]] = {}
 
+LIGHTGLUE_MAX_KEYPOINTS = 1024
 
-# Calibrated on CUDA SuperPoint+LightGlue (1024 kpts), 2026-09-26:
-#   must_pos_min≈153 (identical/crop/noisy), must_neg_max≈17 (noise/shapes),
-#   hard_pos rot90≈47 (informational; rotation also covered by NCC).
-# Valid band ≈18–153; 35 keeps margin above negatives and passes rot90.
-# Re-run: scripts/dev_lightglue_threshold_calib.py --write outputs/lightglue_calib.json
-DEFAULT_MIN_MATCHES = 35
+# Per-extractor min_matches, calibrated on CUDA (1024 kpts), 2026-09-28:
+#   superpoint: must_pos_min=153, must_neg_max=17, rot90=47  → 35
+#   aliked:     must_pos_min=386, must_neg_max=32, rot90=32  → 50 (same ≥18 margin
+#               above negatives; rot90 is not separable from negatives with ALIKED)
+# Re-run: scripts/dev_lightglue_threshold_calib.py --features <name>
+# Record: fixtures/gold/lightglue_calib/calib_summary.json
+MIN_MATCHES_BY_FEATURES: dict[str, int] = {
+    "superpoint": 35,
+    "aliked": 50,
+}
 DEFAULT_MIN_MATCH_RATIO = 0.0  # absolute count gate is primary for LightGlue
+
+
+def active_lightglue_features() -> str:
+    from pre_peer_checker.usage_profile import lightglue_features
+
+    return lightglue_features()
+
+
+def default_min_matches(features: str | None = None) -> int:
+    return MIN_MATCHES_BY_FEATURES[features or active_lightglue_features()]
+
+
+def _load_lightglue(features: str, device: str) -> tuple[object, object]:
+    from lightglue import ALIKED, LightGlue, SuperPoint
+
+    extractors = {"superpoint": SuperPoint, "aliked": ALIKED}
+    extractor = extractors[features](max_num_keypoints=LIGHTGLUE_MAX_KEYPOINTS)
+    matcher = LightGlue(features=features)
+    return extractor.eval().to(device), matcher.eval().to(device)
 
 
 def _verify_lightglue(
     path_a: Path,
     path_b: Path,
     *,
-    min_matches: int = DEFAULT_MIN_MATCHES,
+    features: str | None = None,
+    min_matches: int | None = None,
     device: str | None = None,
 ) -> PreciseMatchResult:
     import torch
-    from lightglue import LightGlue, SuperPoint
     from lightglue.utils import load_image, rbd
 
-    if device is None:
-        if torch.cuda.is_available():
-            device = "cuda"
-        elif getattr(torch.backends, "mps", None) and torch.backends.mps.is_available():
-            device = "mps"
-        else:
-            device = "cpu"
+    features = features or active_lightglue_features()
+    if min_matches is None:
+        min_matches = default_min_matches(features)
 
-    if "extractor" not in _LIGHTGLUE_CACHE:
-        extractor = SuperPoint(max_num_keypoints=1024).eval().to(device)
-        matcher = LightGlue(features="superpoint").eval().to(device)
-        _LIGHTGLUE_CACHE["extractor"] = extractor
-        _LIGHTGLUE_CACHE["matcher"] = matcher
-        _LIGHTGLUE_CACHE["device"] = device
-    extractor = _LIGHTGLUE_CACHE["extractor"]  # type: ignore[assignment]
-    matcher = _LIGHTGLUE_CACHE["matcher"]  # type: ignore[assignment]
-    device = str(_LIGHTGLUE_CACHE["device"])
+    if features not in _LIGHTGLUE_CACHE:
+        if device is None:
+            if torch.cuda.is_available():
+                device = "cuda"
+            elif getattr(torch.backends, "mps", None) and torch.backends.mps.is_available():
+                device = "mps"
+            else:
+                device = "cpu"
+        extractor, matcher = _load_lightglue(features, device)
+        _LIGHTGLUE_CACHE[features] = (extractor, matcher, device)
+    extractor, matcher, device = _LIGHTGLUE_CACHE[features]  # type: ignore[assignment]
 
     img0 = load_image(str(path_a)).to(device)
     img1 = load_image(str(path_b)).to(device)
@@ -202,7 +225,7 @@ def _verify_lightglue(
         verified=verified,
         num_matches=n,
         score=float(n),
-        method="lightglue+superpoint",
+        method=f"lightglue+{features}",
         detail=f"device={device}; min_matches={min_matches}",
     )
 
@@ -213,17 +236,20 @@ def verify_image_pair(
     *,
     prefer_lightglue: bool = True,
     require_lightglue: bool = False,
-    min_matches: int = DEFAULT_MIN_MATCHES,
+    min_matches: int | None = None,
+    features: str | None = None,
 ) -> PreciseMatchResult:
     """Re-verify a candidate duplicate pair with the best available matcher.
 
     ``require_lightglue=True``: do not silently fall back to ORB/NCC when LightGlue
     is unavailable or fails (returns verified=False with method marker).
+    ``min_matches=None`` / ``features=None``: calibrated default for the usage profile.
     """
     a, b = Path(path_a), Path(path_b)
+    fallback_note = ""
     if prefer_lightglue and lightglue_available():
         try:
-            return _verify_lightglue(a, b, min_matches=min_matches)
+            return _verify_lightglue(a, b, features=features, min_matches=min_matches)
         except Exception as exc:  # noqa: BLE001
             if require_lightglue:
                 return PreciseMatchResult(
@@ -242,8 +268,6 @@ def verify_image_pair(
             method="lightglue-required-missing",
             detail="lightglue package not available",
         )
-    else:
-        fallback_note = ""
 
     if opencv_available():
         try:
@@ -265,7 +289,7 @@ def confirm_candidate_matches(
     *,
     prefer_lightglue: bool = True,
     require_lightglue: bool = False,
-    min_matches: int = DEFAULT_MIN_MATCHES,
+    min_matches: int | None = None,
     only_likely: bool = True,
 ) -> list:
     """Attach precise verification onto ImagePairMatch-like objects.

@@ -7,8 +7,9 @@ from pre_peer_checker.imaging.duplicate_scan import (
     scan_image_duplicates_auto,
 )
 from pre_peer_checker.imaging.lightglue_match import (
-    DEFAULT_MIN_MATCHES,
+    MIN_MATCHES_BY_FEATURES,
     PreciseMatchResult,
+    default_min_matches,
     lightglue_available,
     verify_image_pair,
 )
@@ -34,7 +35,8 @@ __all__ = [
     "scan_image_duplicates",
     "scan_image_duplicates_auto",
     "PreciseMatchResult",
-    "DEFAULT_MIN_MATCHES",
+    "MIN_MATCHES_BY_FEATURES",
+    "default_min_matches",
     "lightglue_available",
     "verify_image_pair",
     "CorpusScanResult",

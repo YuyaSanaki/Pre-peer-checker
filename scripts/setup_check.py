@@ -35,7 +35,11 @@ def main() -> int:
     args = ap.parse_args()
 
     from pre_peer_checker.imaging.duplicate_scan import DinoDuplicateScanner
-    from pre_peer_checker.imaging.lightglue_match import lightglue_available, opencv_available
+    from pre_peer_checker.imaging.lightglue_match import (
+        active_lightglue_features,
+        lightglue_available,
+        opencv_available,
+    )
     from pre_peer_checker.llm.backend import select_backend
     from pre_peer_checker.llm.json_mode import outlines_available
     from pre_peer_checker.llm.registry import (
@@ -45,6 +49,7 @@ def main() -> int:
     )
     from pre_peer_checker.llm.vlm_backend import select_vlm_backend
     from pre_peer_checker.parsers.r_treesitter import treesitter_available
+    from pre_peer_checker.usage_profile import current_usage
 
     llm_pid = effective_llm_profile_id()
     llm = select_backend("auto", profile_id=llm_pid)
@@ -86,7 +91,11 @@ def main() -> int:
             DinoDuplicateScanner.available(),
             "Apple GPU (MPS) 利用可" if mps else "",
         ),
-        ("画像精密照合（LightGlue）", lightglue_available(), ""),
+        (
+            "画像精密照合（LightGlue）",
+            lightglue_available(),
+            f"特徴点: {active_lightglue_features()}（利用区分: {current_usage()}）",
+        ),
         ("OpenCV", opencv_available(), ""),
         ("顕微鏡 LIF（readlif）", _has("readlif"), ""),
         ("顕微鏡 CZI（pylibCZIrw）", _has("pylibCZIrw"), ""),

@@ -78,12 +78,14 @@ from pre_peer_checker.llm.legend_extract import (
     extract_legends_with_backend,
     legend_json_to_panel_ns,
     legends_any_citation,
+    legends_any_reuse_statement,
     legends_to_artifact,
     merge_panel_ns,
     summarize_legend_llm_meta,
 )
 from pre_peer_checker.parsers.legend_struct import all_panel_ns, extract_structured_legends
 from pre_peer_checker.parsers.pdf_figures import extract_pdf
+from pre_peer_checker.parsers.docx_images import export_docx_images
 from pre_peer_checker.parsers.pdf_images import export_embedded_images
 from pre_peer_checker.parsers.pdf_plot_digitize import digitize_plot_pdf, find_plot_pdfs
 from pre_peer_checker.engine.script_dag import warnings_from_python_dag, warnings_from_r_dag
@@ -259,12 +261,13 @@ def _plan_stages(
     ]
     if n_corpus_images:
         # 部分一致は原稿画像 × コーパス画像の全ペアを照合する（上限は scan_against_corpus の既定値）
+        # パネル照合は LightGlue 最大 2000 組（~45 ms/組）+ パネル特徴抽出
         n_query = min(n_images + n_micro + 10 * n_fig_pdf, 40)
         stages.append(
             Stage(
                 "corpus",
                 "過去論文コーパスとの画像照合（H3）",
-                20.0 + 3.0 * max(n_query, 1) * min(n_corpus_images, 80),
+                140.0 + 3.0 * max(n_query, 1) * min(n_corpus_images, 80),
             )
         )
     stages.append(Stage("report", "カバレッジ集計・レポート出力", 3.0))
@@ -596,6 +599,9 @@ def run_verification(
     result.artifacts["figure_chunks"] = figure_chunks_art
     legend_cited = legends_any_citation(legend_jsons)
     result.artifacts["legend_citation_mentioned"] = legend_cited
+    # Reference citations (stocks, methods) say nothing about image reuse
+    legend_reuse_stated = legends_any_reuse_statement(legend_jsons)
+    result.artifacts["legend_reuse_statement"] = legend_reuse_stated
     # When LLM produced panels, still merge with rules (rules lock on same key).
     # prefer_llm exclusive mode dropped: it discarded F/N legend n and broke H2b.
     llm_active = any(
@@ -1329,14 +1335,32 @@ def run_verification(
         # --- H3: 外部コーパス照合（指定時のみ） ---
         if corpus_roots:
             tracker.start("corpus", "原稿の画像と過去論文の図を照合中")
+            # Word 埋め込み図（Supplemental 等）→ Figure PDF 埋め込み → 生画像 → 顕微鏡の順
+            docx_image_paths: list[Path] = []
+            docx_hashes: set[str] = set()
+            docx_td = Path(tempfile.mkdtemp(prefix="mc_docximg_"))
+            tmp_dirs.append(docx_td)
+            docx_sorted = sorted(
+                bundle.get(FileKind.DOCX),
+                key=lambda p: (
+                    not any(k in p.name.lower() for k in ("supp", "fig")),
+                    p.name.lower(),
+                ),
+            )
+            for i_docx, p in enumerate(docx_sorted):
+                docx_image_paths.extend(
+                    export_docx_images(
+                        p, docx_td / str(i_docx), min_side=120, seen_hashes=docx_hashes
+                    )
+                )
+            result.artifacts["corpus_docx_images"] = len(docx_image_paths)
             query_imgs = (
-                list(bundle.get(FileKind.IMAGE))
+                docx_image_paths
+                + list(pdf_image_paths)
+                + list(bundle.get(FileKind.IMAGE))
                 + list(bundle.get(FileKind.LIF))
                 + list(bundle.get(FileKind.CZI))
             )
-            # Prefer exported PDF embeds as query when present
-            if pdf_image_paths:
-                query_imgs = list(pdf_image_paths) + query_imgs
             def _on_corpus(done: int, total: int, label: str) -> None:
                 if total:
                     tracker.update(done=done, total=total)
@@ -1346,7 +1370,7 @@ def run_verification(
             corpus_result = scan_against_corpus(
                 query_imgs,
                 corpus_roots,
-                legend_has_citation=legend_cited,
+                legend_has_citation=legend_reuse_stated,
                 prefer_dino=True,
                 prefer_lightglue=True,
                 on_progress=_on_corpus,

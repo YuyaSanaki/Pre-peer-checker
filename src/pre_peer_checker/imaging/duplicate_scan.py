@@ -80,6 +80,7 @@ class DinoDuplicateScanner:
         self.device = device
         self._model = None
         self._transform = None
+        self._full_frame_transform = None
 
     @staticmethod
     def available() -> bool:
@@ -115,33 +116,39 @@ class DinoDuplicateScanner:
             except Exception:  # noqa: BLE001
                 self.device = "cpu"
                 self._model.to("cpu")
+        normalize = T.Normalize(mean=(0.485, 0.456, 0.406), std=(0.229, 0.224, 0.225))
         self._transform = T.Compose(
-            [
-                T.Resize(256),
-                T.CenterCrop(224),
-                T.ToTensor(),
-                T.Normalize(mean=(0.485, 0.456, 0.406), std=(0.229, 0.224, 0.225)),
-            ]
+            [T.Resize(256), T.CenterCrop(224), T.ToTensor(), normalize]
+        )
+        self._full_frame_transform = T.Compose(
+            [T.Resize((224, 224)), T.ToTensor(), normalize]
         )
 
     def embed(self, path: Path | str) -> np.ndarray:
         return self.embed_many([path])[0]
 
     def embed_many(
-        self, paths: list[Path | str], *, batch_size: int = 16
+        self,
+        paths: list[Path | str],
+        *,
+        batch_size: int = 16,
+        full_frame: bool = False,
     ) -> list[np.ndarray]:
-        """Embed images in batches (one forward pass per batch, not per image)."""
+        """Embed images in batches (one forward pass per batch, not per image).
+
+        ``full_frame=True`` squashes the whole image to 224×224 instead of
+        center-cropping, so elongated panels keep their edges.
+        """
         import torch
 
         if self._model is None:
             self.load()
         assert self._model is not None and self._transform is not None
+        transform = self._full_frame_transform if full_frame else self._transform
         out: list[np.ndarray] = []
         for start in range(0, len(paths), batch_size):
             chunk = paths[start : start + batch_size]
-            tensors = [
-                self._transform(Image.open(p).convert("RGB")) for p in chunk
-            ]
+            tensors = [transform(Image.open(p).convert("RGB")) for p in chunk]
             batch = torch.stack(tensors).to(self.device)
             with torch.inference_mode():
                 feats = self._model(batch)

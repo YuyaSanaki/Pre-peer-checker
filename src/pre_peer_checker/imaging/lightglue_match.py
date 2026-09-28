@@ -22,6 +22,7 @@ class PreciseMatchResult:
     score: float
     method: str
     detail: str = ""
+    inliers: int | None = None
 
 
 def lightglue_available() -> bool:
@@ -165,6 +166,19 @@ MIN_MATCHES_BY_FEATURES: dict[str, int] = {
 }
 DEFAULT_MIN_MATCH_RATIO = 0.0  # absolute count gate is primary for LightGlue
 
+# Cross-set panel scans (H3 corpus, thousands of pairs) gate on RANSAC homography
+# inliers instead of raw matches. 2026-09-28, Supp docx panels × 4 PubPeer extracts
+# (~4200 pairs each):
+#   aliked:     same-photo 68..207 inliers at ratio >= 0.97; unrelated raw <= 79,
+#               ratio <= 0.72
+#   superpoint: same-photo 199..324 inliers; unrelated glyph/label matches reach
+#               ratio 1.0 but <= 37 inliers
+PANEL_MIN_INLIERS_BY_FEATURES: dict[str, int] = {
+    "aliked": 50,
+    "superpoint": 60,
+}
+PANEL_MIN_INLIER_RATIO = 0.85
+
 
 def active_lightglue_features() -> str:
     from pre_peer_checker.usage_profile import lightglue_features
@@ -185,6 +199,22 @@ def _load_lightglue(features: str, device: str) -> tuple[object, object]:
     return extractor.eval().to(device), matcher.eval().to(device)
 
 
+def _lightglue_models(features: str, device: str | None = None) -> tuple[object, object, str]:
+    import torch
+
+    if features not in _LIGHTGLUE_CACHE:
+        if device is None:
+            if torch.cuda.is_available():
+                device = "cuda"
+            elif getattr(torch.backends, "mps", None) and torch.backends.mps.is_available():
+                device = "mps"
+            else:
+                device = "cpu"
+        extractor, matcher = _load_lightglue(features, device)
+        _LIGHTGLUE_CACHE[features] = (extractor, matcher, device)
+    return _LIGHTGLUE_CACHE[features]
+
+
 def _verify_lightglue(
     path_a: Path,
     path_b: Path,
@@ -199,18 +229,7 @@ def _verify_lightglue(
     features = features or active_lightglue_features()
     if min_matches is None:
         min_matches = default_min_matches(features)
-
-    if features not in _LIGHTGLUE_CACHE:
-        if device is None:
-            if torch.cuda.is_available():
-                device = "cuda"
-            elif getattr(torch.backends, "mps", None) and torch.backends.mps.is_available():
-                device = "mps"
-            else:
-                device = "cpu"
-        extractor, matcher = _load_lightglue(features, device)
-        _LIGHTGLUE_CACHE[features] = (extractor, matcher, device)
-    extractor, matcher, device = _LIGHTGLUE_CACHE[features]  # type: ignore[assignment]
+    extractor, matcher, device = _lightglue_models(features, device)
 
     img0 = load_image(str(path_a)).to(device)
     img1 = load_image(str(path_b)).to(device)
@@ -228,6 +247,109 @@ def _verify_lightglue(
         method=f"lightglue+{features}",
         detail=f"device={device}; min_matches={min_matches}",
     )
+
+
+class LightGlueFeatureCache:
+    """Extract LightGlue features once per image, then match many pairs.
+
+    Same extractor / matcher / thresholds as ``verify_image_pair``, but cross-set
+    scans (N queries × M corpus images) pay N+M extractions instead of 2·N·M.
+    """
+
+    def __init__(
+        self,
+        *,
+        features: str | None = None,
+        min_matches: int | None = None,
+        min_inliers: int | None = None,
+        min_inlier_ratio: float = 0.0,
+    ):
+        """``min_inliers`` set: verify on homography inliers (and inlier ratio);
+        raw matches below ``min_matches`` are rejected without RANSAC. Without
+        OpenCV the calibrated raw-match gate applies instead."""
+        self.features = features or active_lightglue_features()
+        self.min_matches = (
+            default_min_matches(self.features) if min_matches is None else min_matches
+        )
+        self.min_inliers = min_inliers
+        self.min_inlier_ratio = min_inlier_ratio
+        self._feats: dict[str, dict] = {}
+
+    def _get(self, path: Path | str) -> dict:
+        import torch
+        from lightglue.utils import load_image
+
+        key = str(path)
+        feats = self._feats.get(key)
+        if feats is None:
+            extractor, _matcher, device = _lightglue_models(self.features)
+            img = load_image(key).to(device)
+            with torch.inference_mode():
+                feats = extractor.extract(img)
+            self._feats[key] = feats
+        return feats
+
+    def match(self, path_a: Path | str, path_b: Path | str) -> PreciseMatchResult:
+        import torch
+
+        _extractor, matcher, device = _lightglue_models(self.features)
+        f0, f1 = self._get(path_a), self._get(path_b)
+        with torch.inference_mode():
+            out = matcher({"image0": f0, "image1": f1})
+        idx = out["matches"][0]
+        n = int(idx.shape[0])
+        inliers = None
+        if n >= self.min_matches:
+            k0 = f0["keypoints"][0][idx[:, 0]].detach().cpu().numpy()
+            k1 = f1["keypoints"][0][idx[:, 1]].detach().cpu().numpy()
+            size1 = f1["image_size"][0].detach().cpu().numpy()
+            inliers = homography_inliers(k0, k1, dst_size=(float(size1[0]), float(size1[1])))
+        if self.min_inliers is None:
+            verified = n >= self.min_matches
+        elif inliers is None:
+            verified = n >= default_min_matches(self.features)
+        else:
+            verified = (
+                n >= self.min_matches
+                and inliers >= self.min_inliers
+                and inliers >= self.min_inlier_ratio * n
+            )
+        return PreciseMatchResult(
+            verified=verified,
+            num_matches=n,
+            score=float(n),
+            method=f"lightglue+{self.features}",
+            detail=f"device={device}; min_matches={self.min_matches}; inliers={inliers}",
+            inliers=inliers,
+        )
+
+
+def homography_inliers(
+    pts0: np.ndarray,
+    pts1: np.ndarray,
+    *,
+    dst_size: tuple[float, float],
+    reproj_frac: float = 0.01,
+) -> int | None:
+    """RANSAC homography inlier count for matched keypoints (None without OpenCV).
+
+    The same photo reused at another scale / crop maps by a single homography;
+    look-alike texture (fluorescence speckle, glyphs) matches scatter instead.
+    """
+    if len(pts0) < 4:
+        return 0
+    try:
+        import cv2
+    except ImportError:
+        return None
+    thr = max(2.0, reproj_frac * max(dst_size))
+    _h, mask = cv2.findHomography(
+        pts0.astype(np.float32).reshape(-1, 1, 2),
+        pts1.astype(np.float32).reshape(-1, 1, 2),
+        cv2.RANSAC,
+        thr,
+    )
+    return int(mask.sum()) if mask is not None else 0
 
 
 def verify_image_pair(

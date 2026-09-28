@@ -7,8 +7,12 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 
+import numpy as np
+from PIL import Image
+
 from pre_peer_checker.imaging.duplicate_scan import ImagePairMatch, scan_image_duplicates_auto
-from pre_peer_checker.imaging.microscopy import export_frames_as_png, try_load_frames
+from pre_peer_checker.imaging.microscopy import frame_to_uint8_rgb, try_load_frames
+from pre_peer_checker.imaging.panel_split import is_photo_like, split_panels
 from pre_peer_checker.imaging.partial_match import partial_containment_score
 from pre_peer_checker.warnings import WarningItem, WarningTag
 
@@ -39,17 +43,133 @@ def collect_corpus_images(corpus_roots: list[Path | str], *, max_files: int = 80
     return found[:max_files]
 
 
-def _export_previews(paths: list[Path], tmp: Path, *, max_side: int = 384) -> list[tuple[Path, Path]]:
-    """Return list of (preview_path, source_path)."""
-    out: list[tuple[Path, Path]] = []
+@dataclass
+class _PanelUnit:
+    path: Path
+    source: Path
+    box: list[int] | None  # None = whole image
+
+
+def _save_scaled(img: Image.Image, dest: Path, max_side: int) -> Path:
+    w, h = img.size
+    scale = min(1.0, max_side / max(w, h))
+    if scale < 1.0:
+        img = img.resize(
+            (max(1, int(w * scale)), max(1, int(h * scale))), Image.Resampling.BILINEAR
+        )
+    img.save(dest)
+    return dest
+
+
+def _prepare_sources(
+    paths: list[Path],
+    out_dir: Path,
+    *,
+    n_preview: int,
+    panels: bool,
+    preview_max_side: int = 384,
+    panel_max_side: int = 768,
+    max_panels_per_image: int = 24,
+    max_units: int = 800,
+) -> tuple[list[tuple[Path, Path]], list[_PanelUnit]]:
+    """Load each source once; write whole-image previews and panel crops.
+
+    Returns (previews for the first ``n_preview`` sources as (preview, source),
+    panel units — the whole image plus split panels — for every source).
+    """
+    out_dir.mkdir(parents=True, exist_ok=True)
+    previews: list[tuple[Path, Path]] = []
+    units: list[_PanelUnit] = []
     for i, src in enumerate(paths):
+        want_units = panels and len(units) < max_units
+        if i >= n_preview and not want_units:
+            break
         frames, err = try_load_frames(src, max_series=1)
         if err or not frames:
             continue
-        written = export_frames_as_png(frames[:1], tmp / f"c{i}_{src.stem}", max_side=max_side)
-        for w in written:
-            out.append((w, src))
-    return out
+        img = Image.fromarray(frame_to_uint8_rgb(frames[0].data))
+        safe = "".join(c if c.isalnum() or c in "-_" else "_" for c in src.stem)[:40]
+        stem = f"{i}_{safe}"
+        if i < n_preview:
+            previews.append((_save_scaled(img, out_dir / f"{stem}.png", preview_max_side), src))
+        if not want_units:
+            continue
+        boxes = split_panels(img, max_panels=max_panels_per_image)
+        # Charts / text pages share glyphs and axes, which LightGlue happily matches,
+        # so the whole image is a unit only when it is itself photo-like
+        if is_photo_like(img):
+            units.append(
+                _PanelUnit(
+                    _save_scaled(img, out_dir / f"{stem}_whole.png", panel_max_side), src, None
+                )
+            )
+        for j, box in enumerate(boxes):
+            if len(units) >= max_units:
+                break
+            crop = img.crop((box.left, box.top, box.right, box.bottom))
+            units.append(
+                _PanelUnit(
+                    _save_scaled(crop, out_dir / f"{stem}_p{j}.png", panel_max_side),
+                    src,
+                    box.as_list(),
+                )
+            )
+    return previews, units
+
+
+def _rank_vectors(paths: list[Path], *, prefer_dino: bool) -> np.ndarray:
+    """L2-normalised global descriptors used only to shortlist panel pairs."""
+    from pre_peer_checker.imaging.duplicate_scan import (
+        DinoDuplicateScanner,
+        _combined_fallback_vector,
+        shared_dino_scanner,
+    )
+
+    def _fallback() -> np.ndarray:
+        return np.stack([_combined_fallback_vector(p) for p in paths])
+
+    if not (prefer_dino and DinoDuplicateScanner.available()):
+        return _fallback()
+    try:
+        return np.stack(shared_dino_scanner().embed_many(paths, full_frame=True))
+    except Exception:  # noqa: BLE001
+        return _fallback()
+
+
+def _panel_candidates(
+    q_units: list[_PanelUnit],
+    c_units: list[_PanelUnit],
+    *,
+    max_pairs: int,
+    min_top_k: int,
+    prefer_dino: bool,
+) -> tuple[list[tuple[int, int, float | None]], str]:
+    """All query×corpus unit pairs when within budget, else DINO top-k shortlist."""
+    n_q, n_c = len(q_units), len(c_units)
+    if n_q * n_c <= max_pairs:
+        return [(i, j, None) for i in range(n_q) for j in range(n_c)], "all_pairs"
+    q_vec = _rank_vectors([u.path for u in q_units], prefer_dino=prefer_dino)
+    c_vec = _rank_vectors([u.path for u in c_units], prefer_dino=prefer_dino)
+    sims = q_vec @ c_vec.T
+    k_q = min(n_c, max(min_top_k, max_pairs // max(n_q, 1)))
+    k_c = min(n_q, max(2, max_pairs // max(4 * n_c, 1)))
+    chosen: set[tuple[int, int]] = set()
+    for i in range(n_q):
+        for j in np.argsort(-sims[i])[:k_q]:
+            chosen.add((i, int(j)))
+    for j in range(n_c):
+        for i in np.argsort(-sims[:, j])[:k_c]:
+            chosen.add((int(i), j))
+    ordered = sorted(chosen, key=lambda ij: -sims[ij[0], ij[1]])
+    return [(i, j, float(sims[i, j])) for i, j in ordered], f"top{k_q}+rev{k_c}"
+
+
+def _panel_label(unit: _PanelUnit) -> str:
+    name = Path(unit.source).name
+    if unit.box is None:
+        return name
+    left, top, right, bottom = unit.box
+    return f"{name} [{left},{top}–{right},{bottom}]"
 
 
 def scan_against_corpus(
@@ -62,12 +182,22 @@ def scan_against_corpus(
     prefer_dino: bool = True,
     prefer_lightglue: bool = True,
     enable_partial: bool = True,
+    enable_panels: bool = True,
+    max_panel_query: int = 120,
+    max_panel_units: int = 800,
+    max_panel_pairs: int = 2000,
+    panel_min_top_k: int = 5,
     on_progress: Callable[[int, int, str], None] | None = None,
 ) -> CorpusScanResult:
     """Compare manuscript images to a user-provided past-paper corpus.
 
     on_progress(done, total, label): total=0 はフェーズ切替のみ（件数なし）。
     部分一致（原稿×コーパスの全ペア）は 1 ペアずつ報告する。
+
+    パネル照合（enable_panels）: 合成図・ページ画像・スクリーンショットを写真パネルに
+    分割し、原稿×コーパスのパネル対を LightGlue で照合する。図全体の見た目が違う
+    （別レイアウト・別画質の同一写真）ため DINOv2 の全体類似度では拾えない再利用用。
+    ペア数が ``max_panel_pairs`` を超える場合のみ DINOv2 上位候補に絞る。
     """
 
     def _notify(done: int, total: int, label: str) -> None:
@@ -85,7 +215,8 @@ def scan_against_corpus(
         result.artifacts["note"] = "corpus empty or missing — H3 external match skipped"
         return result
 
-    queries = [Path(p) for p in query_images][:max_query]
+    n_query_sources = max(max_query, max_panel_query) if enable_panels else max_query
+    queries = [Path(p) for p in query_images][:n_query_sources]
     if not queries:
         # allow raster-like only from paths already exported
         result.artifacts["note"] = "no query images for corpus scan"
@@ -94,10 +225,18 @@ def scan_against_corpus(
     tmp = Path(tempfile.mkdtemp(prefix="mc_corpus_"))
     try:
         _notify(0, 0, f"画像を読み込み中（原稿 {len(queries)} 枚・コーパス {len(corpus_paths)} 枚）")
-        q_prev = _export_previews(queries, tmp / "q")
-        c_prev = _export_previews(corpus_paths, tmp / "c")
+        q_prev, q_units = _prepare_sources(
+            queries, tmp / "q", n_preview=max_query, panels=enable_panels,
+            max_units=max_panel_units,
+        )
+        c_prev, c_units = _prepare_sources(
+            corpus_paths, tmp / "c", n_preview=len(corpus_paths), panels=enable_panels,
+            max_units=max_panel_units,
+        )
         result.artifacts["query_previews"] = len(q_prev)
         result.artifacts["corpus_previews"] = len(c_prev)
+        result.artifacts["query_panel_units"] = len(q_units)
+        result.artifacts["corpus_panel_units"] = len(c_units)
         if not q_prev or not c_prev:
             result.artifacts["note"] = "could not export previews for corpus match"
             return result
@@ -232,11 +371,172 @@ def scan_against_corpus(
                     )
             _notify(n_pairs, n_pairs, "")
         result.artifacts["cross_partial_pairs"] = partial_hits
+
+        panel_hits = 0
+        if enable_panels and q_units and c_units:
+            panel_hits = _scan_panel_pairs(
+                q_units,
+                c_units,
+                result=result,
+                pair_log=pair_log,
+                seen=seen,
+                legend_has_citation=legend_has_citation,
+                prefer_dino=prefer_dino,
+                prefer_lightglue=prefer_lightglue,
+                max_pairs=max_panel_pairs,
+                min_top_k=panel_min_top_k,
+                notify=_notify,
+            )
+        result.artifacts["cross_panel_pairs"] = panel_hits
         result.artifacts["cross_match_pairs"] = pair_log
         result.artifacts["enable_partial"] = bool(enable_partial)
+        result.artifacts["enable_panels"] = bool(enable_panels)
     finally:
         import shutil
 
         shutil.rmtree(tmp, ignore_errors=True)
 
     return result
+
+
+def _scan_panel_pairs(
+    q_units: list[_PanelUnit],
+    c_units: list[_PanelUnit],
+    *,
+    result: CorpusScanResult,
+    pair_log: list[dict],
+    seen: set[tuple[str, str]],
+    legend_has_citation: bool,
+    prefer_dino: bool,
+    prefer_lightglue: bool,
+    max_pairs: int,
+    min_top_k: int,
+    notify: Callable[[int, int, str], None],
+) -> int:
+    """LightGlue over query×corpus panel units; one finding per source pair."""
+    from pre_peer_checker.imaging.lightglue_match import (
+        PANEL_MIN_INLIER_RATIO,
+        PANEL_MIN_INLIERS_BY_FEATURES,
+        LightGlueFeatureCache,
+        _verify_ncc,
+        _verify_orb,
+        active_lightglue_features,
+        lightglue_available,
+        opencv_available,
+    )
+
+    notify(0, 0, f"パネル候補を選定中（原稿 {len(q_units)}・コーパス {len(c_units)} パネル）")
+    candidates, selection = _panel_candidates(
+        q_units, c_units, max_pairs=max_pairs, min_top_k=min_top_k, prefer_dino=prefer_dino
+    )
+    result.artifacts["panel_selection"] = selection
+    result.artifacts["panel_candidate_pairs"] = len(candidates)
+
+    cache = None
+    if prefer_lightglue and lightglue_available():
+        min_inliers = PANEL_MIN_INLIERS_BY_FEATURES[active_lightglue_features()]
+        cache = LightGlueFeatureCache(
+            min_matches=min_inliers,
+            min_inliers=min_inliers,
+            min_inlier_ratio=PANEL_MIN_INLIER_RATIO,
+        )
+    use_orb = opencv_available()
+
+    def _verify(a: Path, b: Path):
+        if cache is not None:
+            try:
+                return cache.match(a, b)
+            except Exception:  # noqa: BLE001
+                return _verify_fallback(a, b)
+        return _verify_fallback(a, b)
+
+    def _verify_fallback(a: Path, b: Path):
+        if use_orb:
+            vr = _verify_orb(a, b, min_inliers=30)
+            # ORB's default 0.25 inlier ratio is far too loose over thousands of pairs
+            vr.verified = vr.verified and vr.score >= 0.5
+            return vr
+        return _verify_ncc(a, b)
+
+    best: dict[tuple[str, str], dict] = {}
+    total = len(candidates)
+    for k, (i, j, sim) in enumerate(candidates):
+        qu, cu = q_units[i], c_units[j]
+        key = tuple(sorted((str(qu.source), str(cu.source))))
+        if key in seen:
+            continue
+        if k % 25 == 0:
+            notify(k, total, f"パネル単位の照合中（{k + 1}/{total} 組）")
+        vr = _verify(qu.path, cu.path)
+        if not vr.verified:
+            continue
+        hit = best.setdefault(key, {"q": qu, "c": cu, "vr": vr, "sim": sim, "panels": []})
+        hit["panels"].append((qu, cu, vr))
+        if vr.score > hit["vr"].score:
+            hit.update(q=qu, c=cu, vr=vr, sim=sim)
+    notify(total, total, "")
+    result.artifacts["panel_verifier"] = (
+        f"lightglue+{cache.features}" if cache is not None else ("orb" if use_orb else "ncc")
+    )
+
+    for key, hit in best.items():
+        seen.add(key)
+        qu, cu, vr = hit["q"], hit["c"], hit["vr"]
+        panels = sorted(hit["panels"], key=lambda p: -p[2].score)
+        panel_matches = [
+            {"panel_a": p[0].box, "panel_b": p[1].box, "matches": p[2].num_matches,
+             "inliers": p[2].inliers}
+            for p in panels
+        ]
+        listing = "／".join(
+            f"{_panel_label(p[0])} ↔ {_panel_label(p[1])}（{p[2].num_matches} 点）"
+            for p in panels[:6]
+        )
+        pair_log.append(
+            {
+                "a": str(qu.source),
+                "b": str(cu.source),
+                "similarity": hit["sim"],
+                "method": vr.method,
+                "kind": "panel",
+                "cited": bool(legend_has_citation),
+                "precise_verified": True,
+                "matches": vr.num_matches,
+                "inliers": vr.inliers,
+                "panel_a": qu.box,
+                "panel_b": cu.box,
+                "panel_matches": panel_matches,
+            }
+        )
+        if legend_has_citation:
+            result.artifacts.setdefault("cited_matches", []).append(
+                {"a": str(qu.source), "b": str(cu.source), "matches": vr.num_matches}
+            )
+            continue
+        result.warnings.append(
+            WarningItem(
+                tag=WarningTag.IMAGE_REUSE,
+                title="過去論文コーパスと同一写真（パネル単位）・出典未記載の疑い",
+                location=f"{_panel_label(qu)} ↔ {_panel_label(cu)}",
+                reason=(
+                    f"パネル単位の特徴点照合で一致 {vr.num_matches} 点"
+                    + (f"（うち同一の幾何変換に乗る点 {vr.inliers}）" if vr.inliers is not None else "")
+                    + f"。method={vr.method}。一致したパネル組 {len(panels)}: {listing}。"
+                    "図のレイアウトや画質が違っても同じ写真の可能性があります。"
+                    "Legend に reproduced/adapted from 等の出典表記が見つかりません。"
+                ),
+                sources=[str(qu.source), str(cu.source)],
+                metadata={
+                    "pattern_id": "P-IMAGE-REUSE-UNCITED",
+                    "method": vr.method,
+                    "precise_matches": vr.num_matches,
+                    "precise_inliers": vr.inliers,
+                    "corpus_match": True,
+                    "panel": True,
+                    "panel_a": qu.box,
+                    "panel_b": cu.box,
+                    "panel_matches": panel_matches,
+                },
+            )
+        )
+    return len(best)

@@ -662,5 +662,10 @@ def legends_any_citation(legends: list[LegendFigureJSON]) -> bool:
     return any(leg.citation.mentioned for leg in legends)
 
 
+def legends_any_reuse_statement(legends: list[LegendFigureJSON]) -> bool:
+    """Explicit "reproduced/adapted/modified/taken from …" — not mere reference citations."""
+    return any(leg.citation.reproduced_from for leg in legends)
+
+
 def legends_to_artifact(legends: list[LegendFigureJSON]) -> list[dict[str, Any]]:
     return [leg.to_dict() for leg in legends]

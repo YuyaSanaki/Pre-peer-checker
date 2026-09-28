@@ -142,6 +142,7 @@ def main(argv: list[str] | None = None) -> int:
                             "legend_json",
                             "figure_chunks",
                             "legend_citation_mentioned",
+                            "legend_reuse_statement",
                             "corpus_present",
                             "corpus_scan",
                             "pdf_image_scan_method",

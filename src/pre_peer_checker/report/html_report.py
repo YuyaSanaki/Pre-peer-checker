@@ -581,7 +581,8 @@ _REPORT_TEMPLATE = Template(
       <span class="info-pill">出典あり一致</span>
       <h3>{{ (m.a or '')|e }} ↔ {{ (m.b or '')|e }}</h3>
       <p class="sources">
-        {% if m.similarity is defined and m.similarity is not none %}類似度 {{ m.similarity }}
+        {% if m.matches is defined and m.matches is not none %}パネル特徴点一致 {{ m.matches }} 点
+        {% elif m.similarity is defined and m.similarity is not none %}類似度 {{ m.similarity }}
         {% elif m.score is defined and m.score is not none %}NCC {{ m.score }}
         {% else %}一致{% endif %}
         {% if m.a %}<br><a class="src-link" href="file://{{ m.a }}">{{ m.a }}</a>{% endif %}

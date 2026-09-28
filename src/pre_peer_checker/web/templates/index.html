@@ -608,7 +608,11 @@
         const def =
           data.effective_llm_profile || data.default_llm_profile || data.env_llm_profile;
         fillSelect(llmProfile, data.text_profiles || [], def);
-        fillSelect(vlmProfile, data.vision_profiles || [], data.default_vlm_profile);
+        fillSelect(
+          vlmProfile,
+          data.vision_profiles || [],
+          data.effective_vlm_profile || data.default_vlm_profile
+        );
         fillSelect(catLlmProfile, data.text_profiles || [], def);
         if (llmAvailable) {
           const sel = data.selected || {};

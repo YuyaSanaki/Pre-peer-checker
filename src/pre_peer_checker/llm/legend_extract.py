@@ -622,7 +622,7 @@ def summarize_legend_llm_meta(metas: list[dict[str, Any]] | None) -> dict[str, A
         "notes": notes,
         "message": (
             "Legend LLM を ON にしましたが MLX/transformers が未導入のため規則のみで実行しました。"
-            ' 導入例: pip install -e ".[mlx]"（Apple Silicon）'
+            " 導入: ./install.sh を再実行（Apple Silicon は MLX を自動導入）"
             + profile_extra
         ),
     }

@@ -36,7 +36,7 @@ class RunBody(BaseModel):
     legend_llm_profile: str | None = None
     legend_llm_model: str | None = None
     vlm_profile: str | None = None
-    vlm_assist: bool = False
+    vlm_assist: bool = True
     vlm_prefer: str = "auto"
     use_active_catalog: bool = True
     corpus_ids: list[str] = Field(default_factory=list)
@@ -129,6 +129,7 @@ def create_app() -> FastAPI:
             "default_llm_profile": default_llm,
             "effective_llm_profile": effective_llm,
             "default_vlm_profile": catalog["default_vlm_profile"],
+            "effective_vlm_profile": effective_vlm_profile_id(),
             "profiles": catalog["profiles"],
             "text_profiles": catalog["text_profiles"],
             "vision_profiles": catalog["vision_profiles"],
@@ -136,7 +137,8 @@ def create_app() -> FastAPI:
             "install_hint": (
                 None
                 if available
-                else 'pip install -e ".[mlx]"（Apple Silicon）または pip install -e ".[llm-cuda]"'
+                else "./install.sh を再実行（Apple Silicon は MLX を自動導入）"
+                ' または pip install -e ".[llm-cuda]"'
             ),
         }
 

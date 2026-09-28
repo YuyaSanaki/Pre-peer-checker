@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import warnings
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -121,8 +122,22 @@ def recover_ratio_measurement_table(df_raw: pd.DataFrame) -> pd.DataFrame | None
 
 def _load_excel_best(path: Path) -> pd.DataFrame:
     """Pick the richest sheet; recover headerless ratio tables when needed."""
+    with warnings.catch_warnings():
+        # openpyxl drops unsupported Excel extensions (slicers, x14 validation, ...);
+        # harmless for read-only use but emitted once per sheet.
+        warnings.filterwarnings(
+            "ignore",
+            message=r".*extension is not supported and will be removed",
+            category=UserWarning,
+            module=r"openpyxl\..*",
+        )
+        return _load_excel_best_inner(path)
+
+
+def _load_excel_best_inner(path: Path) -> pd.DataFrame:
     try:
-        book = pd.read_excel(path, sheet_name=None, header=None)
+        xls = pd.ExcelFile(path)
+        book = xls.parse(sheet_name=None, header=None)
     except Exception as exc:  # noqa: BLE001
         raise ValueError(f"Excel を読めません: {path.name}: {exc}") from exc
     if not book:
@@ -135,7 +150,7 @@ def _load_excel_best(path: Path) -> pd.DataFrame:
             continue
         # Default header=0 view of same sheet
         try:
-            tidy0 = pd.read_excel(path, sheet_name=_name)
+            tidy0 = xls.parse(sheet_name=_name)
         except Exception:  # noqa: BLE001
             tidy0 = pd.DataFrame()
         for candidate in (tidy0,):

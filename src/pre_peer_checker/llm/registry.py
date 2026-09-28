@@ -151,6 +151,25 @@ def effective_llm_profile_id(*, path: Path | None = None) -> str:
     return default_profile_id("text", path=path)
 
 
+def effective_vlm_profile_id(*, path: Path | None = None) -> str:
+    """Host-aware vision profile: mlx-vlm あり → 既定の ``*-mlx`` 版; else registry default."""
+    env = (os.environ.get("PRE_PEER_CHECKER_VLM_PROFILE") or "").strip()
+    if env:
+        return env
+    default = default_profile_id("vision", path=path)
+    try:
+        from pre_peer_checker.llm.vlm_backend import MlxVlmBackend
+
+        if MlxVlmBackend.available():
+            profiles, _, _ = load_registry(path)
+            mlx_variant = f"{default}-mlx"
+            if mlx_variant in profiles:
+                return mlx_variant
+    except Exception:
+        pass
+    return default
+
+
 def distribution_legend_llm_kwargs(*, path: Path | None = None) -> dict[str, Any]:
     """Legend LLM kwargs for shipping / gold gates (always prefer real inference when possible).
 
@@ -197,7 +216,11 @@ def resolve_model(
     pid = (profile_id or "").strip() or None
     source = "override"
     if pid is None and not (model_id and prefer):
-        pid = default_profile_id(role, path=path)
+        pid = (
+            default_profile_id(role, path=path)
+            if role == "text"
+            else effective_vlm_profile_id(path=path)
+        )
         source = "env" if os.environ.get(
             "PRE_PEER_CHECKER_LLM_PROFILE" if role == "text" else "PRE_PEER_CHECKER_VLM_PROFILE"
         ) else "default"

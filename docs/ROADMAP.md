@@ -627,6 +627,7 @@ Phase 5 の `planned` を **P0→P1** で合成 fixture＋エンジン化。**Ph
 
 | 日付 | 内容 |
 |------|------|
+| 2026-09-28 | **WebUI 既定: VLM パネル地図補助 ON**（Legend LLM 補助と同様）。ベクター空時のみ・VLM 未導入時は note のみでスキップ。CLI `--vlm-assist` / GUI は従来どおり opt-in |
 | 2026-09-26 | **Phase 7 初期**: 文献メタ＋引用整合（ユーザー提供 PDF）。`parsers/references` / `cited_paper_ingest` / `ref_biblio` / `ref_pdf_meta` / `ref_claim`。Taxonomy E4/E5。合成 `ref_biblio`/`ref_claim` CI |
 | 2026-09-26 | **LightGlue 実機校正（CUDA）**: SuperPoint+LightGlue 合成 must_neg_max=17 / must_pos_min=153（rot90 hard≈47）。`DEFAULT_MIN_MATCHES=35` 確定。`fixtures/gold/lightglue_calib` + `test_lightglue_calib` |
 | 2026-09-26 | **RW Reason マップ追記**: 照合可能 Reason（Results 改ざん・出典・細胞株汚染等）を pattern 割当。調査／査読／Paper Mill 等は空マップ+note。sample CSV 拡充・CI。生命科学 Reason 質量 ≈99.8% |

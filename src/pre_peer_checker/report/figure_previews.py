@@ -17,12 +17,19 @@ _FIG_HEAD_RE = re.compile(
 )
 
 
+def figure_id_from_label(label: str | None) -> str | None:
+    if not label:
+        return None
+    m = _FIG_HEAD_RE.match(label.strip())
+    if m:
+        return normalize_figure_id(m.group(1), m.group(2))
+    return None
+
+
 def _figure_id_from_page_text(page) -> str | None:
-    label = _figure_label(page)
-    if label:
-        m = _FIG_HEAD_RE.match(label.strip())
-        if m:
-            return normalize_figure_id(m.group(1), m.group(2))
+    fid = figure_id_from_label(_figure_label(page))
+    if fid:
+        return fid
     # Fallback: scan first text blocks
     text = page.get_text("text") or ""
     for line in text.splitlines()[:12]:

@@ -5,7 +5,11 @@ from __future__ import annotations
 from pathlib import Path
 
 from pre_peer_checker.data.group_vectors import GroupVector
-from pre_peer_checker.engine.n_matrix import build_n_matrix, n_matrix_to_artifact
+from pre_peer_checker.engine.n_matrix import (
+    attach_fig_pdf_counts,
+    build_n_matrix,
+    n_matrix_to_artifact,
+)
 from pre_peer_checker.parsers.legend_struct import PanelN
 from pre_peer_checker.report.html_report import (
     annotate_legend_html,
@@ -88,6 +92,32 @@ def test_build_n_matrix_flat_layout_soft_link(tmp_path: Path):
     assert r.stats.file and "fig2_stats.R" in r.stats.file
 
 
+def test_attach_fig_pdf_counts_from_publication_pdf(tmp_path: Path):
+    from pre_peer_checker.engine.panel_plot_identity import (
+        warnings_from_figure_panel_identity,
+    )
+    from pre_peer_checker.parsers.pdf_panel_plots import build_synthetic_multipanel_pdf
+
+    pdf = build_synthetic_multipanel_pdf(tmp_path / "Fig1.pdf")
+    _warns, arts = warnings_from_figure_panel_identity([pdf], min_groups=1, min_score=0.9)
+    assert arts and arts[0]["figure_id"] == "Figure 1"
+    panel_i = next(p for p in arts[0]["panels"] if p["panel"] == "I")
+    assert sum(panel_i["group_ns"]) == panel_i["n_markers"] == 16
+
+    rows = [
+        {"figure": "Figure 1", "panel": "I", "mismatch": False},
+        {"figure": "Figure 1", "panel": "Z", "mismatch": False},
+        {"figure": "Figure 2", "panel": "I", "mismatch": False},
+    ]
+    attach_fig_pdf_counts(rows, arts, roots=[tmp_path])
+    assert rows[0]["fig_pdf"]["group_ns"] == panel_i["group_ns"]
+    assert rows[0]["fig_pdf"]["file_display"] == "Fig1.pdf"
+    assert rows[0]["fig_pdf_display"] == " / ".join(str(n) for n in panel_i["group_ns"])
+    assert rows[0]["mismatch"] is False
+    assert rows[1]["fig_pdf"] is None and rows[1]["fig_pdf_display"] == "—"
+    assert rows[2]["fig_pdf"] is None
+
+
 def test_html_report_includes_n_matrix():
     html = render_html_report(
         [
@@ -139,6 +169,14 @@ def test_html_report_includes_n_matrix():
                     },
                     "extractor": "hybrid-llm",
                     "mismatch": True,
+                    "fig_pdf": {
+                        "group_ns": [9, 10],
+                        "n_markers": 19,
+                        "file": "/case/manuscript/Fig1.pdf",
+                        "file_display": "manuscript/Fig1.pdf",
+                        "page": 0,
+                    },
+                    "fig_pdf_display": "9 / 10",
                 }
             ],
             "figure_chunks": [
@@ -178,6 +216,10 @@ def test_html_report_includes_n_matrix():
     assert 'class="link-badge tier1"' in html
     assert 'class="link-badge tier3"' in html
     assert "候補キー接地" in html
+    assert "Fig PDF 点数（参考）" in html
+    assert "9 / 10" in html
+    assert "2 群 · 計 19 点" in html
+    assert "manuscript/Fig1.pdf p0" in html
     assert 'class="extractor-badge hybrid-llm"' in html
     assert "hybrid-llm" in html
     assert "画像再利用（出典あり・情報）" in html

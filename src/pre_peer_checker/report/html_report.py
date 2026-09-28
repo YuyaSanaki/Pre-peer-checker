@@ -276,6 +276,7 @@ _REPORT_TEMPLATE = Template(
     .n-matrix tr[data-panel].is-active { background: var(--row-active); }
     .n-matrix tr.mismatch.is-active,
     .n-matrix tr.mismatch:hover { background: #ffedd5; }
+    .n-matrix td.fig-pdf-ref { color: var(--muted); }
     .n-matrix .cell-file { display: block; color: var(--muted); font-size: 0.75rem; word-break: break-all; }
     .extractor-badge {
       display: inline-block; font-size: 0.72rem; font-weight: 600;
@@ -444,6 +445,8 @@ _REPORT_TEMPLATE = Template(
     <p class="n-authority-note">
       <strong>正の n</strong>は「実験データ」列の有効行数です。ggplot の可視ドット数は使いません。
       Legend 列は記載値、グラフ作図列は残渣／数字化の参照です。
+      Fig PDF 点数列は出版 Figure PDF 上で数えた群ごとの可視ドット数（左の群から順）で、
+      重なりのため実際の n より少なく出ることがあります。参考表示のみで、不一致判定には使いません。
       紐付け根拠は <span class="link-badge tier1">tier1</span>
       <span class="link-badge tier2">tier2</span>
       <span class="link-badge tier3">tier3</span>
@@ -483,6 +486,7 @@ _REPORT_TEMPLATE = Template(
               <th>原稿 (Legend)</th>
               <th>実験データ</th>
               <th>グラフ作図</th>
+              <th title="出版 Figure PDF 上の可視ドット数（群ごと）。重なりで実際の n より少なく出ることがあり、不一致判定には使いません">Fig PDF 点数（参考）</th>
               <th>統計解析</th>
               <th>抽出</th>
             </tr>
@@ -523,6 +527,15 @@ _REPORT_TEMPLATE = Template(
                 <a class="cell-file src-link" href="file://{{ r.plot.file }}" title="{{ r.plot.file|e }}">{{ r.plot.file_display or r.plot.file.split('/')[-1] }}</a>
                 {% endif %}
                 {% if r.plot.detail %}<span class="link-reason" title="{{ r.plot.detail|e }}">{{ r.plot.detail }}</span>{% endif %}
+              </td>
+              <td class="fig-pdf-ref">
+                {% if r.fig_pdf and r.fig_pdf.group_ns %}
+                {{ r.fig_pdf_display }}
+                <span class="cell-file">{{ r.fig_pdf.group_ns|length }} 群 · 計 {{ r.fig_pdf.n_markers }} 点</span>
+                {% if r.fig_pdf.file %}
+                <a class="cell-file src-link" href="file://{{ r.fig_pdf.file }}" title="{{ r.fig_pdf.file|e }}">{{ r.fig_pdf.file_display or r.fig_pdf.file.split('/')[-1] }}{% if r.fig_pdf.page is not none %} p{{ r.fig_pdf.page }}{% endif %}</a>
+                {% endif %}
+                {% else %}—{% endif %}
               </td>
               <td>
                 {% if r.stats.n is not none %}n={{ r.stats.n }}{% else %}—{% endif %}

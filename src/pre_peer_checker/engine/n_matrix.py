@@ -450,3 +450,55 @@ def build_n_matrix(
 
 def n_matrix_to_artifact(rows: list[NMatrixRow]) -> list[dict]:
     return [r.to_dict() for r in rows]
+
+
+def _fig_match_key(label: str | None) -> str | None:
+    if not label:
+        return None
+    m = re.search(r"(S?)(\d+)", label, re.I)
+    if not m:
+        return None
+    supp = bool(m.group(1)) or "supp" in label.lower()
+    return ("S" if supp else "") + (m.group(2).lstrip("0") or "0")
+
+
+def attach_fig_pdf_counts(
+    rows: list[dict],
+    figure_panel_arts: list[dict],
+    *,
+    roots: list[Path] | None = None,
+) -> None:
+    """Add a reference-only ``fig_pdf`` cell (visible dots on the publication Figure PDF).
+
+    Overlapping jitter dots make this undercount the real n, so it never feeds ``mismatch``.
+    """
+    by_key: dict[tuple[str, str], dict] = {}
+    for art in figure_panel_arts or []:
+        if not isinstance(art, dict):
+            continue
+        fkey = _fig_match_key(art.get("figure_id") or art.get("figure"))
+        if not fkey:
+            continue
+        for p in art.get("panels") or []:
+            panel = str(p.get("panel") or "").upper()
+            if not panel:
+                continue
+            by_key.setdefault(
+                (fkey, panel),
+                {
+                    "group_ns": [int(n) for n in p.get("group_ns") or []],
+                    "n_markers": int(p.get("n_markers") or 0),
+                    "file": str(art.get("path") or "") or None,
+                    "file_display": _rel_display(art.get("path"), roots),
+                    "page": art.get("page"),
+                },
+            )
+    for r in rows:
+        fkey = _fig_match_key(str(r.get("figure") or ""))
+        panel = str(r.get("panel") or "").upper()
+        cell = by_key.get((fkey, panel)) if fkey else None
+        r["fig_pdf"] = cell
+        if cell and cell["group_ns"]:
+            r["fig_pdf_display"] = " / ".join(str(n) for n in cell["group_ns"])
+        else:
+            r["fig_pdf_display"] = "—"

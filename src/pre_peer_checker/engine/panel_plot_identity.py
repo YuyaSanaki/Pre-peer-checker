@@ -9,6 +9,10 @@ from pre_peer_checker.parsers.pdf_panel_plots import (
     find_identical_panel_pairs,
     find_identical_panels_across_pages,
 )
+from pre_peer_checker.report.figure_previews import (
+    _infer_supp_figure_id,
+    figure_id_from_label,
+)
 from pre_peer_checker.warnings import WarningItem, WarningTag
 
 
@@ -38,8 +42,17 @@ def warnings_from_figure_panel_identity(
                     "path": str(page.path),
                     "page": page.page_index,
                     "figure": page.figure_label,
+                    "figure_id": (
+                        figure_id_from_label(page.figure_label)
+                        or _infer_supp_figure_id(page.path, page.page_index)
+                    ),
                     "panels": [
-                        {"panel": p.panel, "n_markers": p.n_markers, "n_groups": len(p.groups)}
+                        {
+                            "panel": p.panel,
+                            "n_markers": p.n_markers,
+                            "n_groups": len(p.groups),
+                            "group_ns": [g.n for g in p.groups],
+                        }
                         for p in page.panels
                     ],
                 }

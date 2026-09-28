@@ -23,7 +23,11 @@ from pre_peer_checker.engine.n_and_names import (
     warnings_from_n_mismatches,
     warnings_inconsistent_n_identical_plots,
 )
-from pre_peer_checker.engine.n_matrix import build_n_matrix, n_matrix_to_artifact
+from pre_peer_checker.engine.n_matrix import (
+    attach_fig_pdf_counts,
+    build_n_matrix,
+    n_matrix_to_artifact,
+)
 from pre_peer_checker.engine.panel_plot_identity import (
     is_publication_figure_pdf,
     warnings_from_figure_panel_identity,
@@ -1180,6 +1184,7 @@ def run_verification(
     panel_warns, panel_arts = warnings_from_figure_panel_identity(pub_figs)
     result.warnings.extend(panel_warns)
     result.artifacts["figure_panel_plots"] = panel_arts
+    attach_fig_pdf_counts(result.artifacts["n_matrix"], panel_arts, roots=case_roots)
     # Paths only here; JPEG embed happens when writing HTML (keeps warnings.json small)
     result.artifacts["figure_preview_sources"] = [str(p) for p in pub_figs]
     # Phase 6A: vector panel geometry; optional VLM assist when empty

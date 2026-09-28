@@ -101,6 +101,23 @@ rules:
   - literature
   - retraction_watch_crossref
   not_sufficient: []
+- id: ERR_P_IMAGE_DUPLICATE_INTERNAL
+  pattern_id: P-IMAGE-DUPLICATE-INTERNAL
+  category: Warning [画像重複・再利用（要出典確認）]
+  description: 原稿・data 内の写真パネル同士がパネル単位の特徴点照合で同一と判定された。別条件・別実験として示したパネルが同じ写真である疑い。
+  status: implemented
+  priority: P0
+  target:
+  - images
+  - figure_panels
+  severity: Warning
+  taxonomy:
+  - A1
+  - A2
+  source_kinds:
+  - check_reference
+  - curated_pubpeer
+  not_sufficient: []
 - id: ERR_DATA_MISMATCH_002
   pattern_id: P-FILENAME-CONTENT-MISMATCH
   category: Warning [データ取り違え]

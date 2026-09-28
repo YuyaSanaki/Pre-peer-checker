@@ -5,39 +5,13 @@ from __future__ import annotations
 import io
 from pathlib import Path
 
-import numpy as np
 import pytest
+from panel_fixtures import page as _page
+from panel_fixtures import photo as _photo
 from PIL import Image, ImageDraw
 
 from pre_peer_checker.imaging.panel_split import is_photo_like, split_panels
 from pre_peer_checker.parsers.docx_images import export_docx_images
-
-
-def _photo(seed: int, size: tuple[int, int] = (360, 360)) -> Image.Image:
-    """1/f colour texture: a stand-in photo whose keypoints survive downscale + JPEG."""
-    rng = np.random.default_rng(seed)
-    w, h = size
-    base = np.zeros((h, w, 3), dtype=np.float32)
-    for cells in (3, 6, 12, 24, 48):
-        noise = (rng.random((cells, cells, 3)) * 255).astype(np.uint8)
-        layer = Image.fromarray(noise).resize((w, h), Image.Resampling.BICUBIC)
-        base += np.asarray(layer, dtype=np.float32) / cells**0.5
-    base = (base - base.min()) / (base.max() - base.min()) * 255
-    return Image.fromarray(base.astype(np.uint8))
-
-
-def _page(photos: list[Image.Image], *, gap: int = 40, size=(1400, 1000)) -> Image.Image:
-    page = Image.new("RGB", size, "white")
-    draw = ImageDraw.Draw(page)
-    draw.text((60, 20), "Figure S1. Composite with plots and text", fill="black")
-    x = 60
-    for ph in photos:
-        page.paste(ph, (x, 120))
-        x += ph.size[0] + gap
-    # bar-chart-like region: mostly white, must not become a panel
-    for i in range(5):
-        draw.rectangle((80 + i * 60, 900 - 40 * (i + 1), 110 + i * 60, 900), outline="black")
-    return page
 
 
 def test_split_panels_finds_photos_and_skips_plots():
@@ -148,7 +122,9 @@ def test_corpus_panel_match_finds_degraded_reuse_in_screenshot(tmp_path: Path):
     meta = panel_warns[0].metadata
     left, _top, right, _bottom = meta["panel_b"]
     assert 280 <= left <= 300 and right <= 520  # the degraded copy, not the unrelated photo
-    assert all(abs(m["panel_b"][0] - left) < 40 for m in meta["panel_matches"])
+    # whole-image units carry no box; every localised match must be the same panel
+    boxed = [m["panel_b"] for m in meta["panel_matches"] if m["panel_b"] is not None]
+    assert boxed and all(abs(b[0] - left) < 40 for b in boxed)
 
     cited = scan_against_corpus(
         [ms_dir / "supp_page.png"],

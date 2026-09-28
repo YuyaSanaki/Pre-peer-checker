@@ -8,11 +8,16 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 import numpy as np
-from PIL import Image
 
 from pre_peer_checker.imaging.duplicate_scan import ImagePairMatch, scan_image_duplicates_auto
-from pre_peer_checker.imaging.microscopy import frame_to_uint8_rgb, try_load_frames
-from pre_peer_checker.imaging.panel_split import is_photo_like, split_panels
+from pre_peer_checker.imaging.panel_units import (
+    PanelUnit,
+    make_panel_verifier,
+    match_rank,
+    panel_label,
+    prepare_panel_sources,
+    rank_vectors,
+)
 from pre_peer_checker.imaging.partial_match import partial_containment_score
 from pre_peer_checker.warnings import WarningItem, WarningTag
 
@@ -43,102 +48,9 @@ def collect_corpus_images(corpus_roots: list[Path | str], *, max_files: int = 80
     return found[:max_files]
 
 
-@dataclass
-class _PanelUnit:
-    path: Path
-    source: Path
-    box: list[int] | None  # None = whole image
-
-
-def _save_scaled(img: Image.Image, dest: Path, max_side: int) -> Path:
-    w, h = img.size
-    scale = min(1.0, max_side / max(w, h))
-    if scale < 1.0:
-        img = img.resize(
-            (max(1, int(w * scale)), max(1, int(h * scale))), Image.Resampling.BILINEAR
-        )
-    img.save(dest)
-    return dest
-
-
-def _prepare_sources(
-    paths: list[Path],
-    out_dir: Path,
-    *,
-    n_preview: int,
-    panels: bool,
-    preview_max_side: int = 384,
-    panel_max_side: int = 768,
-    max_panels_per_image: int = 24,
-    max_units: int = 800,
-) -> tuple[list[tuple[Path, Path]], list[_PanelUnit]]:
-    """Load each source once; write whole-image previews and panel crops.
-
-    Returns (previews for the first ``n_preview`` sources as (preview, source),
-    panel units — the whole image plus split panels — for every source).
-    """
-    out_dir.mkdir(parents=True, exist_ok=True)
-    previews: list[tuple[Path, Path]] = []
-    units: list[_PanelUnit] = []
-    for i, src in enumerate(paths):
-        want_units = panels and len(units) < max_units
-        if i >= n_preview and not want_units:
-            break
-        frames, err = try_load_frames(src, max_series=1)
-        if err or not frames:
-            continue
-        img = Image.fromarray(frame_to_uint8_rgb(frames[0].data))
-        safe = "".join(c if c.isalnum() or c in "-_" else "_" for c in src.stem)[:40]
-        stem = f"{i}_{safe}"
-        if i < n_preview:
-            previews.append((_save_scaled(img, out_dir / f"{stem}.png", preview_max_side), src))
-        if not want_units:
-            continue
-        boxes = split_panels(img, max_panels=max_panels_per_image)
-        # Charts / text pages share glyphs and axes, which LightGlue happily matches,
-        # so the whole image is a unit only when it is itself photo-like
-        if is_photo_like(img):
-            units.append(
-                _PanelUnit(
-                    _save_scaled(img, out_dir / f"{stem}_whole.png", panel_max_side), src, None
-                )
-            )
-        for j, box in enumerate(boxes):
-            if len(units) >= max_units:
-                break
-            crop = img.crop((box.left, box.top, box.right, box.bottom))
-            units.append(
-                _PanelUnit(
-                    _save_scaled(crop, out_dir / f"{stem}_p{j}.png", panel_max_side),
-                    src,
-                    box.as_list(),
-                )
-            )
-    return previews, units
-
-
-def _rank_vectors(paths: list[Path], *, prefer_dino: bool) -> np.ndarray:
-    """L2-normalised global descriptors used only to shortlist panel pairs."""
-    from pre_peer_checker.imaging.duplicate_scan import (
-        DinoDuplicateScanner,
-        _combined_fallback_vector,
-        shared_dino_scanner,
-    )
-
-    def _fallback() -> np.ndarray:
-        return np.stack([_combined_fallback_vector(p) for p in paths])
-
-    if not (prefer_dino and DinoDuplicateScanner.available()):
-        return _fallback()
-    try:
-        return np.stack(shared_dino_scanner().embed_many(paths, full_frame=True))
-    except Exception:  # noqa: BLE001
-        return _fallback()
-
-
 def _panel_candidates(
-    q_units: list[_PanelUnit],
-    c_units: list[_PanelUnit],
+    q_units: list[PanelUnit],
+    c_units: list[PanelUnit],
     *,
     max_pairs: int,
     min_top_k: int,
@@ -148,8 +60,8 @@ def _panel_candidates(
     n_q, n_c = len(q_units), len(c_units)
     if n_q * n_c <= max_pairs:
         return [(i, j, None) for i in range(n_q) for j in range(n_c)], "all_pairs"
-    q_vec = _rank_vectors([u.path for u in q_units], prefer_dino=prefer_dino)
-    c_vec = _rank_vectors([u.path for u in c_units], prefer_dino=prefer_dino)
+    q_vec = rank_vectors([u.path for u in q_units], prefer_dino=prefer_dino)
+    c_vec = rank_vectors([u.path for u in c_units], prefer_dino=prefer_dino)
     sims = q_vec @ c_vec.T
     k_q = min(n_c, max(min_top_k, max_pairs // max(n_q, 1)))
     k_c = min(n_q, max(2, max_pairs // max(4 * n_c, 1)))
@@ -162,14 +74,6 @@ def _panel_candidates(
             chosen.add((int(i), j))
     ordered = sorted(chosen, key=lambda ij: -sims[ij[0], ij[1]])
     return [(i, j, float(sims[i, j])) for i, j in ordered], f"top{k_q}+rev{k_c}"
-
-
-def _panel_label(unit: _PanelUnit) -> str:
-    name = Path(unit.source).name
-    if unit.box is None:
-        return name
-    left, top, right, bottom = unit.box
-    return f"{name} [{left},{top}–{right},{bottom}]"
 
 
 def scan_against_corpus(
@@ -225,11 +129,11 @@ def scan_against_corpus(
     tmp = Path(tempfile.mkdtemp(prefix="mc_corpus_"))
     try:
         _notify(0, 0, f"画像を読み込み中（原稿 {len(queries)} 枚・コーパス {len(corpus_paths)} 枚）")
-        q_prev, q_units = _prepare_sources(
+        q_prev, q_units = prepare_panel_sources(
             queries, tmp / "q", n_preview=max_query, panels=enable_panels,
             max_units=max_panel_units,
         )
-        c_prev, c_units = _prepare_sources(
+        c_prev, c_units = prepare_panel_sources(
             corpus_paths, tmp / "c", n_preview=len(corpus_paths), panels=enable_panels,
             max_units=max_panel_units,
         )
@@ -400,8 +304,8 @@ def scan_against_corpus(
 
 
 def _scan_panel_pairs(
-    q_units: list[_PanelUnit],
-    c_units: list[_PanelUnit],
+    q_units: list[PanelUnit],
+    c_units: list[PanelUnit],
     *,
     result: CorpusScanResult,
     pair_log: list[dict],
@@ -414,17 +318,6 @@ def _scan_panel_pairs(
     notify: Callable[[int, int, str], None],
 ) -> int:
     """LightGlue over query×corpus panel units; one finding per source pair."""
-    from pre_peer_checker.imaging.lightglue_match import (
-        PANEL_MIN_INLIER_RATIO,
-        PANEL_MIN_INLIERS_BY_FEATURES,
-        LightGlueFeatureCache,
-        _verify_ncc,
-        _verify_orb,
-        active_lightglue_features,
-        lightglue_available,
-        opencv_available,
-    )
-
     notify(0, 0, f"パネル候補を選定中（原稿 {len(q_units)}・コーパス {len(c_units)} パネル）")
     candidates, selection = _panel_candidates(
         q_units, c_units, max_pairs=max_pairs, min_top_k=min_top_k, prefer_dino=prefer_dino
@@ -432,31 +325,7 @@ def _scan_panel_pairs(
     result.artifacts["panel_selection"] = selection
     result.artifacts["panel_candidate_pairs"] = len(candidates)
 
-    cache = None
-    if prefer_lightglue and lightglue_available():
-        min_inliers = PANEL_MIN_INLIERS_BY_FEATURES[active_lightglue_features()]
-        cache = LightGlueFeatureCache(
-            min_matches=min_inliers,
-            min_inliers=min_inliers,
-            min_inlier_ratio=PANEL_MIN_INLIER_RATIO,
-        )
-    use_orb = opencv_available()
-
-    def _verify(a: Path, b: Path):
-        if cache is not None:
-            try:
-                return cache.match(a, b)
-            except Exception:  # noqa: BLE001
-                return _verify_fallback(a, b)
-        return _verify_fallback(a, b)
-
-    def _verify_fallback(a: Path, b: Path):
-        if use_orb:
-            vr = _verify_orb(a, b, min_inliers=30)
-            # ORB's default 0.25 inlier ratio is far too loose over thousands of pairs
-            vr.verified = vr.verified and vr.score >= 0.5
-            return vr
-        return _verify_ncc(a, b)
+    _verify, verifier_name = make_panel_verifier(prefer_lightglue=prefer_lightglue)
 
     best: dict[tuple[str, str], dict] = {}
     total = len(candidates)
@@ -472,24 +341,22 @@ def _scan_panel_pairs(
             continue
         hit = best.setdefault(key, {"q": qu, "c": cu, "vr": vr, "sim": sim, "panels": []})
         hit["panels"].append((qu, cu, vr))
-        if vr.score > hit["vr"].score:
+        if match_rank(qu, cu, vr) > match_rank(hit["q"], hit["c"], hit["vr"]):
             hit.update(q=qu, c=cu, vr=vr, sim=sim)
     notify(total, total, "")
-    result.artifacts["panel_verifier"] = (
-        f"lightglue+{cache.features}" if cache is not None else ("orb" if use_orb else "ncc")
-    )
+    result.artifacts["panel_verifier"] = verifier_name
 
     for key, hit in best.items():
         seen.add(key)
         qu, cu, vr = hit["q"], hit["c"], hit["vr"]
-        panels = sorted(hit["panels"], key=lambda p: -p[2].score)
+        panels = sorted(hit["panels"], key=lambda p: match_rank(*p), reverse=True)
         panel_matches = [
             {"panel_a": p[0].box, "panel_b": p[1].box, "matches": p[2].num_matches,
              "inliers": p[2].inliers}
             for p in panels
         ]
         listing = "／".join(
-            f"{_panel_label(p[0])} ↔ {_panel_label(p[1])}（{p[2].num_matches} 点）"
+            f"{panel_label(p[0])} ↔ {panel_label(p[1])}（{p[2].num_matches} 点）"
             for p in panels[:6]
         )
         pair_log.append(
@@ -517,7 +384,7 @@ def _scan_panel_pairs(
             WarningItem(
                 tag=WarningTag.IMAGE_REUSE,
                 title="過去論文コーパスと同一写真（パネル単位）・出典未記載の疑い",
-                location=f"{_panel_label(qu)} ↔ {_panel_label(cu)}",
+                location=f"{panel_label(qu)} ↔ {panel_label(cu)}",
                 reason=(
                     f"パネル単位の特徴点照合で一致 {vr.num_matches} 点"
                     + (f"（うち同一の幾何変換に乗る点 {vr.inliers}）" if vr.inliers is not None else "")

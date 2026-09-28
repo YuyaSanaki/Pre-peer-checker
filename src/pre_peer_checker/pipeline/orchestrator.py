@@ -71,6 +71,7 @@ from pre_peer_checker.engine.stats_residue_match import (
 from pre_peer_checker.imaging.blot_lane import scan_blot_lane_reuse
 from pre_peer_checker.imaging.corpus_scan import collect_corpus_images, scan_against_corpus
 from pre_peer_checker.imaging.duplicate_scan import scan_image_duplicates_auto
+from pre_peer_checker.imaging.panel_reuse import scan_internal_panel_reuse
 from pre_peer_checker.imaging.microscopy_scan import scan_microscopy_duplicates
 from pre_peer_checker.io_bundle import FileKind, InputBundle, collect_inputs, is_r_history_name
 from pre_peer_checker.data.tenx_matrix import scan_tenx_matrices
@@ -248,6 +249,12 @@ def _plan_stages(
         ),
         Stage("images_extract", "PDF から埋め込み画像を抽出", 1.0 + 1.0 * n_pdf),
         Stage("images_dup", "Figure 内画像の類似度スキャン", 5.0 + 1.0 * n_fig_pdf),
+        Stage(
+            "images_panel_reuse",
+            "原稿内のパネル単位の画像使い回しスキャン",
+            # LightGlue は最大 2500 組（~45 ms/組）で頭打ちになるのでほぼ一定
+            min(190.0, 20.0 + 2.0 * (n_images + 8 * n_fig_pdf + 8 * n(FileKind.DOCX))),
+        ),
         Stage(
             "images_micro",
             "顕微鏡・ラスタ画像の重複スキャン",
@@ -1244,6 +1251,28 @@ def run_verification(
                 )
         result.artifacts["pdf"] = pdf_meta
 
+        # Word 原稿の埋め込み図（Supplemental 等）。PDF 原稿でも Word 原稿でも同じ
+        # 画像プールで照合できるよう、ここで一度だけ取り出して以降で使い回す。
+        docx_image_paths: list[Path] = []
+        docx_hashes: set[str] = set()
+        docx_sorted = sorted(
+            bundle.get(FileKind.DOCX),
+            key=lambda p: (
+                not any(k in p.name.lower() for k in ("supp", "fig")),
+                p.name.lower(),
+            ),
+        )
+        if docx_sorted:
+            docx_td = Path(tempfile.mkdtemp(prefix="mc_docximg_"))
+            tmp_dirs.append(docx_td)
+            for i_docx, p in enumerate(docx_sorted):
+                docx_image_paths.extend(
+                    export_docx_images(
+                        p, docx_td / str(i_docx), min_side=120, seen_hashes=docx_hashes
+                    )
+                )
+        result.artifacts["docx_images"] = len(docx_image_paths)
+
         tracker.start(
             "images_dup",
             f"Figure 内画像の類似度スキャン中（{len(pdf_image_paths)} 枚・初回は画像モデル読込を含む）",
@@ -1278,6 +1307,31 @@ def run_verification(
                         },
                     )
                 )
+
+        # --- 原稿内のパネル単位の使い回し（Word / PDF どちらの原稿でも同じ扱い） ---
+        internal_imgs = (
+            docx_image_paths
+            + list(pdf_image_paths)
+            + list(bundle.get(FileKind.IMAGE))
+            + list(bundle.get(FileKind.LIF))
+            + list(bundle.get(FileKind.CZI))
+        )
+        tracker.start(
+            "images_panel_reuse",
+            f"原稿内の画像をパネルに分割して照合中（{len(internal_imgs)} 枚）",
+        )
+
+        def _on_panel_reuse(done: int, total: int, label: str) -> None:
+            if total:
+                tracker.update(done=done, total=total)
+            if label:
+                tracker.update(detail=label)
+
+        reuse_result = scan_internal_panel_reuse(
+            internal_imgs, prefer_dino=True, prefer_lightglue=True, on_progress=_on_panel_reuse
+        )
+        result.warnings.extend(reuse_result.warnings)
+        result.artifacts["internal_panel_reuse"] = reuse_result.artifacts
 
         n_micro_inputs = len(
             bundle.get(FileKind.LIF) + bundle.get(FileKind.CZI) + bundle.get(FileKind.IMAGE)
@@ -1337,31 +1391,9 @@ def run_verification(
         if corpus_roots:
             tracker.start("corpus", "原稿の画像と過去論文の図を照合中")
             # Word 埋め込み図（Supplemental 等）→ Figure PDF 埋め込み → 生画像 → 顕微鏡の順
-            docx_image_paths: list[Path] = []
-            docx_hashes: set[str] = set()
-            docx_td = Path(tempfile.mkdtemp(prefix="mc_docximg_"))
-            tmp_dirs.append(docx_td)
-            docx_sorted = sorted(
-                bundle.get(FileKind.DOCX),
-                key=lambda p: (
-                    not any(k in p.name.lower() for k in ("supp", "fig")),
-                    p.name.lower(),
-                ),
-            )
-            for i_docx, p in enumerate(docx_sorted):
-                docx_image_paths.extend(
-                    export_docx_images(
-                        p, docx_td / str(i_docx), min_side=120, seen_hashes=docx_hashes
-                    )
-                )
             result.artifacts["corpus_docx_images"] = len(docx_image_paths)
-            query_imgs = (
-                docx_image_paths
-                + list(pdf_image_paths)
-                + list(bundle.get(FileKind.IMAGE))
-                + list(bundle.get(FileKind.LIF))
-                + list(bundle.get(FileKind.CZI))
-            )
+            query_imgs = internal_imgs
+
             def _on_corpus(done: int, total: int, label: str) -> None:
                 if total:
                     tracker.update(done=done, total=total)

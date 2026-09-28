@@ -105,6 +105,7 @@ MyCase/
 ![Untitled.005](docs/fig/Untitled.005.png)
 
 データ量にもよりますが10分から1時間くらいかかります。
+過去論文や引用論文の数が多いと時間がかかります。
 
 ![照合の進捗表示](docs/fig/webui_progress.png)
 

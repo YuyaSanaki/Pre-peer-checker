@@ -148,6 +148,29 @@
       }
     },
     {
+      "id": "P-IMAGE-DUPLICATE-INTERNAL",
+      "status": "implemented",
+      "phase": "1-2",
+      "source_kinds": [
+        "check_reference",
+        "curated_pubpeer"
+      ],
+      "warning_tags": [
+        "Warning [画像重複・再利用（要出典確認）]"
+      ],
+      "abstract_rule": "原稿・data 内の写真パネル同士がパネル単位の特徴点照合で同一と判定された。別条件・別実験として示したパネルが同じ写真である疑い。",
+      "inputs": [
+        "images",
+        "figure_panels"
+      ],
+      "taxonomy": [
+        "A1",
+        "A2"
+      ],
+      "enabled": true,
+      "priority": "P0"
+    },
+    {
       "id": "P-FILENAME-CONTENT-MISMATCH",
       "status": "implemented",
       "phase": "1-2",

@@ -79,8 +79,7 @@
 
 | 優先 | 系統 | プロファイル例 | 役割 | メモ |
 |------|------|----------------|------|------|
-| **P0** | **Qwen2.5 / Qwen2.5-VL** | `qwen2.5-7b-mlx`, `qwen2.5-7b-hf`, `qwen2.5-32b-hf`, `qwen2.5-vl-*` | text + Fig 接地 | **本命一本化**。text 教師=`32b-hf`、配布=`7b-mlx`（逼迫時 3B） |
-| **P1** | **InternVL3** | `internvl3-8b`, `internvl3-38b` | 文書・OCR | 任意比較（CUDA） |
+| **P0** | **Qwen2.5 / Qwen2.5-VL** | `qwen2.5-7b-mlx`, `qwen2.5-7b-hf`, `qwen2.5-32b-hf`, `qwen2.5-vl-*` | text + Fig 接地 | **本命一本化**。text 教師=`32b-hf`、配布=`7b-mlx`（Apache-2.0 のみ。3B・72B・InternVL3 はライセンス上の理由でプロファイルから削除） |
 | **補助** | **MinerU2.5** 等 | （未収録・前処理候補） | PDF/レイアウト OCR | VLM 代替ではない |
 
 **除外**: Gemma 3（gated・本線外）、Pixtral / MiniCPM-V（Qwen2.5-VL 本命に一本化）。
@@ -627,6 +626,7 @@ Phase 5 の `planned` を **P0→P1** で合成 fixture＋エンジン化。**Ph
 
 | 日付 | 内容 |
 |------|------|
+| 2026-09-28 | **ライセンス整理（非商用配布）**: `install.sh` で利用区分を選択（`usage_profile.json`）→ LightGlue 特徴点を academic=SuperPoint（35）/ commercial=ALIKED（50、CUDA 較正）で切替。LightGlue をコミット `eb42fee` に固定。モデルプロファイルを Apache-2.0 のみに（3B・72B・InternVL3 削除） |
 | 2026-09-28 | **WebUI 既定: VLM パネル地図補助 ON**（Legend LLM 補助と同様）。ベクター空時のみ・VLM 未導入時は note のみでスキップ。CLI `--vlm-assist` / GUI は従来どおり opt-in |
 | 2026-09-26 | **Phase 7 初期**: 文献メタ＋引用整合（ユーザー提供 PDF）。`parsers/references` / `cited_paper_ingest` / `ref_biblio` / `ref_pdf_meta` / `ref_claim`。Taxonomy E4/E5。合成 `ref_biblio`/`ref_claim` CI |
 | 2026-09-26 | **LightGlue 実機校正（CUDA）**: SuperPoint+LightGlue 合成 must_neg_max=17 / must_pos_min=153（rot90 hard≈47）。`DEFAULT_MIN_MATCHES=35` 確定。`fixtures/gold/lightglue_calib` + `test_lightglue_calib` |

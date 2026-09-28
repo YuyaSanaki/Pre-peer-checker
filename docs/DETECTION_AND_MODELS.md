@@ -425,7 +425,8 @@ DINOv2 は **預訓練のまま推論**（追加学習不要）。閾値は fixt
 | Legend→JSON（**開発・教師**） | **Qwen2.5-32B-Instruct**（`qwen2.5-32b-hf`） | DGX Spark / CUDA | ~64GB+ |
 | Fig 接地（**配布用本命**） | **Qwen2.5-VL-7B Instruct** | Mac: **mlx-vlm** / DGX: CUDA | 16GB Mac 想定 |
 | Fig 接地（**開発・教師用本命**） | **Qwen2.5-VL-32B Instruct** | DGX Docker（CUDA） | ~64GB+ |
-| 16GB マシンで逼迫時               | 抽出のみ **Qwen2.5-3B-Instruct 4-bit** に縮退 | MLX                                   | ~2.5GB |
+
+プロファイルは Apache-2.0 のモデルに限る。Qwen2.5-3B（Qwen Research License・非商用）は低メモリ用の縮退先から外した（16GB 未満でも 7B 4-bit を使う）。
 
 
 #### VLM 役割と選定理由

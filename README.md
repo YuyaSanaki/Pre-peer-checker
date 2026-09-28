@@ -249,7 +249,34 @@ pip install -e '.[packaging]'
 
 ## ライセンス・第三者コンポーネント
 
-本ソフトウェア（`pre-peer-checker`）は **MIT** です。モデル重みはリポジトリに同梱せず、利用時に各配布元から取得します。以下は無料配布・論文化を想定した時点の整理です（商用化時は別途再確認）。各パッケージ／モデルの正式条件は上流の LICENSE を正とします。
+本ソフトウェア（`pre-peer-checker`）自体のソースコードは **MIT**（[LICENSE](LICENSE)）です。依存パッケージとモデル重みはリポジトリに同梱せず、`install.sh` / `pip` / `torch.hub` を通じて利用者の環境へ各配布元から取得します。以下は無料配布・論文化を想定した 2026-09 時点の整理です（商用化時は別途再確認）。各パッケージ／モデルの正式条件は上流の LICENSE を正とし、本節は法的助言ではありません。
+
+### PyMuPDF（AGPL-3.0）に関する条項
+
+PDF のテキスト・図の抽出に使う **PyMuPDF（`fitz`）はコア依存**で、すべてのインストールに含まれます。PyMuPDF は **GNU AGPL-3.0 と Artifex 商用ライセンスのデュアルライセンス**です。
+
+- 本リポジトリの MIT コードは AGPL-3.0 と両立します。**ソースを公開し、依存は利用者が各自取得する現行の配布方針**では、追加の対応は不要です。
+- PyMuPDF を含めた**結合物を配布する場合**（PyInstaller の凍結バイナリ、`.app`、PyMuPDF をインストール済みの Docker イメージ、依存をまとめたアーカイブ等）は、結合物全体が AGPL-3.0 の条件を受けます。具体的には、対応するソースコードの提供、AGPL-3.0 全文の同梱、同一ライセンスでの再配布が必要です。
+- PyMuPDF と結合した本ソフトを**改変し、WebUI 等でネットワーク越しに第三者へ提供する場合**は、AGPL-3.0 §13 により利用者へのソース提供義務が生じます（既定の `127.0.0.1` での個人ローカル利用は該当しません）。
+- **クローズドソースまたは商用で配布・提供する場合**は、Artifex から商用ライセンスを取得するか、PDF 処理を permissive なライブラリ（例: pypdfium2 = Apache-2.0 / BSD-3-Clause、pypdf = BSD-3-Clause）へ置き換えてください。
+- fork・改変して再配布する場合も上記の条件を引き継ぎます。リポジトリが MIT であることは、PyMuPDF を含む成果物をクローズドで配布できることを意味しません。
+
+### 画像照合モデル（DINOv2 / LightGlue / SuperPoint）
+
+- **DINOv2**: コード・標準重みとも Apache-2.0 で、MIT と両立します。実行時に `torch.hub.load("facebookresearch/dinov2", ...)` で取得し、同梱はしません。重みを再配布する場合は上流の LICENSE を添付してください。
+- **LightGlue**: コードと学習済み重みは Apache-2.0 で、MIT と両立します。
+- **SuperPoint / ALIKED（利用区分で切替）**: SuperPoint の推論コード（`lightglue/superpoint.py`）と重みは **Magic Leap の「大学・非営利組織による非商用研究」限定ライセンス**です。配布者が非商用でも、利用者が営利組織（企業の研究所・製薬企業・CRO など）であれば対象外になります。そこで `./install.sh` の最初に利用区分を選択し、LightGlue の特徴点抽出器を切り替えます。
+
+  | 利用区分 | 特徴点抽出器 | ライセンス | 判定しきい値（一致点数） |
+  | --- | --- | --- | --- |
+  | 1) 大学・非営利組織による非商用研究 | SuperPoint | Magic Leap（非商用研究） | 35 |
+  | 2) 上記以外（企業・商用研究・判断がつかない場合） | ALIKED | BSD-3-Clause（LightGlue 重みは Apache-2.0） | 50 |
+
+  - 選択はリポジトリ直下の `usage_profile.json`（git 管理外）に保存され、`./install.sh` の再実行で変更できます。環境変数 `PRE_PEER_CHECKER_USAGE=academic|commercial` で上書き・非対話実行も可能です。未選択・判別不能のときは 2）ALIKED 側に倒します。
+  - 区分は利用者の自己申告であり、条件の遵守は利用者の責任です。SuperPoint のファイル自体は LightGlue パッケージに同梱されるため 2) でもディスク上には存在しますが、読み込み・重みの取得は行いません。
+  - しきい値は合成ペアで抽出器ごとに較正しています（`fixtures/gold/lightglue_calib/calib_summary.json`）。ALIKED は 90° 回転した切り抜きを一致点数だけでは無関係ペアと分離できないため、回転を伴う再利用の確定力は SuperPoint より弱くなります。
+- **LightGlue のバージョン固定**: `install.sh` は LightGlue をコミット `eb42fee`（`LIGHTGLUE_COMMIT`）に固定して導入します。更新する場合は上流の LICENSE を確認し、`scripts/dev_lightglue_threshold_calib.py --features {superpoint,aliked}` で再較正してください。
+- LightGlue は任意機能です。未導入の場合、精密照合は OpenCV ORB + RANSAC（Apache-2.0）→ 正規化相互相関（追加依存なし）へフォールバックします。
 
 ### ローカルモデル（任意・補助）
 
@@ -258,10 +285,12 @@ pip install -e '.[packaging]'
 | --------------------- | -------------------------------------------------------------------------- | ----------------------------------------------------- | -------------------------------- |
 | Legend→JSON 等（Mac 本線） | Qwen2.5-7B-Instruct（MLX 4-bit 例: `mlx-community/Qwen2.5-7B-Instruct-4bit`） | Apache 2.0                                            | Alibaba Cloud / Qwen             |
 | Fig 接地（配布本命）          | Qwen2.5-VL-7B-Instruct（mlx-vlm）                                            | Apache 2.0                                            | パネル境界・軸ラベル・グラフ種別                 |
+| Legend→JSON 等（開発・教師）    | Qwen2.5-32B-Instruct                                                       | Apache 2.0                                            | DGX ゴールド作成用                      |
 | Fig 接地（開発・教師）         | Qwen2.5-VL-32B-Instruct                                                    | Apache 2.0                                            | DGX ゴールド・7B 蒸留／LoRA 用            |
-| メモリ逼迫時 / CUDA 縮退例     | Qwen2.5-3B-Instruct                                                        | Qwen Research License                                 | **非商用・研究向け**。商用時は 7B 等へ固定推奨      |
 | 画像類似スクリーニング           | DINOv2（例: `dinov2_vits14`）                                                 | Apache 2.0                                            | Meta。標準重み。派生チェックポイントは別ライセンスの場合あり |
-| 画像ペア精密照合（任意）          | LightGlue + SuperPoint                                                     | LightGlue: Apache 2.0 / SuperPoint: Magic Leap（非商用研究） | SuperPoint は研究・非商用前提             |
+| 画像ペア精密照合（任意）          | LightGlue + SuperPoint または ALIKED                                           | LightGlue: Apache 2.0 / SuperPoint: Magic Leap（非商用研究） / ALIKED: BSD-3 | install.sh の利用区分で切替（上記）          |
+
+モデルプロファイル（`llm/model_registry.yaml`）には Apache-2.0 のモデルだけを載せています。Qwen2.5-3B（Qwen Research License）・Qwen2.5-72B（Qwen License）・InternVL3 は選択肢から外しました。
 
 
 推論ランタイム: **MLX / mlx-lm**（MIT、Apple Silicon）、**PyTorch + transformers**（BSD / Apache、CUDA 経路）。
@@ -275,8 +304,8 @@ pip install -e '.[packaging]'
 | openpyxl                          | Excel          | MIT                                            |
 | ruamel.yaml                       | YAML           | MIT                                            |
 | python-docx                       | Word           | MIT                                            |
-| **PyMuPDF**                       | PDF テキスト・埋め込み図 | **AGPL-3.0**（または Artifex 商用）。ソース公開の無料配布と整合しやすい |
-| Pillow                            | 画像 I/O         | HPND                                           |
+| **PyMuPDF**                       | PDF テキスト・埋め込み図 | **AGPL-3.0**（または Artifex 商用）。上記「PyMuPDF に関する条項」参照 |
+| Pillow                            | 画像 I/O         | MIT-CMU（HPND 系）                                 |
 | Jinja2                            | HTML レポート      | BSD-3-Clause                                   |
 | nbformat                          | Jupyter        | BSD-3-Clause                                   |
 
@@ -289,8 +318,10 @@ pip install -e '.[packaging]'
 | Extra       | 主なパッケージ                                                      | 用途             | 代表的ライセンス            |
 | ----------- | ------------------------------------------------------------ | -------------- | ------------------- |
 | `web`       | FastAPI, uvicorn                                             | ローカル WebUI     | MIT / BSD           |
-| `gui`       | PyQt6                                                        | 任意 GUI         | GPL / Qt 商用         |
-| `imaging`   | torch, torchvision, OpenCV, pylibCZIrw, readlif, aicsimageio | 顕微鏡・重複スキャン     | BSD / Apache 等（各上流） |
+| `gui`       | PyQt6                                                        | 任意 GUI         | **GPL-3.0** / Riverbank 商用 |
+| `imaging`   | torch, torchvision, OpenCV, aicsimageio                      | 重複スキャン・顕微鏡     | BSD / Apache 等（各上流） |
+| `imaging`   | **readlif**                                                  | Leica LIF 読込    | **GPL-3.0**         |
+| `imaging`   | **pylibCZIrw**                                               | Zeiss CZI 読込    | **LGPL-3.0**        |
 | `r-ast`     | tree-sitter, tree-sitter-language-pack                       | R AST          | MIT                 |
 | `mlx`       | mlx, mlx-lm                                                  | Mac LLM        | MIT                 |
 | `llm-cuda`  | torch, transformers, accelerate                              | Linux/CUDA LLM | BSD / Apache        |
@@ -298,11 +329,17 @@ pip install -e '.[packaging]'
 | `dev`       | pytest, ruff, httpx                                          | 開発             | MIT                 |
 
 
-LightGlue は imaging extra コメントのとおり、必要時に upstream から別途導入します。
+LightGlue は PyPI に無いため、`install.sh` が上流のコミット固定 zip から導入します（Apple Silicon）。
 
 ### 配布・論文での扱い（現状方針）
 
+| 配布形態                                        | 主な制約                                                                                                     |
+| ------------------------------------------- | -------------------------------------------------------------------------------------------------------- |
+| ソース公開（clone → `./install.sh`、現行本線）            | 追加義務なし。依存とモデルは利用者が各自取得                                                                                  |
+| 凍結バイナリ・Docker イメージ等、依存込みの結合物を配布                  | PyMuPDF により全体が AGPL-3.0。readlif・PyQt6 を含めば GPL-3.0、pylibCZIrw は LGPL-3.0（差し替え可能性の確保）。各 LICENSE を同梱 |
+| クローズドソース・商用                                  | PyMuPDF の商用ライセンス取得または置換、SuperPoint 不使用（ALIKED 固定）、readlif・PyQt6 の除外または置換                   |
+
 - **無料配布**: ソース公開（clone → `./install.sh`）を本線とし、利用者が依存とモデルを各自取得する形を推奨。
 - **論文化**: Methods / Acknowledgments にモデル名・主要ライブラリとライセンス（および必要なら論文引用）を記載。
-- **商用・クローズド配布**を将来検討する場合は、とくに PyMuPDF（AGPL）、Qwen2.5-3B（Research）、SuperPoint（非商用）を再点検してください。
+- **商用・クローズド配布**を将来検討する場合は、とくに PyMuPDF（AGPL）、SuperPoint（非商用）、readlif / PyQt6（GPL）を再点検してください。
 

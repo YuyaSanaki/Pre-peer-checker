@@ -80,6 +80,8 @@ pip install -e '.[packaging]'
 ./scripts/build_linux_smoke.sh
 ```
 
+凍結成果物（`dist/`）には PyMuPDF（AGPL-3.0）が同梱されます。第三者へ配布する場合は、AGPL-3.0 の条件（対応ソースの提供・ライセンス全文の同梱）に従ってください。詳細は README の「ライセンス・第三者コンポーネント」節を参照。
+
 ## 5. 廃止したもの
 
 - Mac `.app` / `.dmg` 配布本線

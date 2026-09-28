@@ -11,6 +11,7 @@ from panel_fixtures import photo as _photo
 from PIL import Image
 
 from pre_peer_checker.imaging.panel_reuse import scan_internal_panel_reuse
+from pre_peer_checker.imaging.panel_units import PanelUnit, panel_position, panel_positions
 from pre_peer_checker.warnings import WarningTag
 
 pytestmark = pytest.mark.usefixtures()
@@ -55,6 +56,28 @@ def test_same_photo_twice_in_one_figure_is_flagged(tmp_path: Path):
     warns = _reuse_warnings(result)
     assert len(warns) == 1
     assert warns[0].metadata["same_file"] is True
+    pm = warns[0].metadata["panel_matches"][0]
+    assert {pm["label_a"], pm["label_b"]} == {"左から1枚目", "左から3枚目"}
+    assert "左から1枚目" in warns[0].location and "[" not in warns[0].location
+
+
+def test_panel_positions_read_rows_then_columns():
+    src = Path("fig.png")
+    boxes = [
+        [1276, 412, 2460, 1246],
+        [78, 412, 1263, 1246],
+        [2495, 412, 4881, 1246],
+        [2508, 1311, 4890, 2605],
+        [92, 4507, 877, 5495],
+        [969, 4507, 1754, 5495],
+    ]
+    units = [PanelUnit(path=src, source=src, box=b) for b in boxes]
+    pos = panel_positions(units)
+    assert pos[(str(src), (78, 412, 1263, 1246))] == "上段・左から1枚目"
+    assert pos[(str(src), (1276, 412, 2460, 1246))] == "上段・左から2枚目"
+    assert pos[(str(src), (2508, 1311, 4890, 2605))] == "中段"
+    assert pos[(str(src), (969, 4507, 1754, 5495))] == "下段・左から2枚目"
+    assert panel_position(PanelUnit(path=src, source=src, box=None), pos) == "画像全体"
 
 
 def test_distinct_photos_are_not_flagged(tmp_path: Path):

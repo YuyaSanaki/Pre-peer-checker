@@ -396,8 +396,11 @@ _REPORT_TEMPLATE = Template(
     }
     .cmp-side { margin: 0; min-width: 0; }
     .cmp-side .fig-preview-label { word-break: break-all; }
-    .cmp-frame { display: inline-block; position: relative; max-width: 100%; }
-    .cmp-frame img { max-height: 560px; width: auto; max-width: 100%; }
+    .cmp-frame {
+      display: block; position: relative; max-width: 100%;
+      background-size: 100% 100%; background-repeat: no-repeat;
+      -webkit-print-color-adjust: exact; print-color-adjust: exact;
+    }
     .cmp-box {
       position: absolute; border: 2px solid rgba(239, 68, 68, 0.55); border-radius: 2px;
       cursor: pointer; transition: box-shadow 0.12s ease, border-color 0.12s ease;
@@ -412,23 +415,30 @@ _REPORT_TEMPLATE = Template(
       line-height: 1; color: #fff; background: #ef4444; padding: 2px 4px;
       border-radius: 0 0 3px 0;
     }
-    .cmp-pairs { margin-top: 0.75rem; display: grid; gap: 10px; }
+    .cmp-pairs { margin-top: 0.6rem; display: grid; gap: 6px; }
     .cmp-pair {
-      border: 1px solid var(--line); border-radius: 8px; padding: 0.55rem 0.7rem;
+      border: 1px solid var(--line); border-radius: 8px; padding: 0.4rem 0.7rem;
       background: #fafafa; cursor: pointer;
     }
     .cmp-pair.is-focus { border-color: #ef4444; background: #fef2f2; }
-    .cmp-pair-head { font-size: 0.8rem; color: var(--muted); margin-bottom: 0.4rem; word-break: break-all; }
+    .cmp-pair-head { font-size: 0.85rem; color: var(--muted); word-break: break-all; }
     .cmp-pair-head strong { color: #b91c1c; }
-    .cmp-crops { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
-    .cmp-crops img {
-      display: block; max-width: 100%; max-height: 320px; width: auto;
-      border: 3px solid #ef4444; border-radius: 4px; background: #fff;
+    .cmp-key {
+      display: inline-block; font-size: 11px; font-weight: 700; line-height: 1;
+      color: #fff; background: #ef4444; padding: 2px 4px; border-radius: 3px;
+      margin-right: 3px;
     }
     @media (max-width: 720px) {
-      .cmp-grid, .cmp-crops { grid-template-columns: 1fr; }
+      .cmp-grid { grid-template-columns: 1fr; }
     }
   </style>
+  {% if cmp_images %}
+  <style>
+    {% for im in cmp_images %}
+    .{{ im.cls }} { background-image: url("{{ im.uri }}"); }
+    {% endfor %}
+  </style>
+  {% endif %}
 </head>
 <body>
   <h1>論文データ照合結果レポート</h1>
@@ -699,12 +709,12 @@ _REPORT_TEMPLATE = Template(
         {% for side in cmp.sides %}
         <figure class="cmp-side">
           <figcaption class="fig-preview-label">{{ side.role }} · {{ side.name }}（{{ side.width }}×{{ side.height }}px）</figcaption>
-          <div class="fig-preview cmp-frame">
-            <img src="{{ side.image_data_uri }}" alt="{{ side.name|e }}" loading="lazy">
+          <div class="fig-preview cmp-frame {{ side.img_class }}" role="img" aria-label="{{ side.name|e }}"
+               style="aspect-ratio: {{ side.width }} / {{ side.height }}; width: min(100%, {{ side.shown_width }}px, calc(560px * {{ side.width }} / {{ side.height }}));">
             {% for b in side.boxes %}
             <span class="cmp-box{% if b.primary %} is-focus{% endif %}" data-pair="{{ b.pair }}"
                   style="left:{{ b.left_pct }}%;top:{{ b.top_pct }}%;width:{{ b.width_pct }}%;height:{{ b.height_pct }}%;">
-              <span class="cmp-tag">{{ b.pair }}</span>
+              <span class="cmp-tag">{{ b.key }}</span>
             </span>
             {% endfor %}
           </div>
@@ -716,16 +726,12 @@ _REPORT_TEMPLATE = Template(
         {% for p in cmp.pairs %}
         <div class="cmp-pair{% if p.primary %} is-focus{% endif %}" data-pair="{{ p.pair }}">
           <div class="cmp-pair-head">
-            <strong>組 {{ p.pair }}</strong> · 左 {{ p.box_a }} ↔ 右 {{ p.box_b }}
+            <strong>組 {{ p.pair }}</strong> ·
+            左 <span class="cmp-key">{{ p.key_a }}</span>{{ p.box_a }} ↔
+            右 <span class="cmp-key">{{ p.key_b }}</span>{{ p.box_b }}
             {% if p.matches is not none %} · 一致 {{ p.matches }} 点{% endif %}
             {% if p.inliers is not none %}（同一変換 {{ p.inliers }}）{% endif %}
           </div>
-          {% if p.crop_a and p.crop_b %}
-          <div class="cmp-crops">
-            <img src="{{ p.crop_a }}" alt="組 {{ p.pair }} 左" loading="lazy">
-            <img src="{{ p.crop_b }}" alt="組 {{ p.pair }} 右" loading="lazy">
-          </div>
-          {% endif %}
         </div>
         {% endfor %}
       </div>
@@ -874,6 +880,18 @@ def _source_item(s: object) -> dict:
     }
 
 
+def _compare_with_image_classes(cmp: dict | None, classes: dict[str, str]) -> dict | None:
+    """Swap each side's data URI for a shared CSS class so every image is embedded once."""
+    if not cmp:
+        return None
+    sides = []
+    for side in cmp.get("sides") or []:
+        uri = side.get("image_data_uri") or ""
+        cls = classes.setdefault(uri, f"cmpimg-{len(classes)}")
+        sides.append({k: v for k, v in side.items() if k != "image_data_uri"} | {"img_class": cls})
+    return {**cmp, "sides": sides}
+
+
 def render_html_report(
     warnings: list[WarningItem],
     *,
@@ -885,10 +903,11 @@ def render_html_report(
 
     ts = (timestamp or datetime.now()).strftime("%Y-%m-%d %H:%M")
     attach_figure_compares(list(warnings))
+    cmp_image_classes: dict[str, str] = {}
     dicts = []
     for w in warnings:
         d = w.to_dict()
-        d["figure_compare"] = w.figure_compare
+        d["figure_compare"] = _compare_with_image_classes(w.figure_compare, cmp_image_classes)
         d["source_items"] = [_source_item(s) for s in (d.get("sources") or [])]
         meta = d.get("metadata") or {}
         search_bits = [
@@ -918,6 +937,7 @@ def render_html_report(
         demoted_count=demoted_count,
         coverage=cov,
         n_matrix_sections=n_matrix_sections,
+        cmp_images=[{"cls": cls, "uri": uri} for uri, cls in cmp_image_classes.items()],
     )
 
 

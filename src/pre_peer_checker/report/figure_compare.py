@@ -3,6 +3,10 @@
 原稿側の画像は PDF から一時フォルダに書き出したものが多く、レポートを開く頃には
 消えている。一時フォルダを消す前に両側の画像を data URI に焼き込み、一致した
 パネル領域を割合座標で持たせておく。
+
+同じ画像が数百件の Warning に現れるため、data URI は画像ファイルごとに 1 回だけ作り
+（同一の str オブジェクトを共有）、HTML では CSS クラスとして 1 度だけ埋め込むので、
+Warning 件数で HTML は膨らまない。
 """
 
 from __future__ import annotations
@@ -17,11 +21,11 @@ from pre_peer_checker.warnings import WarningItem
 
 _IMAGE_EXTS = {".png", ".jpg", ".jpeg", ".tif", ".tiff", ".bmp", ".webp", ".lif", ".czi"}
 
-MAX_COMPARE_WARNINGS = 40
-FULL_MAX_SIDE = 1000
-CROP_MAX_SIDE = 480
+FULL_MAX_SIDE = 1400
 MAX_BOX_PAIRS = 6
-MAX_CROP_PAIRS = 3
+
+# path -> (data URI, original size, encoded size), or None if unreadable
+_ImageCache = dict[str, tuple[str, tuple[int, int], tuple[int, int]] | None]
 
 
 def _load_rgb(path: Path) -> Image.Image | None:
@@ -37,7 +41,7 @@ def _load_rgb(path: Path) -> Image.Image | None:
         return None
 
 
-def _jpeg_data_uri(img: Image.Image, max_side: int, quality: int = 82) -> str:
+def _jpeg_data_uri(img: Image.Image, max_side: int, quality: int = 82) -> tuple[str, tuple[int, int]]:
     w, h = img.size
     scale = min(1.0, max_side / max(w, h, 1))
     if scale < 1.0:
@@ -46,10 +50,25 @@ def _jpeg_data_uri(img: Image.Image, max_side: int, quality: int = 82) -> str:
         )
     buf = io.BytesIO()
     img.save(buf, format="JPEG", quality=quality)
-    return "data:image/jpeg;base64," + base64.b64encode(buf.getvalue()).decode("ascii")
+    uri = "data:image/jpeg;base64," + base64.b64encode(buf.getvalue()).decode("ascii")
+    return uri, img.size
 
 
-def _box_percent(box: list[int], size: tuple[int, int]) -> dict[str, float] | None:
+def _encoded_image(path: Path, cache: _ImageCache | None):
+    key = str(path)
+    if cache is not None and key in cache:
+        return cache[key]
+    img = _load_rgb(path)
+    entry = None
+    if img is not None:
+        uri, shown = _jpeg_data_uri(img, FULL_MAX_SIDE)
+        entry = (uri, img.size, shown)
+    if cache is not None:
+        cache[key] = entry
+    return entry
+
+
+def _box_fraction(box: list[int] | None, size: tuple[int, int]) -> tuple[float, float, float, float] | None:
     w, h = size
     if not box or len(box) != 4 or w <= 0 or h <= 0:
         return None
@@ -58,24 +77,27 @@ def _box_percent(box: list[int], size: tuple[int, int]) -> dict[str, float] | No
     top, bottom = max(0, min(top, h)), max(0, min(bottom, h))
     if right <= left or bottom <= top:
         return None
+    return left / w, top / h, (right - left) / w, (bottom - top) / h
+
+
+def _box_percent(box: list[int] | None, size: tuple[int, int]) -> dict[str, float] | None:
+    frac = _box_fraction(box, size)
+    if frac is None:
+        return None
+    left, top, width, height = frac
     return {
-        "left_pct": round(100.0 * left / w, 3),
-        "top_pct": round(100.0 * top / h, 3),
-        "width_pct": round(100.0 * (right - left) / w, 3),
-        "height_pct": round(100.0 * (bottom - top) / h, 3),
+        "left_pct": round(100.0 * left, 3),
+        "top_pct": round(100.0 * top, 3),
+        "width_pct": round(100.0 * width, 3),
+        "height_pct": round(100.0 * height, 3),
     }
 
 
-def _crop(img: Image.Image, box: list[int] | None) -> Image.Image:
-    if not box:
-        return img
-    left, top, right, bottom = (int(v) for v in box)
-    return img.crop((left, top, right, bottom))
-
-
-def _box_text(box: list[int] | None) -> str:
+def _box_text(box: list[int] | None, label: str | None = None) -> str:
     if not box:
         return "画像全体"
+    if label:
+        return label
     left, top, right, bottom = box
     return f"[{left},{top}–{right},{bottom}]"
 
@@ -111,7 +133,9 @@ def _is_image_path(s: str) -> bool:
         return False
 
 
-def build_figure_compare(warning: WarningItem) -> dict | None:
+def build_figure_compare(
+    warning: WarningItem, *, image_cache: _ImageCache | None = None
+) -> dict | None:
     """Two-image side-by-side view with matched panel boxes, or None if not applicable."""
     sources = [s for s in (warning.sources or []) if isinstance(s, str) and s]
     if not sources or len(sources) > 2 or not all(_is_image_path(s) for s in sources):
@@ -123,39 +147,39 @@ def build_figure_compare(warning: WarningItem) -> dict | None:
     if not all(p.is_file() for p in paths):
         return None
 
-    img_a = _load_rgb(paths[0])
-    img_b = img_a if same_file else _load_rgb(paths[1])
-    if img_a is None or img_b is None:
+    enc_a = _encoded_image(paths[0], image_cache)
+    enc_b = enc_a if same_file else _encoded_image(paths[1], image_cache)
+    if enc_a is None or enc_b is None:
         return None
+    uri_a, size_a, shown_a = enc_a
+    uri_b, size_b, shown_b = enc_b
 
     meta = warning.metadata or {}
     role_a, role_b = _roles(meta, same_file)
-    uri_a = _jpeg_data_uri(img_a, FULL_MAX_SIDE)
-    uri_b = uri_a if same_file else _jpeg_data_uri(img_b, FULL_MAX_SIDE)
 
     boxes_a: list[dict] = []
     boxes_b: list[dict] = []
     pairs_out: list[dict] = []
     for k, pm in enumerate(_panel_pairs(meta), start=1):
         box_a, box_b = pm.get("panel_a"), pm.get("panel_b")
-        pct_a = _box_percent(box_a, img_a.size) if box_a else None
-        pct_b = _box_percent(box_b, img_b.size) if box_b else None
+        pct_a = _box_percent(box_a, size_a)
+        pct_b = _box_percent(box_b, size_b)
         if pct_a:
-            boxes_a.append({"pair": k, "primary": k == 1, **pct_a})
+            boxes_a.append({"pair": k, "key": f"{k}A", "primary": k == 1, **pct_a})
         if pct_b:
-            boxes_b.append({"pair": k, "primary": k == 1, **pct_b})
-        entry = {
-            "pair": k,
-            "primary": k == 1,
-            "matches": pm.get("matches"),
-            "inliers": pm.get("inliers"),
-            "box_a": _box_text(box_a),
-            "box_b": _box_text(box_b),
-        }
-        if k <= MAX_CROP_PAIRS and (box_a or box_b):
-            entry["crop_a"] = _jpeg_data_uri(_crop(img_a, box_a), CROP_MAX_SIDE)
-            entry["crop_b"] = _jpeg_data_uri(_crop(img_b, box_b), CROP_MAX_SIDE)
-        pairs_out.append(entry)
+            boxes_b.append({"pair": k, "key": f"{k}B", "primary": k == 1, **pct_b})
+        pairs_out.append(
+            {
+                "pair": k,
+                "primary": k == 1,
+                "matches": pm.get("matches"),
+                "inliers": pm.get("inliers"),
+                "key_a": f"{k}A",
+                "key_b": f"{k}B",
+                "box_a": _box_text(box_a, pm.get("label_a")),
+                "box_b": _box_text(box_b, pm.get("label_b")),
+            }
+        )
 
     return {
         "same_file": same_file,
@@ -163,16 +187,18 @@ def build_figure_compare(warning: WarningItem) -> dict | None:
             {
                 "role": role_a,
                 "name": paths[0].name,
-                "width": img_a.size[0],
-                "height": img_a.size[1],
+                "width": size_a[0],
+                "height": size_a[1],
+                "shown_width": shown_a[0],
                 "image_data_uri": uri_a,
                 "boxes": boxes_a,
             },
             {
                 "role": role_b,
                 "name": paths[1].name,
-                "width": img_b.size[0],
-                "height": img_b.size[1],
+                "width": size_b[0],
+                "height": size_b[1],
+                "shown_width": shown_b[0],
                 "image_data_uri": uri_b,
                 "boxes": boxes_b,
             },
@@ -181,18 +207,16 @@ def build_figure_compare(warning: WarningItem) -> dict | None:
     }
 
 
-def attach_figure_compares(
-    warnings: list[WarningItem], *, limit: int = MAX_COMPARE_WARNINGS
-) -> int:
+def attach_figure_compares(warnings: list[WarningItem]) -> int:
     """Embed compare previews on warnings while their source images still exist."""
-    attached = sum(1 for w in warnings if w.figure_compare)
+    cache: _ImageCache = {}
+    attached = 0
     for w in warnings:
-        if attached >= limit:
-            break
         if w.figure_compare:
+            attached += 1
             continue
         try:
-            cmp = build_figure_compare(w)
+            cmp = build_figure_compare(w, image_cache=cache)
         except Exception:  # noqa: BLE001
             cmp = None
         if cmp:

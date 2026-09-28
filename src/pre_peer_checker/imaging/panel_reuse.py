@@ -15,10 +15,13 @@ from pathlib import Path
 import numpy as np
 
 from pre_peer_checker.imaging.panel_units import (
+    PanelPositions,
     PanelUnit,
     make_panel_verifier,
     match_rank,
     panel_label,
+    panel_position,
+    panel_positions,
     prepare_panel_sources,
     rank_vectors,
 )
@@ -137,6 +140,7 @@ def scan_internal_panel_reuse(
         for u in units:
             if u.box is not None:
                 panel_counts[str(u.source)] = panel_counts.get(str(u.source), 0) + 1
+        positions = panel_positions(units)
 
         hits = 0
         for key, matches in groups.items():
@@ -147,7 +151,7 @@ def scan_internal_panel_reuse(
                 )
                 continue
             hits += 1
-            result.warnings.append(_warning_for(key, matches))
+            result.warnings.append(_warning_for(key, matches, positions))
         result.artifacts["reuse_source_pairs"] = hits
     finally:
         import shutil
@@ -174,7 +178,9 @@ def _is_same_figure(
 
 
 def _warning_for(
-    key: tuple[str, str], matches: list[tuple[PanelUnit, PanelUnit, object]]
+    key: tuple[str, str],
+    matches: list[tuple[PanelUnit, PanelUnit, object]],
+    positions: PanelPositions | None = None,
 ) -> WarningItem:
     ua, ub, vr = matches[0]
     same_file = key[0] == key[1]
@@ -182,19 +188,28 @@ def _warning_for(
         {
             "panel_a": m[0].box,
             "panel_b": m[1].box,
+            "label_a": panel_position(m[0], positions),
+            "label_b": panel_position(m[1], positions),
             "matches": m[2].num_matches,
             "inliers": m[2].inliers,
         }
         for m in matches
     ]
     listing = "／".join(
-        f"{panel_label(m[0])} ↔ {panel_label(m[1])}（{m[2].num_matches} 点）" for m in matches[:6]
+        f"{k}A {pm['label_a']} ↔ {k}B {pm['label_b']}（{pm['matches']} 点）"
+        for k, pm in enumerate(panel_matches[:6], start=1)
     )
     where = "同一図の中" if same_file else "別ファイル間"
+    if same_file:
+        location = (
+            f"{Path(key[0]).name}（{panel_matches[0]['label_a']} ↔ {panel_matches[0]['label_b']}）"
+        )
+    else:
+        location = f"{panel_label(ua, positions)} ↔ {panel_label(ub, positions)}"
     return WarningItem(
         tag=WarningTag.IMAGE_REUSE,
         title=f"原稿内で同一写真の重複（パネル単位・{where}）",
-        location=f"{panel_label(ua)} ↔ {panel_label(ub)}",
+        location=location,
         reason=(
             f"パネル単位の特徴点照合で一致 {vr.num_matches} 点"
             + (f"（うち同一の幾何変換に乗る点 {vr.inliers}）" if vr.inliers is not None else "")

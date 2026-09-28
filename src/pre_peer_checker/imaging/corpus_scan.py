@@ -15,6 +15,8 @@ from pre_peer_checker.imaging.panel_units import (
     make_panel_verifier,
     match_rank,
     panel_label,
+    panel_position,
+    panel_positions,
     prepare_panel_sources,
     rank_vectors,
 )
@@ -345,19 +347,22 @@ def _scan_panel_pairs(
             hit.update(q=qu, c=cu, vr=vr, sim=sim)
     notify(total, total, "")
     result.artifacts["panel_verifier"] = verifier_name
+    positions = panel_positions(q_units) | panel_positions(c_units)
 
     for key, hit in best.items():
         seen.add(key)
         qu, cu, vr = hit["q"], hit["c"], hit["vr"]
         panels = sorted(hit["panels"], key=lambda p: match_rank(*p), reverse=True)
         panel_matches = [
-            {"panel_a": p[0].box, "panel_b": p[1].box, "matches": p[2].num_matches,
-             "inliers": p[2].inliers}
+            {"panel_a": p[0].box, "panel_b": p[1].box,
+             "label_a": panel_position(p[0], positions),
+             "label_b": panel_position(p[1], positions),
+             "matches": p[2].num_matches, "inliers": p[2].inliers}
             for p in panels
         ]
         listing = "／".join(
-            f"{panel_label(p[0])} ↔ {panel_label(p[1])}（{p[2].num_matches} 点）"
-            for p in panels[:6]
+            f"{k}A {pm['label_a']} ↔ {k}B {pm['label_b']}（{pm['matches']} 点）"
+            for k, pm in enumerate(panel_matches[:6], start=1)
         )
         pair_log.append(
             {
@@ -384,7 +389,7 @@ def _scan_panel_pairs(
             WarningItem(
                 tag=WarningTag.IMAGE_REUSE,
                 title="過去論文コーパスと同一写真（パネル単位）・出典未記載の疑い",
-                location=f"{panel_label(qu)} ↔ {panel_label(cu)}",
+                location=f"{panel_label(qu, positions)} ↔ {panel_label(cu, positions)}",
                 reason=(
                     f"パネル単位の特徴点照合で一致 {vr.num_matches} 点"
                     + (f"（うち同一の幾何変換に乗る点 {vr.inliers}）" if vr.inliers is not None else "")

@@ -34,7 +34,8 @@ def _panel_warning(tmp_path: Path) -> WarningItem:
             "panel_a": box_q,
             "panel_b": box_c,
             "panel_matches": [
-                {"panel_a": box_q, "panel_b": box_c, "matches": 42, "inliers": 40},
+                {"panel_a": box_q, "panel_b": box_c, "label_a": "左から2枚目",
+                 "label_b": "左から1枚目", "matches": 42, "inliers": 40},
             ],
         },
     )
@@ -49,8 +50,10 @@ def test_compare_boxes_are_relative_to_each_image(tmp_path: Path):
     assert left["image_data_uri"].startswith("data:image/jpeg;base64,")
     assert left["boxes"][0]["left_pct"] == round(100 * 460 / 1400, 3)
     assert right["boxes"][0]["top_pct"] == round(100 * 120 / 1200, 3)
-    assert cmp["pairs"][0]["crop_a"].startswith("data:image/jpeg;base64,")
-    assert cmp["pairs"][0]["matches"] == 42
+    assert (left["boxes"][0]["key"], right["boxes"][0]["key"]) == ("1A", "1B")
+    pair = cmp["pairs"][0]
+    assert (pair["box_a"], pair["box_b"]) == ("左から2枚目", "左から1枚目")
+    assert pair["matches"] == 42
 
 
 def test_compare_survives_temp_image_deletion(tmp_path: Path):
@@ -63,9 +66,34 @@ def test_compare_survives_temp_image_deletion(tmp_path: Path):
     assert html.count('class="cmp-box is-focus"') == 2
     assert "入力（原稿）" in html and "参照（過去論文コーパス）" in html
     assert "組 1" in html and "一致 42 点" in html
+    assert '<span class="cmp-key">1A</span>左から2枚目' in html
+    assert "460,120" not in html
     assert '<span class="src-gone gone-note">' in html
     assert f'href="file://{w.sources[1]}"' in html
     assert "figure_compare" not in json.dumps(w.to_dict(), ensure_ascii=False)
+
+
+def test_every_warning_gets_compare_and_images_are_embedded_once(tmp_path: Path):
+    base = _panel_warning(tmp_path)
+    warnings = [
+        WarningItem(
+            tag=base.tag,
+            title=f"{base.title} {i}",
+            location=base.location,
+            reason=base.reason,
+            sources=list(base.sources),
+            metadata=dict(base.metadata),
+        )
+        for i in range(60)
+    ]
+    assert attach_figure_compares(warnings) == 60
+    for s in base.sources:
+        Path(s).unlink()
+
+    html = render_html_report(warnings, file_summary="t")
+    assert html.count('class="fig-compare"') == 60
+    assert html.count("data:image/jpeg;base64,") == 2
+    assert html.count("cmp-frame cmpimg-0") == 60
 
 
 def test_no_compare_without_image_sources():

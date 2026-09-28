@@ -117,12 +117,73 @@ def match_rank(a: PanelUnit, b: PanelUnit, vr: Any) -> tuple[int, float]:
     return localised, float(vr.score)
 
 
-def panel_label(unit: PanelUnit) -> str:
+PanelPositions = dict[tuple[str, tuple[int, ...]], str]
+
+
+def _row_name(r: int, n_rows: int) -> str:
+    if n_rows == 2:
+        return ("上段", "下段")[r]
+    if n_rows == 3:
+        return ("上段", "中段", "下段")[r]
+    return f"上から{r + 1}段目"
+
+
+def _grid_labels(boxes: list[tuple[int, ...]]) -> dict[tuple[int, ...], str]:
+    """Reading-order position ("上段・左から2枚目") of each box among its siblings."""
+    rows: list[list[tuple[int, ...]]] = []
+    for box in sorted(boxes, key=lambda b: (b[1], b[0])):
+        top, bottom = box[1], box[3]
+        for row in rows:
+            r_top = min(b[1] for b in row)
+            r_bottom = max(b[3] for b in row)
+            overlap = min(bottom, r_bottom) - max(top, r_top)
+            if overlap >= 0.5 * min(bottom - top, r_bottom - r_top):
+                row.append(box)
+                break
+        else:
+            rows.append([box])
+    rows.sort(key=lambda row: min(b[1] for b in row))
+    out: dict[tuple[int, ...], str] = {}
+    for r, row in enumerate(rows):
+        row.sort(key=lambda b: b[0])
+        for c, box in enumerate(row):
+            col = f"左から{c + 1}枚目" if len(row) > 1 else ""
+            if len(rows) == 1:
+                out[box] = col or "パネル"
+            else:
+                out[box] = "・".join(p for p in (_row_name(r, len(rows)), col) if p)
+    return out
+
+
+def panel_positions(units: list[PanelUnit]) -> PanelPositions:
+    """(source, box) -> human-readable panel position within its source image."""
+    by_source: dict[str, list[tuple[int, ...]]] = {}
+    for u in units:
+        if u.box is not None:
+            by_source.setdefault(str(u.source), []).append(tuple(u.box))
+    out: PanelPositions = {}
+    for source, boxes in by_source.items():
+        for box, label in _grid_labels(boxes).items():
+            out[(source, box)] = label
+    return out
+
+
+def panel_position(unit: PanelUnit, positions: PanelPositions | None) -> str:
+    if unit.box is None:
+        return "画像全体"
+    if positions:
+        label = positions.get((str(unit.source), tuple(unit.box)))
+        if label:
+            return label
+    left, top, right, bottom = unit.box
+    return f"[{left},{top}–{right},{bottom}]"
+
+
+def panel_label(unit: PanelUnit, positions: PanelPositions | None = None) -> str:
     name = Path(unit.source).name
     if unit.box is None:
         return name
-    left, top, right, bottom = unit.box
-    return f"{name} [{left},{top}–{right},{bottom}]"
+    return f"{name}（{panel_position(unit, positions)}）"
 
 
 def make_panel_verifier(

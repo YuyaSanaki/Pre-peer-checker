@@ -10,6 +10,13 @@ import pytest
 from pre_peer_checker.web.case_layout import validate_case_root
 
 
+@pytest.fixture(autouse=True)
+def _isolated_runs_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    runs = tmp_path / "runs"
+    monkeypatch.setattr("pre_peer_checker.web.app.RUNS_DIR", runs, raising=False)
+    return runs
+
+
 def test_validate_case_root_missing_subdirs(tmp_path: Path) -> None:
     root = tmp_path / "case"
     root.mkdir()
@@ -53,17 +60,16 @@ def _make_demo_case(tmp_path: Path) -> Path:
     return root
 
 
-def test_web_api_validate_and_run(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_web_api_validate_and_run(tmp_path: Path, _isolated_runs_dir: Path) -> None:
     pytest.importorskip("fastapi")
+    import json
+    import subprocess
+
     from fastapi.testclient import TestClient
 
     from pre_peer_checker.web.app import create_app
 
     root = _make_demo_case(tmp_path)
-    out_html = tmp_path / "report.html"
-    out_json = tmp_path / "warnings.json"
-    monkeypatch.setattr("pre_peer_checker.web.app.DEFAULT_REPORT", out_html)
-    monkeypatch.setattr("pre_peer_checker.web.app.DEFAULT_JSON", out_json)
 
     client = TestClient(create_app())
     bad = client.post("/api/validate-root", json={"root": str(tmp_path / "missing")})
@@ -76,16 +82,46 @@ def test_web_api_validate_and_run(tmp_path: Path, monkeypatch: pytest.MonkeyPatc
     assert body["ok"] is True
     assert body["root"] == str(root.resolve())
 
-    run = client.post("/api/run", json={"root": str(root)})
+    run = client.post("/api/run", json={"root": str(root), "run_title": "Demo paper"})
     assert run.status_code == 200
     payload = run.json()
     assert payload["ok"] is True
     assert payload["n_warnings"] >= 1
-    assert out_html.is_file()
+
+    run_dir = Path(payload["run_dir"])
+    assert run_dir.parent == _isolated_runs_dir.resolve()
+    assert run_dir.name.endswith("_Demo paper")
+    assert (run_dir / "input" / "manuscript" / "legend_n.json").is_file()
+    assert (run_dir / "input" / "data" / "quant_a.csv").is_file()
+    assert (run_dir / "condition" / "run_config.json").is_file()
+    assert (run_dir / "report" / "report.html").is_file()
+    assert (run_dir / "report" / "warnings.json").is_file()
+    manifest = json.loads((run_dir / "audit" / "manifest.json").read_text(encoding="utf-8"))
+    assert manifest["status"] == "ok"
+    assert manifest["hashes"]["input"] == payload["input_hash"]
+    check = subprocess.run(
+        ["shasum", "-a", "256", "-c", "audit/SHA256SUMS"],
+        cwd=run_dir,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert check.returncode == 0, check.stdout + check.stderr
 
     report = client.get("/api/report")
     assert report.status_code == 200
     assert "html" in report.headers.get("content-type", "").lower()
+
+    again = client.post("/api/run", json={"root": str(root), "run_title": "Demo paper"}).json()
+    assert again["ok"] is True
+    assert again["run_dir"] != payload["run_dir"]
+    assert again["input_hash"] == payload["input_hash"]
+    assert (run_dir / "report" / "report.html").is_file()
+
+    runs = client.get("/api/runs").json()["runs"]
+    assert {r["run_name"] for r in runs} == {payload["run_name"], again["run_name"]}
+    assert client.get(payload["report_url"]).status_code == 200
+    assert client.get("/api/runs/..%2F..%2Fetc/report").status_code == 404
 
 
 def test_web_api_llm_status() -> None:

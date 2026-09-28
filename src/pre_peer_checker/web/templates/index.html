@@ -410,6 +410,10 @@
           <input type="checkbox" id="vlmAssist" checked />
           VLM パネル地図補助（ベクター分割が空のとき）
         </label>
+        <div class="field">
+          <label for="runTitle">論文タイトル（保存フォルダ名・任意）</label>
+          <input id="runTitle" type="text" placeholder="空欄なら原稿から自動推定" autocomplete="off" style="width:100%;" />
+        </div>
         <div class="row" style="margin-top: 0.85rem;">
           <button type="button" class="primary" id="run" disabled>照合開始</button>
           <a id="reportLink" class="report-link hidden" href="/api/report" target="_blank" rel="noopener">
@@ -417,6 +421,7 @@
           </a>
         </div>
         <div id="runStatus" class="status"></div>
+        <div id="runSaved" class="hint hidden"></div>
         <div id="runProgress" class="progress-box hidden" aria-live="polite">
           <div class="progress-head">
             <span id="progStage"></span>
@@ -460,6 +465,21 @@
           </thead>
           <tbody id="resultsBody"></tbody>
         </table>
+      </section>
+
+      <section class="panel" id="historyPanel">
+        <h2>6. 照合履歴（保存フォルダ）</h2>
+        <div class="row">
+          <button type="button" class="secondary" id="historyRefresh">更新</button>
+          <span id="historyDir" class="hint" style="margin-top:0;"></span>
+        </div>
+        <div id="historyEmpty" class="hint">まだ保存された照合はありません。</div>
+        <ul id="historyList" class="corpus-list hidden"></ul>
+        <p class="hint">
+          照合ごとに <code>input/</code>（照合した原稿・データの複製）・<code>condition/</code>（照合設定・カタログ）・
+          <code>audit/</code>（SHA-256 と実行環境）・<code>report/</code> を 1 フォルダに残します。
+          同じ「入力ハッシュ」の照合は、同一の入力ファイルを照合したものです。
+        </p>
       </section>
     </div>
 
@@ -1203,6 +1223,11 @@
     refreshCitedList();
 
     const runProgress = document.getElementById("runProgress");
+    const runTitleEl = document.getElementById("runTitle");
+    const runSaved = document.getElementById("runSaved");
+    const historyList = document.getElementById("historyList");
+    const historyEmpty = document.getElementById("historyEmpty");
+    const historyDir = document.getElementById("historyDir");
     const progStage = document.getElementById("progStage");
     const progPercent = document.getElementById("progPercent");
     const progTrack = document.getElementById("progTrack");
@@ -1257,6 +1282,7 @@
     async function followRunJob(jobId, extra) {
       runBtn.disabled = true;
       reportLink.classList.add("hidden");
+      runSaved.classList.add("hidden");
       setStatus(runStatus, "照合を実行中…（このタブを閉じても処理は続きます）");
       let failures = 0;
       try {
@@ -1311,6 +1337,7 @@
             use_active_catalog: !!(useActiveCatalog && useActiveCatalog.checked),
             corpus_ids: corpusIds,
             cited_paper_ids: citedIds,
+            run_title: runTitleEl.value.trim() || null,
           }),
         });
         const data = await res.json();
@@ -1344,11 +1371,131 @@
       }
     })();
 
+    // --- 照合フォルダ（履歴） ---
+    async function openRunFolder(url) {
+      try {
+        const res = await fetch(url, { method: "POST" });
+        const data = await res.json();
+        if (!data.ok) alert(data.error || "フォルダを開けませんでした");
+      } catch (err) {
+        alert(String(err));
+      }
+    }
+
+    function runActions(run) {
+      const frag = document.createDocumentFragment();
+      if (run.report_url && run.has_report !== false) {
+        const a = document.createElement("a");
+        a.className = "report-link";
+        a.href = run.report_url;
+        a.target = "_blank";
+        a.rel = "noopener";
+        a.textContent = "レポート";
+        frag.appendChild(a);
+      }
+      if (run.open_url) {
+        const btn = document.createElement("button");
+        btn.type = "button";
+        btn.className = "secondary";
+        btn.textContent = "フォルダを開く";
+        btn.addEventListener("click", () => openRunFolder(run.open_url));
+        frag.appendChild(btn);
+      }
+      return frag;
+    }
+
+    function shortHash(h) {
+      return h ? h.slice(0, 12) : "—";
+    }
+
+    function renderRunSaved(data) {
+      runSaved.innerHTML = "";
+      if (!data.run_name) {
+        runSaved.classList.add("hidden");
+        return;
+      }
+      const line = document.createElement("div");
+      line.textContent = "保存先: " + (data.run_dir || data.run_name);
+      line.title = data.run_dir || "";
+      const meta = document.createElement("div");
+      meta.textContent = "入力ハッシュ (SHA-256): " + shortHash(data.input_hash);
+      meta.title = data.input_hash || "";
+      runSaved.appendChild(line);
+      runSaved.appendChild(meta);
+      if ((data.inputs_changed_during_run || []).length) {
+        const warn = document.createElement("div");
+        warn.style.color = "var(--danger)";
+        warn.textContent =
+          "照合中に元ファイルが変更されました（保存された input/ は照合開始時点のものです）: " +
+          data.inputs_changed_during_run.length + " 件";
+        runSaved.appendChild(warn);
+      }
+      const row = document.createElement("div");
+      row.className = "row";
+      row.appendChild(runActions({ open_url: data.open_url }));
+      runSaved.appendChild(row);
+      runSaved.classList.remove("hidden");
+    }
+
+    function renderHistory(runs) {
+      historyList.innerHTML = "";
+      if (!runs.length) {
+        historyEmpty.classList.remove("hidden");
+        historyList.classList.add("hidden");
+        return;
+      }
+      historyEmpty.classList.add("hidden");
+      historyList.classList.remove("hidden");
+      for (const r of runs) {
+        const li = document.createElement("li");
+        const label = document.createElement("span");
+        label.style.flex = "1";
+        label.textContent = r.run_name;
+        label.title = r.run_dir || "";
+        const meta = document.createElement("span");
+        meta.className = "meta";
+        const status =
+          r.status === "ok"
+            ? "Warning " + (r.n_warnings != null ? r.n_warnings : "?") + " 件"
+            : r.status === "failed"
+              ? "失敗"
+              : "実行中/中断";
+        const hashes = r.hashes || {};
+        meta.textContent =
+          status +
+          " · 入力 " + (r.n_input_files || 0) + " ファイル" +
+          " · 入力ハッシュ " + shortHash(hashes.input);
+        meta.title = hashes.input || "";
+        li.appendChild(label);
+        li.appendChild(meta);
+        li.appendChild(runActions(r));
+        historyList.appendChild(li);
+      }
+    }
+
+    async function refreshHistory() {
+      try {
+        const res = await fetch("/api/runs");
+        const data = await res.json();
+        if (!data.ok) return;
+        historyDir.textContent = data.runs_dir || "";
+        renderHistory(data.runs || []);
+      } catch (_) {
+        /* ignore on load */
+      }
+    }
+
+    document.getElementById("historyRefresh").addEventListener("click", refreshHistory);
+    refreshHistory();
+
     function renderRunResult(data, extra) {
+      renderRunSaved(data);
+      if (data.run_name) refreshHistory();
       if (!data.ok) {
         setStatus(runStatus, data.error || "照合に失敗しました。", "err");
         return;
       }
+      reportLink.href = data.report_url || "/api/report";
       let msg = "完了: Warning " + data.n_warnings + " 件";
       if (extra.nCorpus) msg += " · H3 コーパス " + extra.nCorpus + " 件";
       if (extra.nCited) msg += " · 参考文献 PDF " + extra.nCited + " 件";

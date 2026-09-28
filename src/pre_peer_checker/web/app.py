@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
+import platform
+import subprocess
 import threading
 import uuid
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
+from urllib.parse import quote
 
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse
@@ -14,13 +17,19 @@ from pydantic import BaseModel, Field
 
 from pre_peer_checker.gui.worker import GuiRunConfig, run_verification_job
 from pre_peer_checker.pipeline.progress import ProgressTracker, load_history
+from pre_peer_checker.pipeline.run_archive import (
+    DEFAULT_RUNS_DIR,
+    REPORT_DIR,
+    RunArchive,
+    list_runs,
+    resolve_run_dir,
+)
 from pre_peer_checker.web.case_layout import validate_case_root
 from pre_peer_checker.web.folder_picker import pick_folder
 
 HOST = "127.0.0.1"
 DEFAULT_PORT = 8765
-DEFAULT_REPORT = Path("outputs/web_report.html")
-DEFAULT_JSON = Path("outputs/web_warnings.json")
+RUNS_DIR = DEFAULT_RUNS_DIR
 
 _TEMPLATE = Path(__file__).resolve().parent / "templates" / "index.html"
 _pick_lock = threading.Lock()
@@ -44,6 +53,8 @@ class RunBody(BaseModel):
     use_active_catalog: bool = True
     corpus_ids: list[str] = Field(default_factory=list)
     cited_paper_ids: list[str] = Field(default_factory=list)
+    # 保存フォルダ名に使う論文タイトル（空なら原稿から推定）
+    run_title: str | None = None
 
 
 class CatalogPullBody(BaseModel):
@@ -121,8 +132,6 @@ def _build_run_config(body: RunBody) -> tuple[GuiRunConfig | None, str | None]:
     return (
         GuiRunConfig(
             inputs=list(v.inputs),
-            output_html=DEFAULT_REPORT.resolve(),
-            output_json=DEFAULT_JSON.resolve(),
             legend_llm=bool(body.legend_llm),
             legend_llm_prefer=prefer,
             legend_llm_profile=(body.legend_llm_profile or "").strip() or None,
@@ -138,10 +147,97 @@ def _build_run_config(body: RunBody) -> tuple[GuiRunConfig | None, str | None]:
     )
 
 
-def _run_and_collect(config: GuiRunConfig) -> dict[str, Any]:
-    result = run_verification_job(config)
+def _library_hashes(dirs: list[Path]) -> list[dict[str, Any]]:
+    from pre_peer_checker.pipeline.run_archive import sha256_file
+
+    out = []
+    for d in dirs:
+        base = d if d.is_dir() else d.parent
+        files = sorted(p for p in d.rglob("*") if p.is_file()) if d.is_dir() else [d]
+        entries = [
+            {
+                "path": p.relative_to(base).as_posix(),
+                "sha256": sha256_file(p),
+                "size": p.stat().st_size,
+            }
+            for p in files
+        ]
+        out.append({"path": str(d), "files": entries})
+    return out
+
+
+def _run_urls(name: str) -> dict[str, str]:
+    base = "/api/runs/" + quote(name, safe="")
+    return {"report_url": base + "/report", "open_url": base + "/open"}
+
+
+def _prepare_archive(config: GuiRunConfig, body: RunBody) -> RunArchive:
+    """照合フォルダを作り、入力・照合条件を保存して config の出力先を差し替える。"""
+    from pre_peer_checker.catalog.runtime import resolve_patterns_path
+
+    case_root = config.inputs[0].parent
+    archive = RunArchive.create(
+        RUNS_DIR,
+        case_root=case_root,
+        manuscript_dir=config.inputs[0],
+        title=body.run_title,
+    )
+    if config.progress is not None:
+        config.progress.update(detail="照合フォルダを作成しました: " + archive.name)
+    archive.snapshot_inputs(config.inputs, progress=config.progress)
+
+    catalog_src = resolve_patterns_path(config.patterns_path)
+    settings = {
+        "request": body.model_dump(),
+        "case_root": str(case_root),
+        "inputs": [str(p) for p in config.inputs],
+        "patterns_catalog_source": str(catalog_src),
+        "corpus": [str(p) for p in config.corpus],
+        "cited_papers": [str(p) for p in config.cited_papers],
+    }
+    config.patterns_path = archive.snapshot_conditions(settings, patterns_path=catalog_src)
+    if config.corpus or config.cited_papers:
+        if config.progress is not None:
+            config.progress.update(detail="参照ライブラリの SHA-256 を記録中")
+        archive.add_condition(
+            "reference_libraries.json",
+            {
+                "corpus": _library_hashes(config.corpus),
+                "cited_papers": _library_hashes(config.cited_papers),
+            },
+        )
+    config.output_html = archive.report_dir / "report.html"
+    config.output_json = archive.report_dir / "warnings.json"
+    return archive
+
+
+def _run_and_collect(config: GuiRunConfig, body: RunBody) -> dict[str, Any]:
+    try:
+        archive = _prepare_archive(config, body)
+    except Exception as exc:  # noqa: BLE001
+        return _run_error_payload(f"照合フォルダの保存に失敗しました: {exc}")
+
+    try:
+        result = run_verification_job(config)
+    except Exception as exc:
+        archive.finalize(ok=False, error=str(exc), progress=config.progress)
+        raise
+    manifest = archive.finalize(
+        ok=result.ok,
+        error=result.error,
+        n_warnings=result.n_warnings if result.ok else None,
+        progress=config.progress,
+    )
+    run_info = {
+        "run_name": archive.name,
+        "run_dir": str(archive.run_dir),
+        "run_title": archive.title,
+        "input_hash": manifest["hashes"].get("input"),
+        "inputs_changed_during_run": manifest["inputs_changed_during_run"],
+        **_run_urls(archive.name),
+    }
     if not result.ok:
-        return _run_error_payload(result.error)
+        return {**_run_error_payload(result.error), **run_info}
 
     with _state_lock:
         global _last_report
@@ -157,6 +253,7 @@ def _run_and_collect(config: GuiRunConfig) -> dict[str, Any]:
         "coverage_lines": result.coverage_lines or ["照合完了（カバレッジ詳細なし）"],
         "legend_llm_status": result.legend_llm_status,
         "patterns_path": str(patterns_path) if patterns_path else None,
+        **run_info,
     }
 
 
@@ -436,7 +533,7 @@ def create_app() -> FastAPI:
         config, error = _build_run_config(body)
         if config is None:
             return _run_error_payload(error)
-        return _run_and_collect(config)
+        return _run_and_collect(config, body)
 
     @app.post("/api/run/start")
     def api_run_start(body: RunBody) -> dict[str, Any]:
@@ -459,7 +556,7 @@ def create_app() -> FastAPI:
 
         def _worker() -> None:
             try:
-                payload = _run_and_collect(config)
+                payload = _run_and_collect(config, body)
             except Exception as exc:  # noqa: BLE001
                 payload = _run_error_payload(str(exc))
             job.result = payload
@@ -494,12 +591,39 @@ def create_app() -> FastAPI:
         with _state_lock:
             path = _last_report
         if path is None or not path.is_file():
-            fallback = DEFAULT_REPORT.resolve()
-            if fallback.is_file():
-                path = fallback
-            else:
+            latest = next((r for r in list_runs(RUNS_DIR) if r.get("has_report")), None)
+            if latest is None:
                 raise HTTPException(status_code=404, detail="レポートがまだありません")
+            path = Path(latest["run_dir"]) / REPORT_DIR / "report.html"
         return FileResponse(path, media_type="text/html; charset=utf-8")
+
+    @app.get("/api/runs")
+    def api_runs() -> dict[str, Any]:
+        """保存済み照合フォルダ（新しい順）。"""
+        runs = [{**r, **_run_urls(r["run_name"])} for r in list_runs(RUNS_DIR)]
+        return {"ok": True, "runs_dir": str(RUNS_DIR.resolve()), "runs": runs}
+
+    @app.get("/api/runs/{name}/report")
+    def api_run_report(name: str) -> FileResponse:
+        run_dir = resolve_run_dir(RUNS_DIR, name)
+        path = run_dir / REPORT_DIR / "report.html" if run_dir else None
+        if path is None or not path.is_file():
+            raise HTTPException(status_code=404, detail="この照合のレポートはありません")
+        return FileResponse(path, media_type="text/html; charset=utf-8")
+
+    @app.post("/api/runs/{name}/open")
+    def api_run_open(name: str) -> dict[str, Any]:
+        """照合フォルダをサーバー側（ローカル）のファイルマネージャで開く。"""
+        run_dir = resolve_run_dir(RUNS_DIR, name)
+        if run_dir is None:
+            return {"ok": False, "error": "照合フォルダが見つかりません"}
+        system = platform.system()
+        cmd = {"Darwin": ["open"], "Windows": ["explorer"]}.get(system, ["xdg-open"])
+        try:
+            subprocess.Popen([*cmd, str(run_dir)])
+        except OSError as exc:
+            return {"ok": False, "error": str(exc), "path": str(run_dir)}
+        return {"ok": True, "path": str(run_dir)}
 
     return app
 

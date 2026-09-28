@@ -20,7 +20,7 @@ if [[ "${OS}" == "Darwin" && "$(sysctl -n hw.optional.arm64 2>/dev/null || echo 
   # Rosetta（x86_64）ターミナルから起動された場合は arm64 で再実行する。MLX は arm64 専用。
   if [[ "$(uname -m)" != "arm64" ]]; then
     echo "==> Rosetta 環境を検出。arm64 で再実行します…"
-    exec arch -arm64 /bin/bash "$0" "$@"
+    exec arch -arm64 /bin/bash "$0" ${1+"$@"}
   fi
 fi
 
@@ -107,9 +107,19 @@ if [[ -d .venv ]] && ! { [[ -x .venv/bin/python ]] && python_ok .venv/bin/python
   echo "==> 既存の .venv が要件を満たさないため作り直します…"
   rm -rf .venv
 fi
+create_venv() {
+  "$1" -m venv .venv >/dev/null 2>&1 && .venv/bin/python -c 'import encodings, ensurepip' >/dev/null 2>&1
+}
 if [[ ! -d .venv ]]; then
   echo "==> .venv を作成中…"
-  "${PYTHON_BIN}" -m venv .venv
+  # uv 管理 Python をシンボリックリンク経由で使うと stdlib を見失うため、失敗時は実体パスで作り直す
+  if ! create_venv "${PYTHON_BIN}"; then
+    rm -rf .venv
+    if ! create_venv "$("${PYTHON_BIN}" -c 'import os, sys; print(os.path.realpath(sys.executable))')"; then
+      echo "ERROR: .venv を作成できませんでした（${PYTHON_BIN}）。" >&2
+      exit 1
+    fi
+  fi
 fi
 
 # shellcheck disable=SC1091

@@ -387,6 +387,47 @@ _REPORT_TEMPLATE = Template(
     }
     .llm-box.warn { background: #fff7ed; border-color: #fdba74; }
     .llm-box.ok { background: #ecfdf5; border-color: #6ee7b7; }
+    .src-link.src-gone { color: var(--muted); text-decoration: line-through; }
+    .gone-note { font-size: 0.75rem; margin-left: 4px; color: var(--muted); }
+    .fig-compare { margin-top: 0.85rem; }
+    .cmp-grid {
+      display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px;
+      align-items: start;
+    }
+    .cmp-side { margin: 0; min-width: 0; }
+    .cmp-side .fig-preview-label { word-break: break-all; }
+    .cmp-frame { display: inline-block; position: relative; max-width: 100%; }
+    .cmp-frame img { max-height: 560px; width: auto; max-width: 100%; }
+    .cmp-box {
+      position: absolute; border: 2px solid rgba(239, 68, 68, 0.55); border-radius: 2px;
+      cursor: pointer; transition: box-shadow 0.12s ease, border-color 0.12s ease;
+    }
+    .cmp-box.is-focus {
+      border: 3px solid #ef4444;
+      box-shadow: 0 0 0 9999px rgba(15, 23, 42, 0.45), 0 0 0 2px #fff inset;
+      z-index: 2;
+    }
+    .cmp-tag {
+      position: absolute; top: -1px; left: -1px; font-size: 11px; font-weight: 700;
+      line-height: 1; color: #fff; background: #ef4444; padding: 2px 4px;
+      border-radius: 0 0 3px 0;
+    }
+    .cmp-pairs { margin-top: 0.75rem; display: grid; gap: 10px; }
+    .cmp-pair {
+      border: 1px solid var(--line); border-radius: 8px; padding: 0.55rem 0.7rem;
+      background: #fafafa; cursor: pointer;
+    }
+    .cmp-pair.is-focus { border-color: #ef4444; background: #fef2f2; }
+    .cmp-pair-head { font-size: 0.8rem; color: var(--muted); margin-bottom: 0.4rem; word-break: break-all; }
+    .cmp-pair-head strong { color: #b91c1c; }
+    .cmp-crops { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
+    .cmp-crops img {
+      display: block; max-width: 100%; max-height: 320px; width: auto;
+      border: 3px solid #ef4444; border-radius: 4px; background: #fff;
+    }
+    @media (max-width: 720px) {
+      .cmp-grid, .cmp-crops { grid-template-columns: 1fr; }
+    }
   </style>
 </head>
 <body>
@@ -651,10 +692,50 @@ _REPORT_TEMPLATE = Template(
     <h3>{{ w.title }}</h3>
     <p><strong>該当箇所:</strong> {{ w.location }}</p>
     <p><strong>検出理由:</strong> {{ w.reason }}</p>
-    {% if w.sources %}
+    {% if w.figure_compare %}
+    {% set cmp = w.figure_compare %}
+    <div class="fig-compare">
+      <div class="cmp-grid">
+        {% for side in cmp.sides %}
+        <figure class="cmp-side">
+          <figcaption class="fig-preview-label">{{ side.role }} · {{ side.name }}（{{ side.width }}×{{ side.height }}px）</figcaption>
+          <div class="fig-preview cmp-frame">
+            <img src="{{ side.image_data_uri }}" alt="{{ side.name|e }}" loading="lazy">
+            {% for b in side.boxes %}
+            <span class="cmp-box{% if b.primary %} is-focus{% endif %}" data-pair="{{ b.pair }}"
+                  style="left:{{ b.left_pct }}%;top:{{ b.top_pct }}%;width:{{ b.width_pct }}%;height:{{ b.height_pct }}%;">
+              <span class="cmp-tag">{{ b.pair }}</span>
+            </span>
+            {% endfor %}
+          </div>
+        </figure>
+        {% endfor %}
+      </div>
+      {% if cmp.pairs %}
+      <div class="cmp-pairs">
+        {% for p in cmp.pairs %}
+        <div class="cmp-pair{% if p.primary %} is-focus{% endif %}" data-pair="{{ p.pair }}">
+          <div class="cmp-pair-head">
+            <strong>組 {{ p.pair }}</strong> · 左 {{ p.box_a }} ↔ 右 {{ p.box_b }}
+            {% if p.matches is not none %} · 一致 {{ p.matches }} 点{% endif %}
+            {% if p.inliers is not none %}（同一変換 {{ p.inliers }}）{% endif %}
+          </div>
+          {% if p.crop_a and p.crop_b %}
+          <div class="cmp-crops">
+            <img src="{{ p.crop_a }}" alt="組 {{ p.pair }} 左" loading="lazy">
+            <img src="{{ p.crop_b }}" alt="組 {{ p.pair }} 右" loading="lazy">
+          </div>
+          {% endif %}
+        </div>
+        {% endfor %}
+      </div>
+      {% endif %}
+    </div>
+    {% endif %}
+    {% if w.source_items %}
     <p class="sources"><strong>根拠:</strong>
-      {% for s in w.sources %}
-        <a class="src-link" href="file://{{ s }}">{{ s }}</a>{% if not loop.last %} · {% endif %}
+      {% for s in w.source_items %}
+        <a class="src-link{% if s.absolute and not s.exists %} src-gone{% endif %}" href="file://{{ s.path }}">{{ s.path }}</a>{% if s.absolute and not s.exists %}<span class="src-gone gone-note">（{% if s.temp %}解析時の一時ファイル・削除済み{% else %}ファイルが見つかりません{% endif %}）</span>{% endif %}{% if not loop.last %} · {% endif %}
       {% endfor %}
     </p>
     {% endif %}
@@ -695,6 +776,19 @@ _REPORT_TEMPLATE = Template(
         });
       });
       if (search) search.addEventListener('input', apply);
+
+      /* Warning side-by-side compare: hover a box or pair row to focus that pair on both sides */
+      document.querySelectorAll('.fig-compare').forEach(cmp => {
+        function focusPair(pair) {
+          cmp.querySelectorAll('[data-pair]').forEach(el => {
+            el.classList.toggle('is-focus', el.dataset.pair === pair);
+          });
+        }
+        cmp.querySelectorAll('[data-pair]').forEach(el => {
+          el.addEventListener('mouseenter', () => focusPair(el.dataset.pair));
+        });
+        cmp.addEventListener('mouseleave', () => focusPair('1'));
+      });
 
       /* Fig hotspot ↔ table row ↔ legend sample-size highlight */
       const matrixCard = document.getElementById('n-matrix-card');
@@ -761,6 +855,25 @@ _REPORT_TEMPLATE = Template(
 )
 
 
+_TEMP_DIR_MARKERS = ("mc_pdfimg_", "mc_docximg_", "mc-zip-", "/tmp/", "/var/folders/")
+
+
+def _source_item(s: object) -> dict:
+    text = str(s)
+    try:
+        p = Path(text)
+        absolute = p.is_absolute()
+        exists = absolute and p.exists()
+    except (OSError, ValueError):
+        absolute, exists = False, False
+    return {
+        "path": text,
+        "exists": exists,
+        "absolute": absolute,
+        "temp": any(m in text for m in _TEMP_DIR_MARKERS),
+    }
+
+
 def render_html_report(
     warnings: list[WarningItem],
     *,
@@ -768,10 +881,15 @@ def render_html_report(
     timestamp: datetime | None = None,
     coverage: dict | None = None,
 ) -> str:
+    from pre_peer_checker.report.figure_compare import attach_figure_compares
+
     ts = (timestamp or datetime.now()).strftime("%Y-%m-%d %H:%M")
+    attach_figure_compares(list(warnings))
     dicts = []
     for w in warnings:
         d = w.to_dict()
+        d["figure_compare"] = w.figure_compare
+        d["source_items"] = [_source_item(s) for s in (d.get("sources") or [])]
         meta = d.get("metadata") or {}
         search_bits = [
             d.get("tag", ""),

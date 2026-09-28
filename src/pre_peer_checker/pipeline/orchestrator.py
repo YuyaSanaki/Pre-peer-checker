@@ -104,6 +104,7 @@ from pre_peer_checker.parsers.kaleida import kaleida_to_artifact, parse_kaleida_
 from pre_peer_checker.parsers.yaml_config import extract_group_defs, parse_yaml_config
 from pre_peer_checker.pipeline.progress import ProgressTracker, Stage
 from pre_peer_checker.pipeline.run_coverage import build_run_coverage
+from pre_peer_checker.report.figure_compare import attach_figure_compares
 from pre_peer_checker.report.html_report import write_html_report
 from pre_peer_checker.warnings import WarningItem, WarningTag
 
@@ -1444,6 +1445,7 @@ def run_verification(
                 ],
                 "notes": ["カバレッジの一部を生成できませんでした。"],
             }
+        attach_figure_compares(result.warnings)
         for td in tmp_dirs:
             shutil.rmtree(td, ignore_errors=True)
         bundle.cleanup_extracts()

@@ -44,6 +44,8 @@ class WarningItem:
     sources: list[str] = field(default_factory=list)
     code_snippet: str | None = None
     metadata: dict[str, Any] = field(default_factory=dict)
+    # HTML-only side-by-side preview (embedded images); kept out of to_dict / JSON
+    figure_compare: dict[str, Any] | None = field(default=None, repr=False, compare=False)
 
     def is_demoted(self) -> bool:
         meta = self.metadata or {}

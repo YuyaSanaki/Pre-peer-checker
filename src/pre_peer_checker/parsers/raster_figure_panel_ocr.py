@@ -1,8 +1,15 @@
-"""Raster publication figures: Florence panel layout + Vision (Mac) / Florence (Linux) crop OCR."""
+"""Raster publication figures: Florence panel layout + Vision (Mac) / Florence crop OCR.
+
+Benchmarked on quick profile (4 raster figures, ``scripts/dev_figure_ocr_bench.py``):
+Vision 82.1%, Florence 82.1%, both together 87.2% panel-letter recall. Settings that
+the benchmark measured — 300 dpi render, 1280 px layout pass, tiled Florence — are the
+defaults here; changing them changes accuracy.
+"""
 
 from __future__ import annotations
 
 import os
+import platform
 import sys
 import tempfile
 import threading
@@ -14,13 +21,12 @@ from pre_peer_checker.parsers.figure_panel_layout import (
     panel_letter_dets,
 )
 
-_DPI = int(os.environ.get("PRE_PEER_CHECKER_RASTER_OCR_DPI", "200"))
+_DPI = int(os.environ.get("PRE_PEER_CHECKER_RASTER_OCR_DPI", "300"))
 _MAX_SIDE = int(os.environ.get("PRE_PEER_CHECKER_RASTER_OCR_MAX_SIDE", "1280"))
 _FLORENCE_ID = "florence-community/Florence-2-large"
 
 _lock = threading.Lock()
-_layout_svc: Any = None
-_ocr_florence: Any = None
+_florence: Any = None
 
 
 def raster_panel_ocr_enabled() -> bool:
@@ -29,23 +35,13 @@ def raster_panel_ocr_enabled() -> bool:
         return False
     if mode in {"1", "true", "yes", "on"}:
         return True
-    return _backend_name() is not None
-
-
-def _backend_name() -> str | None:
-    if sys.platform == "darwin" and _apple_vision_available():
-        return "vision"
-    if _florence_available():
-        return "florence"
-    return None
+    return bool(ocr_engine_names())
 
 
 def apple_vision_available() -> bool:
-    """True when pyobjc Vision can be imported (macOS, install.sh vision-mac extra)."""
-    return _apple_vision_available()
-
-
-def _apple_vision_available() -> bool:
+    """True when pyobjc Vision can be imported (macOS, ``.[vision-mac]`` extra)."""
+    if sys.platform != "darwin":
+        return False
     try:
         import Vision  # noqa: F401
         from Foundation import NSURL  # noqa: F401
@@ -55,7 +51,7 @@ def _apple_vision_available() -> bool:
         return False
 
 
-def _florence_available() -> bool:
+def florence_available() -> bool:
     try:
         import torch  # noqa: F401
         import transformers  # noqa: F401
@@ -65,38 +61,33 @@ def _florence_available() -> bool:
         return False
 
 
-def _torch_device() -> str:
-    from pre_peer_checker.accel import torch_device
-
-    return torch_device()
+def ocr_engine_names() -> list[str]:
+    """Crop OCR engines to run, best-recall first. Both are used when available."""
+    raw = (os.environ.get("PRE_PEER_CHECKER_RASTER_OCR_ENGINES") or "").strip().lower()
+    wanted = [e for e in raw.replace(",", " ").split() if e] or ["vision", "florence"]
+    probes = {"vision": apple_vision_available, "florence": florence_available}
+    return [name for name in wanted if name in probes and probes[name]()]
 
 
 def _prepare_torch_env() -> None:
     os.environ.setdefault("TORCHDYNAMO_DISABLE", "1")
     os.environ.setdefault("TORCH_COMPILE_DISABLE", "1")
     os.environ.setdefault("TORCH_DISABLE_NATIVE_JIT", "1")
-    if sys.platform == "darwin" and os.environ.get("PRE_PEER_CHECKER_RASTER_OCR_DEVICE") is None:
-        # Mac torch wheels are often CPU/MPS-only; avoid defaulting to cuda.
-        os.environ.setdefault("PRE_PEER_CHECKER_RASTER_OCR_DEVICE", "cpu")
+    if platform.machine() == "aarch64":
+        # Triton JIT needs Python.h, which aarch64 hosts (DGX Spark) often lack.
+        os.environ.setdefault("TRITON_INTERPRET", "1")
 
 
 def _resolve_device() -> str:
     forced = (os.environ.get("PRE_PEER_CHECKER_RASTER_OCR_DEVICE") or "").strip()
     if forced:
         return forced
-    _prepare_torch_env()
-    dev = _torch_device()
-    if dev == "cuda" or dev == "xpu":
-        return dev
     if sys.platform == "darwin":
-        try:
-            import torch
+        # Florence on MPS is unverified here; the benchmark ran it on CPU.
+        return "cpu"
+    from pre_peer_checker.accel import gpu_device
 
-            if torch.backends.mps.is_available():
-                return "mps"
-        except Exception:
-            pass
-    return "cpu"
+    return gpu_device() or "cpu"
 
 
 class _FlorenceOcr:
@@ -122,10 +113,13 @@ class _FlorenceOcr:
         )
         self.model.eval()
 
-    def _ocr_pil(self, img) -> list[dict]:
+    def _ocr_whole(self, img) -> list[dict]:
         task = "<OCR_WITH_REGION>"
         inputs = self.proc(text=task, images=img, return_tensors="pt")
-        inputs = {k: v.to(self.device, self.dtype) if hasattr(v, "to") else v for k, v in inputs.items()}
+        inputs = {
+            k: v.to(self.device, self.dtype) if hasattr(v, "to") else v
+            for k, v in inputs.items()
+        }
         with self.torch.inference_mode():
             ids = self.model.generate(**inputs, max_new_tokens=1024, num_beams=3, do_sample=False)
         text = self.proc.batch_decode(ids, skip_special_tokens=False)[0]
@@ -139,19 +133,17 @@ class _FlorenceOcr:
         return out
 
     def ocr_image(self, img) -> list[dict]:
+        """Tiled OCR — small panel letters are missed in a single whole-image pass."""
         w, h = img.size
         step = self.TILE - self.OVERLAP
         dets: list[dict] = []
         for y in range(0, max(h - self.OVERLAP, 1), step):
             for x in range(0, max(w - self.OVERLAP, 1), step):
-                box = (x, y, min(x + self.TILE, w), min(y + self.TILE, h))
-                for d in self._ocr_pil(img.crop(box)):
+                tile = img.crop((x, y, min(x + self.TILE, w), min(y + self.TILE, h)))
+                for d in self._ocr_whole(tile):
                     b = d["box"]
                     dets.append(
-                        {
-                            "text": d["text"],
-                            "box": [b[0] + x, b[1] + y, b[2] + x, b[3] + y],
-                        }
+                        {"text": d["text"], "box": [b[0] + x, b[1] + y, b[2] + x, b[3] + y]}
                     )
         return dets
 
@@ -189,13 +181,12 @@ class _AppleVisionOcr:
         return out
 
 
-def _get_florence() -> _FlorenceOcr:
-    global _layout_svc, _ocr_florence
+def _get_florence() -> Any:
+    global _florence
     with _lock:
-        if _ocr_florence is None:
-            _ocr_florence = _FlorenceOcr()
-            _layout_svc = _ocr_florence
-        return _ocr_florence
+        if _florence is None:
+            _florence = _FlorenceOcr()
+        return _florence
 
 
 def _resize_for_layout(img):
@@ -205,7 +196,7 @@ def _resize_for_layout(img):
     if max(w, h) <= _MAX_SIDE:
         return img, 1.0, 1.0
     scale = _MAX_SIDE / max(w, h)
-    nw, nh = int(w * scale), int(h * scale)
+    nw, nh = max(int(w * scale), 1), max(int(h * scale), 1)
     return img.resize((nw, nh), Image.Resampling.LANCZOS), w / nw, h / nh
 
 
@@ -213,17 +204,16 @@ def _infer_panel_case(dets: list[dict]) -> str:
     lower = upper = 0
     for d in dets:
         for tok in str(d.get("text", "")).split():
-            t = tok.strip()
-            if len(t) == 1 and t.isalpha():
-                if t.islower():
+            if len(tok) == 1 and tok.isalpha():
+                if tok.islower():
                     lower += 1
-                elif t.isupper():
+                elif tok.isupper():
                     upper += 1
     return "lower" if lower > upper else "upper"
 
 
-def _page_figure_image(page) -> Any:
-    """PIL RGB for dominant embedded image, else full page render."""
+def _page_figure_image(page):
+    """PIL RGB of the dominant embedded image, else the whole page."""
     from PIL import Image
 
     infos = page.get_image_info()
@@ -231,97 +221,73 @@ def _page_figure_image(page) -> Any:
     area = sum((r["bbox"][2] - r["bbox"][0]) * (r["bbox"][3] - r["bbox"][1]) for r in infos)
     if infos and area >= 0.15 * rect.width * rect.height:
         big = max(infos, key=lambda r: (r["bbox"][2] - r["bbox"][0]) * (r["bbox"][3] - r["bbox"][1]))
-        clip = big["bbox"]
-        pix = page.get_pixmap(dpi=_DPI, clip=clip, alpha=False)
+        pix = page.get_pixmap(dpi=_DPI, clip=big["bbox"], alpha=False)
     else:
         pix = page.get_pixmap(dpi=_DPI, alpha=False)
     return Image.frombytes("RGB", (pix.width, pix.height), pix.samples)
 
 
-def raster_panel_labels_from_page(page) -> tuple[list[str], str]:
-    """OCR panel letters on one PDF page. Returns (sorted labels, engine name)."""
-    backend = _backend_name()
-    if backend is None:
-        return [], ""
+def _panel_crops(full, engines: list[str]) -> tuple[list[dict], str]:
+    """Panel boxes in full-resolution coordinates, plus the panel letter case."""
+    if "florence" not in engines and not florence_available():
+        return [{"panel": "*", "box": [0.0, 0.0, float(full.width), float(full.height)]}], "upper"
+    layout_img, sx, sy = _resize_for_layout(full)
+    dets = _get_florence().ocr_image(layout_img)
+    case = _infer_panel_case(dets)
+    crops = crops_from_panel_letters(
+        layout_img.width, layout_img.height, panel_letter_dets(dets, case=case)
+    )
+    for ent in crops:
+        b = ent["box"]
+        ent["box"] = [b[0] * sx, b[1] * sy, b[2] * sx, b[3] * sy]
+    return crops, case
 
-    from PIL import Image
+
+def raster_panel_letters_from_page(page) -> tuple[set[str], list[str]]:
+    """OCR one page. Returns (raw single letters, engines used) — unfiltered."""
+    engines = ocr_engine_names()
+    if not engines:
+        return set(), []
 
     full = _page_figure_image(page)
-    layout_img, sx, sy = _resize_for_layout(full)
-    florence = _get_florence()
-    layout_dets = florence._ocr_pil(layout_img)
-    case = _infer_panel_case(layout_dets)
-    letters = panel_letter_dets(layout_dets, case=case)
-    lw, lh = layout_img.size
-    crops = crops_from_panel_letters(lw, lh, letters)
-    merged: list[dict] = []
-    if backend == "vision":
-        ocr = _AppleVisionOcr()
-        with tempfile.TemporaryDirectory(prefix="ppc-raster-ocr-") as tmp:
-            td = Path(tmp)
-            for ent in crops:
-                x0, y0, x1, y1 = (int(v) for v in ent["box"])
-                x0f, y0f, x1f, y1f = (
-                    int(x0 * sx),
-                    int(y0 * sy),
-                    int(x1 * sx),
-                    int(y1 * sy),
-                )
-                crop = full.crop((x0f, y0f, x1f, y1f))
-                cp = td / f"{ent['panel']}.png"
-                crop.save(cp)
-                for d in ocr.ocr_path(cp):
-                    b = d["box"]
-                    merged.append(
-                        {
-                            "text": d["text"],
-                            "box": [b[0] + x0f, b[1] + y0f, b[2] + x0f, b[3] + y0f],
-                        }
-                    )
-    else:
+    crops, case = _panel_crops(full, engines)
+
+    vision = _AppleVisionOcr() if "vision" in engines else None
+    florence = _get_florence() if "florence" in engines else None
+    dets: list[dict] = []
+    with tempfile.TemporaryDirectory(prefix="ppc-panel-ocr-") as tmp:
         for ent in crops:
             x0, y0, x1, y1 = (int(v) for v in ent["box"])
-            x0f, y0f, x1f, y1f = (
-                int(x0 * sx),
-                int(y0 * sy),
-                int(x1 * sx),
-                int(y1 * sy),
-            )
-            crop = full.crop((x0f, y0f, x1f, y1f))
-            for d in florence.ocr_image(crop):
-                b = d["box"]
-                merged.append(
-                    {
-                        "text": d["text"],
-                        "box": [b[0] + x0f, b[1] + y0f, b[2] + x0f, b[3] + y0f],
-                    }
-                )
+            crop = full.crop((x0, y0, x1, y1))
+            if vision is not None:
+                cp = Path(tmp) / f"{ent['panel']}.png"
+                crop.save(cp)
+                dets.extend(vision.ocr_path(cp))
+            if florence is not None:
+                dets.extend(florence.ocr_image(crop))
 
-    found = panel_letter_dets(merged, case=case)
-    labels = sorted({ch.upper() if case == "upper" else ch.lower() for ch, _ in found})
-    return labels, backend
+    return {ch for ch, _ in panel_letter_dets(dets, case=case)}, engines
 
 
-def raster_panel_labels_from_pdf(path: Path | str, *, max_pages: int = 2) -> tuple[list[str], str]:
+def raster_panel_letters_from_pdf(
+    path: Path | str, *, max_pages: int = 2
+) -> tuple[set[str], str]:
+    """Raw panel letters across the first pages. Returns (letters, engine label)."""
     import fitz
 
-    path = Path(path)
-    labels: set[str] = set()
-    engine = ""
+    letters: set[str] = set()
+    engines: list[str] = []
     try:
-        doc = fitz.open(path)
+        doc = fitz.open(Path(path))
     except Exception:
-        return [], ""
+        return set(), ""
     try:
         for i, page in enumerate(doc):
             if i >= max_pages:
                 break
-            page_labels, eng = raster_panel_labels_from_page(page)
-            if eng and not engine:
-                engine = eng
-            for lab in page_labels:
-                labels.add(lab)
+            page_letters, used = raster_panel_letters_from_page(page)
+            letters |= page_letters
+            engines = used or engines
     finally:
         doc.close()
-    out = sorted(labels, key=lambda x: (not x.isupper(), x))
-    return out, engine
+    return letters, "+".join(engines)

@@ -10,15 +10,40 @@
 
 | 環境 | 図中 OCR（パネル crop 後） | パネル layout | Legend（テキスト） |
 | --- | --- | --- | --- |
-| **macOS** | **Apple Vision** | Florence-2（CPU/MPS） | Qwen2.5-7B（MLX 本線） |
-| **Linux + GPU（Spark 等）** | **Florence-2** OCR | 同スクリプト内 Florence | Qwen2.5-7B（transformers / CUDA） |
+| **macOS** | **Apple Vision + Florence-2 の和**（layout 用に Florence は既に常駐） | Florence-2（CPU） | Qwen2.5-7B（MLX 本線） |
+| **Linux + GPU（Spark 等）** | **Florence-2** OCR | 同 Florence | Qwen2.5-7B（transformers / CUDA） |
 | **製品 VLM 補助** | 対象外（別タスク） | — | Qwen2.5-VL（`--vlm-assist`・ベクター分割が空のときのみ） |
 
-**quick ベンチ figPanel recall（ラスタ正解）**: Vision（Mac, panels）≈ Florence（Spark, full）≈ **82.1%**。内訳は `tmp/figure_ocr_bench/` の `preds_*` + `score`（gitignore）。
+**quick ベンチ figPanel recall（ラスタ正解 39 文字 / 4 図）**
+
+| 構成 | recall | 余分検出 |
+| --- | --- | --- |
+| Vision 単独 | 82.1% | 7 |
+| Florence 単独 | 82.1% | 3 |
+| **両方の和 + 連続性フィルタ（採用）** | **87.2%** | **0** |
+
+和が効くのは取りこぼす文字が engine ごとに違うため（p02_fig3 は Vision が `I`、Florence が `O` を拾い、和で 16/16）。**連続性フィルタ**（`dominant_panel_run`）はパネル列から 2 文字以上離れた孤立文字を捨てる規則で、上表のとおり **recall を落とさずに余分検出だけ 0** にする。余分検出の実体は軸ラベルや凡例の 1 文字（`O` `U` `S` `T` `Г` など）だった。
+
+内訳は `tmp/figure_ocr_bench/` の `preds_*` + `score`（gitignore）。
 
 **Qwen2.5-VL / Qwen3-VL（ベンチ脚本）**: Spark aarch64 では推論未達（OOM / `ConstTensorWrapper` 等）。**本番必須にしない**。Legend の Qwen（**テキスト 7B**）が Spark で動くことと、ベンチの **VL** は別モデル・別コード経路である点に注意（[会話整理](#legend-と-vl-の混同を避ける)）。
 
-**製品配線（2026-09-29）**: `collect_panel_labels_by_figure_detailed` → ベクター空なら `raster_figure_panel_ocr`（Florence layout + Mac Vision / Linux Florence crop）。`figure_panel_labels_meta`・チャンク `[figure_panel_labels]`（要確認注記）。Mac: `install.sh` → `pip install -e ".[vision-mac]"`（`PRE_PEER_CHECKER_SKIP_FIGURE_VISION=1` で省略）。オフ: `PRE_PEER_CHECKER_RASTER_PANEL_OCR=0`。
+**製品配線（2026-09-29）**
+
+`collect_panel_labels_by_figure_detailed` → ベクター文字が **空、またはスパン内に欠けがある**（欠けた文字だけ画像に焼かれている典型）なら `raster_figure_panel_ocr` を呼び、ベクターと和を取る。結果は `figure_panel_labels_meta`（`source` / `needs_review` / `ocr_engine` / `dropped`）とチャンク `[figure_panel_labels]`（要確認注記付き）に載る。
+
+ベンチが測った設定がそのまま既定値: **300 dpi 描画・layout 1280px・Florence はタイル分割**。これらを変えると精度が変わる。
+
+| 環境変数 | 既定 | 用途 |
+| --- | --- | --- |
+| `PRE_PEER_CHECKER_RASTER_PANEL_OCR` | `auto` | `0` で完全オフ |
+| `PRE_PEER_CHECKER_RASTER_OCR_ENGINES` | `vision florence` | 片方だけにして高速化 |
+| `PRE_PEER_CHECKER_RASTER_OCR_DPI` | `300` | ベンチ計測値 |
+| `PRE_PEER_CHECKER_RASTER_OCR_MAX_SIDE` | `1280` | layout パスの長辺 |
+| `PRE_PEER_CHECKER_RASTER_OCR_DEVICE` | Mac `cpu` / 他 GPU | Florence の実行先 |
+| `PRE_PEER_CHECKER_SKIP_FIGURE_VISION` | — | `install.sh` で Vision を省略 |
+
+Mac の Vision は `install.sh` → `pip install -e ".[vision-mac]"`。aarch64 では `TRITON_INTERPRET=1` を自動で立てる（Spark の `Python.h` 欠如対策）。
 
 ---
 
@@ -57,7 +82,7 @@ rsync -avz spark-host:~/20260922Pre-peer-checker/tmp/figure_ocr_bench/ tmp/figur
    - **Spark**: torch / transformers の組み合わせ更新後、`--layout panels` + `qwen3vl` で quick 再 score。low_mem 時は registry 方針どおり **4B**（`BENCH_VLM_LOW_MEM=1`）。
 
 3. **ベンチ合格基準（prod 昇格前）**  
-   - `profile quick` で **figPanel recall > 現行 Vision/Florence**、かつ **extra（余分パネル文字）が許容範囲**（現 Vision extra=7 vs Florence full extra=3 を参考）。  
+   - `profile quick` で **figPanel recall > 現行採用構成（Vision+Florence 和 + 連続性フィルタ = 87.2%、extra 0）**。  
    - `profile raster`（10 枚）で regress なし。  
    - 出力は **needs review** 扱い（VLM 幻覚リスク）。Warning 確定は決定論のまま。
 

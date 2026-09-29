@@ -883,6 +883,7 @@ def run_verification(
             "ocr_engine": v.ocr_engine,
             "pdf": v.pdf,
             "labels": v.labels,
+            "dropped": v.dropped,
         }
         for k, v in panel_label_meta.items()
     }

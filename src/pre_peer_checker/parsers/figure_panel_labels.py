@@ -6,6 +6,7 @@ import re
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from pre_peer_checker.parsers.figure_panel_layout import dominant_panel_run
 from pre_peer_checker.parsers.pdf_panel_plots import _panel_labels
 
 
@@ -59,6 +60,20 @@ class PanelLabelProvenance:
     needs_review: bool = False
     ocr_engine: str = ""
     pdf: str = ""
+    dropped: list[str] = field(default_factory=list)
+
+
+def _has_internal_gap(labels: set[str]) -> bool:
+    """True when the vector letters skip a letter inside their own span.
+
+    A skipped letter usually means that panel's label is part of the artwork
+    bitmap rather than PDF text, so OCR can still recover it.
+    """
+    ascii_letters = sorted(c for c in labels if c.isascii() and c.isalpha())
+    if len(ascii_letters) < 2:
+        return False
+    span = ord(ascii_letters[-1]) - ord(ascii_letters[0]) + 1
+    return len(ascii_letters) < span
 
 
 def panel_labels_from_pdf_detailed(
@@ -67,7 +82,7 @@ def panel_labels_from_pdf_detailed(
     max_pages: int = 4,
     raster_fallback: bool | None = None,
 ) -> tuple[list[str], PanelLabelProvenance]:
-    """Vector PyMuPDF labels; if empty, Florence layout + Vision/Florence crop OCR."""
+    """Vector PyMuPDF labels; OCR the artwork when they are absent or incomplete."""
     import fitz
 
     path = Path(path)
@@ -85,27 +100,31 @@ def panel_labels_from_pdf_detailed(
     finally:
         doc.close()
 
-    if vector:
-        prov.labels = sorted(vector)
-        prov.source = "vector"
-        return prov.labels, prov
-
     use_raster = raster_fallback
     if use_raster is None:
         from pre_peer_checker.parsers.raster_figure_panel_ocr import raster_panel_ocr_enabled
 
         use_raster = raster_panel_ocr_enabled()
+    if vector and not _has_internal_gap(vector):
+        use_raster = False
+
     if not use_raster:
-        return [], prov
+        prov.labels = sorted(vector)
+        prov.source = "vector" if vector else "none"
+        return prov.labels, prov
 
-    from pre_peer_checker.parsers.raster_figure_panel_ocr import raster_panel_labels_from_pdf
+    from pre_peer_checker.parsers.raster_figure_panel_ocr import raster_panel_letters_from_pdf
 
-    raster, engine = raster_panel_labels_from_pdf(path, max_pages=min(max_pages, 2))
-    if not raster:
-        return [], prov
+    raw, engine = raster_panel_letters_from_pdf(path, max_pages=min(max_pages, 2))
+    ocr = dominant_panel_run(raw)
+    prov.dropped = sorted(raw - ocr)
+    if not ocr:
+        prov.labels = sorted(vector)
+        prov.source = "vector" if vector else "none"
+        return prov.labels, prov
 
-    prov.labels = list(raster)
-    prov.source = "raster_ocr"
+    prov.labels = sorted(vector | ocr)
+    prov.source = "mixed" if vector else "raster_ocr"
     prov.needs_review = True
     prov.ocr_engine = engine
     return prov.labels, prov
@@ -149,19 +168,15 @@ def collect_panel_labels_by_figure_detailed(
         prev = meta.get(key)
         if prev is None:
             meta[key] = prov
-        elif prev.source != prov.source:
-            merged = PanelLabelProvenance(
+        else:
+            meta[key] = PanelLabelProvenance(
                 labels=sorted(by_fig[key]),
-                source="mixed",
+                source=prev.source if prev.source == prov.source else "mixed",
                 needs_review=prev.needs_review or prov.needs_review,
                 ocr_engine=prov.ocr_engine or prev.ocr_engine,
-                pdf=prov.pdf or prev.pdf,
+                pdf=prev.pdf or prov.pdf,
+                dropped=sorted(set(prev.dropped) | set(prov.dropped)),
             )
-            meta[key] = merged
-        else:
-            prev.labels = sorted(by_fig[key])
-            if prov.needs_review:
-                prev.needs_review = True
     out = {k: sorted(v) for k, v in by_fig.items()}
     for k, prov in meta.items():
         prov.labels = out.get(k, prov.labels)

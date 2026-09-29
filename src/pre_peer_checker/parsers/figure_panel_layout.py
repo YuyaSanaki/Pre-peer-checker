@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from itertools import pairwise
+
 _TRIM = "()[]{},.;:'\"“”‘’"
 
 
@@ -29,6 +31,25 @@ def panel_letter_dets(
             ) * (best[key][3] - best[key][1]):
                 best[key] = box
     return sorted(best.items(), key=lambda x: (box_center(x[1])[1], box_center(x[1])[0]))
+
+
+def dominant_panel_run(letters, *, max_gap: int = 1) -> set[str]:
+    """Longest near-contiguous letter run; drops isolated OCR noise.
+
+    Panel letters in a figure run A..N (an occasional letter may be missed), so a
+    letter separated from the run by more than ``max_gap`` gaps is axis text or a
+    legend key rather than a panel label.
+    """
+    ls = sorted(c for c in letters if c.isascii() and c.isalpha() and len(c) == 1)
+    if not ls:
+        return set()
+    runs: list[list[str]] = [[ls[0]]]
+    for prev, cur in pairwise(ls):
+        if ord(cur) - ord(prev) - 1 <= max_gap:
+            runs[-1].append(cur)
+        else:
+            runs.append([cur])
+    return set(max(runs, key=lambda r: (len(r), -ord(r[0]))))
 
 
 def crops_from_panel_letters(

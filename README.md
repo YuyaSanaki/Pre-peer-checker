@@ -160,7 +160,7 @@ MyCase/
 ```
 
 - **原稿は Word（`.docx`）がおすすめです。** Word が無いときは PDF 原稿から本文を読み取り、Figure Legend の n・本文の統計・参考文献も照合します。ただし段組みや改行の復元に頼るため、Word より取りこぼしが出やすくなります。スキャン画像だけのページは OCR（Tesseract）で読みます。Tesseract は `install.sh` が入れます（Mac は Homebrew、Linux は apt / dnf を使い、Linux では管理者パスワードを求められます）。入れられなかった場合はそのページを読めず、カバレッジに表示します。Figure の PDF は原稿と一緒に置いてください。
-- **出版 Figure PDF（文字が画像に焼き込まれたもの）** では、PDF からパネル文字（A/B/C…）を読み取り、Legend LLM のヒント `[figure_panel_labels]` に渡します。まず PDF 内のベクター文字を探し、取れないときだけ OCR します。**Mac** では `install.sh` が **Apple Vision**（`pyobjc-framework-Vision`）を入れます。**Linux + GPU** では Florence-2 を使います（`install.sh` の transformers 構成）。結果は要確認として扱います。無効: `PRE_PEER_CHECKER_RASTER_PANEL_OCR=0`。Mac で Vision だけ省略: `PRE_PEER_CHECKER_SKIP_FIGURE_VISION=1`。
+- **出版 Figure PDF（文字が画像に焼き込まれたもの）** では、パネル文字（A/B/C…）を読み取り、Legend LLM のヒント `[figure_panel_labels]` に渡します。まず PDF 内のベクター文字を探し、取れない文字があるときだけ OCR します。**Mac** では `install.sh` が入れる **Apple Vision**（`pyobjc-framework-Vision`）と Florence-2 の両方で読み、**Linux + GPU** では Florence-2 で読みます（`install.sh` の transformers 構成）。読み取り結果は要確認として扱います。無効にするには `PRE_PEER_CHECKER_RASTER_PANEL_OCR=0`、Mac で Vision だけ省略するには `PRE_PEER_CHECKER_SKIP_FIGURE_VISION=1` を設定します。
 - `data/` の中の整理のしかたは自由です（Figure ごとのフォルダ分けは不要）。
 - `.zip` のまま入れても自動で展開します。
 

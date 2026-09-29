@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from pre_peer_checker.parsers.figure_panel_layout import (
     crops_from_panel_letters,
+    dominant_panel_run,
     panel_letter_dets,
 )
 
@@ -25,3 +26,17 @@ def test_crops_from_letters_two_columns():
     crops = crops_from_panel_letters(200, 100, letters)
     assert len(crops) >= 2
     assert all(c["panel"] in {"A", "B"} for c in crops)
+
+
+def test_dominant_run_keeps_single_missed_letter():
+    """Observed OCR output: A..K with E and I missed, plus stray O and U."""
+    assert dominant_panel_run(set("ABCDFGHJK") | {"O", "U"}) == set("ABCDFGHJK")
+
+
+def test_dominant_run_drops_non_ascii():
+    assert dominant_panel_run(set("ABCDEF") | {"Г"}) == set("ABCDEF")
+
+
+def test_dominant_run_allows_lowercase_and_empty():
+    assert dominant_panel_run(set("abcd")) == set("abcd")
+    assert dominant_panel_run(set()) == set()

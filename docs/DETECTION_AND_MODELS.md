@@ -596,7 +596,7 @@ primary private benchmark 相当の fixture（匿名化コピー可）:
 - 2026-09-25: **オフライン受入を要件から削除**（完全ローカル・API $0 は維持）。メモリ監視は将来。
 - 2026-09-25: **読む JSON 合成ゴールド CI** — `legend_json_synthetic_matrix` + `test_legend_json_gold` / `dev_legend_json_gold_eval.py`。
 - 2026-09-25: **Mac 受入** — `dev_vlm_panel_map_verify --prefer mlx --synthetic --require-vlm` → A/B・`n_vlm=2`。
-- 2026-09-29: **ラスタ Figure パネル OCR（製品）** — ベクター `_panel_labels` が空の出版 Fig PDF で Florence layout + Mac Vision / Linux Florence crop → `figure_panel_labels` / `[figure_panel_labels]`（`needs_review`）。`PRE_PEER_CHECKER_RASTER_PANEL_OCR=0` で off。Qwen3-VL は将来差し替え候補。[handoff/figure-ocr-raster.md](handoff/figure-ocr-raster.md)。
+- 2026-09-29: **ラスタ Figure パネル OCR（製品）** — ベクター `_panel_labels` が空／スパン内に欠けのある出版 Fig PDF で Florence layout + crop OCR（Mac は Vision と Florence の和、Linux は Florence）→ ベクターと和を取り `figure_panel_labels` / `[figure_panel_labels]`（`needs_review`）へ。連続性フィルタ `dominant_panel_run` で軸・凡例の孤立文字を除く。quick ベンチ: 単独 82.1%（余分 7/3）→ **和＋フィルタ 87.2%（余分 0）**。`PRE_PEER_CHECKER_RASTER_PANEL_OCR=0` で off。Qwen3-VL は将来差し替え候補。[handoff/figure-ocr-raster.md](handoff/figure-ocr-raster.md)。
 - 2026-09-25: **VLM パネル地図補助** — ベクター分割が空のときのみ mlx-vlm / transformers-VL（`--vlm-assist`）。`scripts/dev_vlm_panel_map_verify.py`。
 - 2026-09-25: **6A JSON mode** — `llm/json_mode.py`（Outlines MLX/transformers → free+coerce）。Mac 検証: `scripts/dev_legend_json_mode_verify.py --prefer mlx --require-outlines`。
 - 2026-09-25: **pattern_id 1:1 合成 CI**（`pattern_synthetic_matrix.json` + `test_pattern_id_matrix`）。G9/G10 初期エンジン（`source_values`）+ `stats_recalc` 合成。

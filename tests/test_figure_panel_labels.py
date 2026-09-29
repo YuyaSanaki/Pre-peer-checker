@@ -51,14 +51,63 @@ def test_raster_fallback_when_vector_empty(monkeypatch):
         lambda _page: [],
     )
     monkeypatch.setattr(
-        "pre_peer_checker.parsers.raster_figure_panel_ocr.raster_panel_labels_from_pdf",
-        lambda path, max_pages=2: (["D", "E"], "vision"),
+        "pre_peer_checker.parsers.raster_figure_panel_ocr.raster_panel_letters_from_pdf",
+        lambda path, max_pages=2: ({"D", "E"}, "vision+florence"),
     )
     labels, meta = panel_labels_from_pdf_detailed(fig, raster_fallback=True)
     assert labels == ["D", "E"]
     assert meta.source == "raster_ocr"
     assert meta.needs_review is True
-    assert meta.ocr_engine == "vision"
+    assert meta.ocr_engine == "vision+florence"
+
+
+def test_raster_ocr_noise_letters_are_dropped(monkeypatch):
+    """Axis/legend letters far from the panel run must not become panel labels."""
+    fig = Path("fixtures/synthetic/ref_label/Fig1.pdf")
+    monkeypatch.setattr(
+        "pre_peer_checker.parsers.figure_panel_labels._vector_panel_labels",
+        lambda _page: [],
+    )
+    monkeypatch.setattr(
+        "pre_peer_checker.parsers.raster_figure_panel_ocr.raster_panel_letters_from_pdf",
+        lambda path, max_pages=2: (set("ABCDFGHJK") | {"O", "U", "Г"}, "vision"),
+    )
+    labels, meta = panel_labels_from_pdf_detailed(fig, raster_fallback=True)
+    assert labels == list("ABCDFGHJK")
+    assert meta.dropped == ["O", "U", "Г"]
+
+
+def test_vector_gap_triggers_ocr_and_unions(monkeypatch):
+    """A letter missing inside the vector span is likely baked into the artwork."""
+    fig = Path("fixtures/synthetic/ref_label/Fig1.pdf")
+    monkeypatch.setattr(
+        "pre_peer_checker.parsers.figure_panel_labels._vector_panel_labels",
+        lambda _page: ["A", "B", "D"],
+    )
+    monkeypatch.setattr(
+        "pre_peer_checker.parsers.raster_figure_panel_ocr.raster_panel_letters_from_pdf",
+        lambda path, max_pages=2: ({"C", "D"}, "florence"),
+    )
+    labels, meta = panel_labels_from_pdf_detailed(fig, raster_fallback=None)
+    assert labels == ["A", "B", "C", "D"]
+    assert meta.source == "mixed"
+    assert meta.needs_review is True
+
+
+def test_complete_vector_skips_ocr(monkeypatch):
+    fig = Path("fixtures/synthetic/ref_label/Fig1.pdf")
+
+    def boom(*_a, **_k):
+        raise AssertionError("OCR must not run when vector labels are complete")
+
+    monkeypatch.setattr(
+        "pre_peer_checker.parsers.raster_figure_panel_ocr.raster_panel_letters_from_pdf",
+        boom,
+    )
+    labels, meta = panel_labels_from_pdf_detailed(fig, raster_fallback=True)
+    assert labels == ["A", "B", "C"]
+    assert meta.source == "vector"
+    assert meta.needs_review is False
 
 
 def test_collect_by_figure_vector():

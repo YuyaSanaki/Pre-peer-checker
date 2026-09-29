@@ -36,6 +36,21 @@ SYNTHETIC_SIDES_PROFILE = {
 
 
 @pytest.fixture(autouse=True)
+def _disable_heavy_raster_ocr(monkeypatch):
+    """Florence-2 raster OCR is production-only; tests must not download/run it.
+
+    Tests that exercise the OCR path pass ``raster_fallback=True`` and stub the
+    engine. Opt in to the real auto path with ``raster_ocr_auto``.
+    """
+    monkeypatch.setenv("PRE_PEER_CHECKER_RASTER_PANEL_OCR", "0")
+
+
+@pytest.fixture
+def raster_ocr_auto(monkeypatch):
+    monkeypatch.delenv("PRE_PEER_CHECKER_RASTER_PANEL_OCR", raising=False)
+
+
+@pytest.fixture(autouse=True)
 def case_profile():
     """Public tests run on the built-in neutral profile, ignoring local overrides."""
     with use_case_profile(None) as prof:

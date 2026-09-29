@@ -88,7 +88,7 @@ def test_vector_gap_triggers_ocr_and_unions(monkeypatch):
         "pre_peer_checker.parsers.raster_figure_panel_ocr.raster_panel_letters_from_pdf",
         lambda path, max_pages=2: ({"C", "D"}, "florence"),
     )
-    labels, meta = panel_labels_from_pdf_detailed(fig, raster_fallback=None)
+    labels, meta = panel_labels_from_pdf_detailed(fig, raster_fallback=True)
     assert labels == ["A", "B", "C", "D"]
     assert meta.source == "mixed"
     assert meta.needs_review is True

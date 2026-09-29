@@ -890,6 +890,9 @@ def run_verification(
     result.warnings.extend(
         warnings_from_ref_labels(claim_texts, labels_by_figure)
     )
+    from pre_peer_checker.parsers.raster_figure_panel_ocr import unload_raster_ocr_models
+
+    unload_raster_ocr_models()
 
     # --- 参考文献メタ（原稿内）+ 任意: 引用先 PDF ---
     tracker.start("references", "原稿の References と本文中の引用を照合中")

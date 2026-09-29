@@ -29,6 +29,23 @@ _lock = threading.Lock()
 _florence: Any = None
 
 
+def unload_raster_ocr_models() -> None:
+    """Drop Florence weights so later GPU stages (LightGlue / DINOv2) keep VRAM."""
+    global _florence
+    with _lock:
+        _florence = None
+    import gc
+
+    gc.collect()
+    try:
+        import torch
+
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+    except Exception:
+        pass
+
+
 def raster_panel_ocr_enabled() -> bool:
     mode = (os.environ.get("PRE_PEER_CHECKER_RASTER_PANEL_OCR") or "auto").strip().lower()
     if mode in {"0", "false", "no", "off"}:

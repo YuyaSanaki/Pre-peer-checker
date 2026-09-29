@@ -56,7 +56,18 @@ def build_run_coverage(
     def add(cid: str, name: str, status: str, detail: str) -> None:
         checks.append({"id": cid, "name": name, "status": status, "detail": detail})
 
-    if n_docx:
+    source = artifacts.get("manuscript_source") or {}
+    if isinstance(source, dict) and source.get("kind") == "pdf":
+        names = ", ".join(Path(p).name for p in source.get("paths") or [])
+        detail = f"Word なし · PDF 原稿 {names} の本文を読み取り · 抽出パネル n={len(panel_ns)}"
+        n_ocr = sum(len(x.get("pages") or []) for x in source.get("ocr_pages") or [])
+        n_image_only = sum(len(x.get("pages") or []) for x in source.get("image_only_pages") or [])
+        if n_ocr:
+            detail += f" · OCR {n_ocr} ページ"
+        if n_image_only:
+            detail += f" · 画像のみで読めないページ {n_image_only}（Tesseract 未導入のため OCR せず。./install.sh の再実行で導入）"
+        add("word_legend", "原稿 Legend / パネル n 抽出（PDF）", "ran", detail)
+    elif n_docx:
         n_docx_ok = len(docx_used)
         detail = f"対象 Word {n_docx_ok} 件 · 抽出パネル n={len(panel_ns)}"
         if n_docx_ok == 0:
@@ -71,7 +82,12 @@ def build_run_coverage(
             detail,
         )
     else:
-        add("word_legend", "Word Legend / パネル n 抽出", "skipped", "docx なし")
+        add(
+            "word_legend",
+            "Word Legend / パネル n 抽出",
+            "skipped",
+            "docx なし（本文を読める原稿 PDF もなし）",
+        )
 
     if n_tables:
         detail = f"表ファイル {n_tables} 件 · 群ベクトル {len(group_vectors)} 件"
@@ -386,7 +402,8 @@ def coverage_lines(coverage: dict[str, Any]) -> list[str]:
     if docx:
         names = ", ".join(Path(p).name for p in docx[:4])
         more = f" ほか{len(docx) - 4}件" if len(docx) > 4 else ""
-        lines.append(f"Legend 用 Word: {names}{more}")
+        label = "PDF" if all(str(p).lower().endswith(".pdf") for p in docx) else "Word"
+        lines.append(f"Legend 用 {label}: {names}{more}")
     for c in coverage.get("checks") or []:
         mark = "✓" if c.get("status") == "ran" else "–"
         lines.append(f"{mark} {c.get('name')}: {c.get('detail')}")

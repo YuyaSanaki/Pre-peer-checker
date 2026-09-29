@@ -16,7 +16,10 @@ _REF_HEAD_RE = re.compile(
 )
 _SECTION_STOP_RE = re.compile(
     r"^(?:acknowledg?e?ments?|author\s+contributions?|funding|"
-    r"competing\s+interests?|data\s+availability|supplementary|"
+    r"competing\s+interests?|data\s+availability|"
+    r"supplementa(?:l|ry)(?:\s+(?:information|materials?|figures?|tables?))?|"
+    r"(?:star\W*|online\s+)?methods|materials?\s+and\s+methods|"
+    r"key\s+resources\s+table|figure\s+legends?|figures?|tables?|"
     r"appendix|謝辞|著者貢献)\s*$",
     re.I,
 )
@@ -28,7 +31,7 @@ _DOI_RE = re.compile(r"\b(?:doi:\s*)?(10\.\d{4,9}/[^\s\]）,;]+)", re.I)
 _YEAR_RE = re.compile(r"\b((?:19|20)\d{2})\b")
 _AUTHOR_YEAR_CITE_RE = re.compile(
     r"\((?P<authors>[A-Z][A-Za-z\-]+(?:\s+et\s+al\.?)?(?:\s*(?:&|and)\s+[A-Z][A-Za-z\-]+)?)"
-    r",?\s*(?P<year>(?:19|20)\d{2})[a-z]?\)",
+    r"(?:,\s*|\s+)(?P<year>19\d{2}|20[0-4]\d)[a-z]?\)",
 )
 _BRACKET_CITE_RE = re.compile(r"\[(?P<nums>\d+(?:\s*[,;\-–]\s*\d+)*)\]")
 _AUTHOR_YEAR_ENTRY_RE = re.compile(
@@ -223,14 +226,24 @@ def _expand_num_list(blob: str) -> list[str]:
 
 
 def extract_in_text_cites(paragraphs: list[str]) -> list[InTextCite]:
-    """Extract in-text citations from body paragraphs (skip References section)."""
+    """Extract in-text citations from body paragraphs (skip References section).
+
+    Text after the bibliography (e.g. STAR★Methods) is still body text.
+    """
     body: list[str] = []
+    in_refs = False
     for p in paragraphs:
         t = (p or "").strip()
         if not t:
             continue
         if _REF_HEAD_RE.match(t):
-            break
+            in_refs = True
+            continue
+        if in_refs:
+            if _SECTION_STOP_RE.match(t):
+                in_refs = False
+            else:
+                continue
         body.append(t)
 
     cites: list[InTextCite] = []

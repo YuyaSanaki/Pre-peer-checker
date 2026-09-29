@@ -462,7 +462,7 @@ _REPORT_TEMPLATE = Template(
     <p><strong>展開 ZIP:</strong> {{ coverage.extracted_zips|length }} 件</p>
     {% endif %}
     {% if coverage.docx_used_for_legend %}
-    <p><strong>Legend 用 Word:</strong>
+    <p><strong>Legend 用原稿:</strong>
       {% for p in coverage.docx_used_for_legend[:6] %}{{ p.split('/')[-1] }}{% if not loop.last %}, {% endif %}{% endfor %}
     </p>
     {% endif %}

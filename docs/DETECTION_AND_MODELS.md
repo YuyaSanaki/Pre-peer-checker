@@ -6,7 +6,7 @@
 
 **絶対条件**: **読む＝LLM/VLM、比べる＝機械**（[REQUIREMENTS.md](REQUIREMENTS.md) §1.2.1）。
 
-**ネタ帳の位置づけ**（[ROADMAP.md](ROADMAP.md) Phase 5）: PubPeer／文献／公的ケースは **有罪教師ではなく Warning（照合方法）の発見源**。決定論 `pattern_id` を拡充する。**PubPeer サイトの自動スクレイプは禁止**。Retraction Watch（Crossref 公式 Git／API）等の **明示的に再配布・利用が許されたオープンデータ**は可。
+**ネタ帳の位置づけ**: PubPeer／文献／公的ケースは **有罪教師ではなく Warning（照合方法）の発見源**。決定論 `pattern_id` を拡充する。**PubPeer サイトの自動スクレイプは禁止**。Retraction Watch（Crossref 公式 Git／API）等の **明示的に再配布・利用が許されたオープンデータ**は可。
 
 ### カタログ倫理の絶対ルール（崩さない）
 
@@ -43,7 +43,7 @@ PubPeer コメント・手元 PDF・個人経験（例: 自論文への指摘）
 
 手元参照の件数目安: PubPeer 由来 PDF 十数件＋説明資料（いずれも git 外）。
 
-### 1.2 収集源ポリシー（Phase 5 ネタ帳）
+### 1.2 収集源ポリシー（ネタ帳）
 
 PubPeer と同等以上の網羅性を、**規約に抵触しない公式・オープン資源**から得る。
 
@@ -140,8 +140,8 @@ PubPeer と同等以上の網羅性を、**規約に抵触しない公式・オ�
 
 | 状態 | 意味 |
 |------|------|
-| **実装済** | 決定論エンジンあり（精度は Phase 6 で強化） |
-| **planned** | Phase 5 ネタ帳で定義。エンジンは後続 |
+| **実装済** | 決定論エンジンあり（精度は紐付け・照合の強化で継続改善） |
+| **planned** | ネタ帳で定義。エンジンは後続 |
 
 `pattern_id` 正本: `fixtures/patterns/pubpeer_patterns.json`（`status` / `taxonomy` フィールド）。別ファイルの二重 YAML は作らない。
 
@@ -235,7 +235,7 @@ Bik et al. Category I≈A1、II≈A2、III≈A3 に対応づける。F 系は **
 | D8  | `[表記揺れ・参照不整合]`    | 本文 Fig.1C/H 記述とパネルラベル・条件名                  | `P-REF-LABEL-MISMATCH` |
 
 
-### 2.4 Phase 5 ギャップ（決定論エンジン — 初期実装済 / 精緻化は後続）
+### 2.4 ネタ帳ギャップ（決定論エンジン — 初期実装済 / 精緻化は後続）
 
 各項目: **読む**＝抽出キー、**比べる**＝突合手続き、**not_sufficient**＝これだけでは Warning にしない。
 
@@ -366,12 +366,12 @@ Bik et al. Category I≈A1、II≈A2、III≈A3 に対応づける。F 系は **
 - **合成 fixture**: `exclusion_undeclared`（基準なし）／`exclusion_id_trace`（ID 未列挙）／`exclusion_id_phantom`（phantom ID）。
 - **sources**: check_reference, ori_case_summaries, cope_case_database
 
-### 2.5 Phase 6 に渡す P0 抽出キー（スキーマ先行）
+### 2.5 P0 抽出キー（スキーマ先行）
 
 | キー | 用途 | 優先 |
 |------|------|------|
 | `citation_flags` / 出典有無 | 画像再利用抑制 | 既存・必須 |
-| `panel_map`（VLM） | パネル接地 | Phase 6A |
+| `panel_map`（VLM） | パネル接地 | 既存（`--vlm-assist`・ベクター分割が空のときのみ） |
 | `error_bar_type` | G4 SEM/SD | **スキーマ＋rules＋突合エンジン初期**（`errorbar_sem_sd`） |
 | `stat_test_name` / 比較構造 | G5 多重比較 | P1 |
 | `numeric_claims[]`（mean/p/n） | G6 転記 | P1 |
@@ -470,7 +470,7 @@ DINOv2 は **預訓練のまま推論**（追加学習不要）。閾値は fixt
 | DINOv2 埋め込みの **ローカルキャッシュ**（過去論文ライブラリ）                | DINOv2 のフルファインチューン（コスト対効果低） |
 | 擬似エラーセット（D1–D4）での **閾値・適合率校正**（`eval/metrics_suite`） | PubPeer コメント文からの「有罪スコア」学習・サイト自動クロール |
 | （例外）難しい Legend で 7B が落ちるとき **32B 候補＋人手修正ラベル**でプロンプト／LoRA／蒸留（抽出専用。生 32B 出力を無審査で教師にしない） | クラウド上の学習ジョブ / 特定データセット専用学習  |
-| 研究公正文献＋人手キュレーションで **pattern_id ネタ帳**を拡充（Phase 5） | 文献 PDF／PubPeer HTML の git 投入 |
+| 研究公正文献＋人手キュレーションで **pattern_id ネタ帳**を拡充 | 文献 PDF／PubPeer HTML の git 投入 |
 
 
 Docker `train` イメージはキャッシュ構築・閾値スイープ用。LoRA はデフォルト経路にしない。
@@ -501,18 +501,18 @@ input/ 収集
 
 目標は「規則を増やす」ではなく、**Entity Linking（対応関係）**・**読む JSON の安定性**・**複合 Fig のパネル接地**を上げること。
 
-**実装ロードマップ**: [ROADMAP.md](ROADMAP.md) **Phase 6**（6A–6D）。ネタ帳は **Phase 5**。  
-**認識**: Phase 5 で Taxonomy を増やしても、紐付けが外れると **False Positive が増えるだけ**。精度の本線は Phase 6 の決定論強化。
+**実装の優先順位**: [ARCHITECTURE.md](ARCHITECTURE.md)「設計ルール」。  
+**認識**: ネタ帳で Taxonomy を増やしても、紐付けが外れると **False Positive が増えるだけ**。精度の本線は決定論照合の強化。
 
 **達成済み（初期）**: 軟紐付け・n 対照表ファイル名・未紐付け明示。残りは下記ボトルネック潰し。
 
 ### 5.0 精度低下の3大ボトルネック
 
-| # | ボトルネック | 典型症状 | 潰し方（Phase） |
+| # | ボトルネック | 典型症状 | 潰し方 |
 |---|--------------|----------|-----------------|
-| ① | **Entity Linking の曖昧さ** | Excel列 ↔ R変数 ↔ Legend ↔ PDF パネル記号の取り違え → FP / 漏れ | 6B: データ指紋＋3層照合。ファイル名非信頼 |
-| ② | **LLM の非決定性・ハルシネーション** | n／検定の抽出揺れ・パース失敗 | 6A: JSON Schema / Pydantic 強制（Outlines・MLX JSON mode）。自由文抽出をやめる |
-| ③ | **複合 Figure のパネル分割精度** | 1 PDF に数十パネルで VLM 座標ズレ → 画像・n の誤パネル | 6A: **PyMuPDF ベクター**で A/B/C… テキスト bbox → 幾何分割。VLM は補助 |
+| ① | **Entity Linking の曖昧さ** | Excel列 ↔ R変数 ↔ Legend ↔ PDF パネル記号の取り違え → FP / 漏れ | データ指紋＋3層照合。ファイル名非信頼 |
+| ② | **LLM の非決定性・ハルシネーション** | n／検定の抽出揺れ・パース失敗 | JSON Schema / Pydantic 強制（Outlines・MLX JSON mode）。自由文抽出をやめる |
+| ③ | **複合 Figure のパネル分割精度** | 1 PDF に数十パネルで VLM 座標ズレ → 画像・n の誤パネル | **PyMuPDF ベクター**で A/B/C… テキスト bbox → 幾何分割。VLM は補助 |
 
 ### 5.1 3層ハイブリッド照合（比べる＝機械が本線）
 
@@ -581,8 +581,8 @@ primary private benchmark 相当の fixture（匿名化コピー可）:
 3. 同一 TIFF/PNG を Fig.S1 と「先行論文」フォルダに配置、Legend に出典なし → **D3 / A4**
 4. 同一 WT ベクトルを 3 パネルに、1 パネルだけ max 欠落 → **D4 / B2**
 5. （推奨）`n=18(a)/10(b)`・`n=5(1x),8(4x)`・近傍パネル括弧のゴールド → **読む JSON**（合成: `fixtures/gold/legend_json/legend_json_synthetic_matrix.json` + `tests/test_legend_json_gold.py`）
-6. （Phase 5）`pattern_synthetic_matrix.json` + `tests/test_pattern_id_matrix.py` — **pattern_id 1:1 合成 CI**（実装済は必須再現；planned は fixture_policy のみ）
-7. （Phase 6）複合マルチパネル PDF のベクター分割ゴールデン（パネル bbox）— `fixtures/gold/panel_bbox/` + `tests/test_panel_bbox_gold.py`
+6. `pattern_synthetic_matrix.json` + `tests/test_pattern_id_matrix.py` — **pattern_id 1:1 合成 CI**（実装済は必須再現；planned は fixture_policy のみ）
+7. 複合マルチパネル PDF のベクター分割ゴールデン（パネル bbox）— `fixtures/gold/panel_bbox/` + `tests/test_panel_bbox_gold.py`
 
 ---
 

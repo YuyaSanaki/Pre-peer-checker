@@ -86,8 +86,9 @@ rules/local_case_profile.json
 # Tests that only run against private benchmark data
 tests/private/
 
-# Local developer handoff (may name private cases / paths). Public stub: handoff.example.md
+# Local developer handoff (may name private cases / paths).
 handoff.md
+pegasus-handover/
 
 # Jupyter
 .ipynb_checkpoints/

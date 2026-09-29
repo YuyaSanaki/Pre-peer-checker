@@ -10,9 +10,6 @@ import re
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from docx import Document
-
-
 _FIG_START_RE = re.compile(
     r"^(Figure|Fig\.?|Supplementary Figure|Table)\s*(S?\d+)",
     re.IGNORECASE,
@@ -725,8 +722,14 @@ def extract_figure_captions_from_pdf(
 
 
 def extract_structured_legends(path: Path | str) -> list[StructuredLegend]:
-    doc = Document(str(path))
-    paragraphs = [p.text.strip() for p in doc.paragraphs if p.text.strip()]
+    """Legends from a Word (.docx) or PDF manuscript."""
+    from pre_peer_checker.parsers.manuscript_text import manuscript_paragraphs
+
+    return extract_structured_legends_from_paragraphs(manuscript_paragraphs(path))
+
+
+def extract_structured_legends_from_paragraphs(paragraphs: list[str]) -> list[StructuredLegend]:
+    paragraphs = [p.strip() for p in paragraphs if p and p.strip()]
     legends: list[StructuredLegend] = []
     i = 0
     while i < len(paragraphs):

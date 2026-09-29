@@ -9,6 +9,7 @@
 # 環境変数（任意）:
 #   PRE_PEER_CHECKER_PYTHON=/path/to/python3   使う Python を明示（3.11 以上）
 #   PRE_PEER_CHECKER_SKIP_MODELS=1             モデル重みの事前ダウンロードを省略
+#   PRE_PEER_CHECKER_SKIP_OCR=1                OCR（Tesseract）の導入を省略
 #   PRE_PEER_CHECKER_ACCEL=cuda|rocm|xpu|cpu   Linux の GPU 種別を明示（既定: 自動検出）
 #   PRE_PEER_CHECKER_TORCH_INDEX=URL           PyTorch の取得元 index を明示（新しい CUDA / ROCm 版など）
 #   PRE_PEER_CHECKER_EXTRAS=dev,gui            追加で入れる extras（カンマ区切り）
@@ -333,6 +334,49 @@ if [[ "${APPLE_SILICON}" == "1" || "${OS}" == "Linux" ]]; then
     "lightglue @ https://github.com/cvg/LightGlue/archive/${LIGHTGLUE_COMMIT}.zip"
   try_install "顕微鏡 LIF（readlif）" "readlif>=0.6"
   try_install "顕微鏡 CZI（pylibCZIrw）" "pylibCZIrw>=4.0"
+fi
+
+# ---------------------------------------------------------------------------
+# OCR（Tesseract）: Word 原稿が無いとき、スキャン画像だけの PDF ページを読むため（任意）。
+# pip では入らないので OS のパッケージ管理を使う（Linux は管理者権限が要る）。
+# ---------------------------------------------------------------------------
+install_tesseract() {
+  if command -v tesseract >/dev/null 2>&1; then
+    echo "==> OCR（Tesseract）は導入済みです"
+    return
+  fi
+  local sudo="" ok=1
+  if [[ "${OS}" == "Linux" && "$(id -u)" != "0" ]]; then
+    if ! command -v sudo >/dev/null 2>&1 \
+      || ! { sudo -n true 2>/dev/null || (: </dev/tty) 2>/dev/null; }; then
+      echo "==> OCR（Tesseract）: 管理者権限が無いため省略します"
+      OPTIONAL_NG+=("OCR（Tesseract）")
+      return
+    fi
+    sudo="sudo"
+  fi
+  echo "==> OCR（Tesseract）…"
+  if [[ "${OS}" == "Darwin" ]]; then
+    if command -v brew >/dev/null 2>&1; then
+      brew install tesseract && ok=0
+    else
+      echo "    Homebrew（https://brew.sh）が無いため省略します。"
+    fi
+  elif command -v apt-get >/dev/null 2>&1; then
+    [[ -n "${sudo}" ]] && echo "    管理者パスワードを求められたら入力してください。"
+    { ${sudo} apt-get install -y -qq tesseract-ocr \
+      || { ${sudo} apt-get update -qq && ${sudo} apt-get install -y -qq tesseract-ocr; }; } && ok=0
+  elif command -v dnf >/dev/null 2>&1; then
+    [[ -n "${sudo}" ]] && echo "    管理者パスワードを求められたら入力してください。"
+    ${sudo} dnf install -y -q tesseract && ok=0
+  fi
+  if (( ok != 0 )); then
+    echo "    警告: OCR（Tesseract）を導入できませんでした（スキャン PDF のページは読まずに続行します）。"
+    OPTIONAL_NG+=("OCR（Tesseract）")
+  fi
+}
+if [[ "${PRE_PEER_CHECKER_SKIP_OCR:-0}" != "1" ]]; then
+  install_tesseract
 fi
 
 # ---------------------------------------------------------------------------

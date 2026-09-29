@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from typing import Any
 
-# Layers aligned with ROADMAP / DETECTION §5 bottlenecks.
+# Layers aligned with DETECTION §5 bottlenecks.
 LAYER_PARSER = "parser"
 LAYER_LINKING = "linking"
 LAYER_MATCH = "match"

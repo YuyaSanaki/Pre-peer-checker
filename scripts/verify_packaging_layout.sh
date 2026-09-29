@@ -7,7 +7,6 @@ cd "$ROOT"
 need=(
   install.sh
   scripts/start_webui.sh
-  docs/PACKAGING.md
   src/pre_peer_checker/resources/pubpeer_patterns.json
   src/pre_peer_checker/cli.py
   src/pre_peer_checker/web/app.py

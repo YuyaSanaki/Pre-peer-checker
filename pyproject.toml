@@ -80,10 +80,6 @@ dev = [
   "ruff>=0.4",
   "httpx>=0.27",
 ]
-# Phase 4 packaging (freeze / .app). Mac notarization uses system codesign/notarytool.
-packaging = [
-  "pyinstaller>=6.3",
-]
 
 [project.scripts]
 pre-peer-checker = "pre_peer_checker.cli:main"

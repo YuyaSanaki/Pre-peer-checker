@@ -1,8 +1,8 @@
 # Docker 実行・学習環境
 
-DGX Spark 上での **開発・照合実行・モデル学習の標準手順** は Docker とする（要件定義 1.2 / Handoff §2）。
+DGX Spark 上での **開発・照合実行・モデル学習の標準手順** は Docker とする（要件定義 1.2）。
 
-エンドユーザー向け起動は Docker ではない（`./install.sh` → ローカル WebUI。Phase 3–4 / [PACKAGING.md](PACKAGING.md)）。
+エンドユーザー向け起動は Docker ではない（`./install.sh` → ローカル WebUI。手順は [README](../README.md)）。
 
 ## 前提
 

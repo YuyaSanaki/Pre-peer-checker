@@ -36,6 +36,22 @@ def test_parse_references_numbered_and_cites():
     assert "1" in keys and "2" in keys and "4" in keys
 
 
+def test_cites_after_references_section_are_body_text():
+    paras = [
+        "Results",
+        "Muscle wasting was reported before.[1]",
+        "REFERENCES",
+        "1. Adams A. First paper. J Demo. 2019.",
+        "2. Baker B. Second. J Demo. 2020.",
+        "STAR+METHODS",
+        "Mice were handled as described.[2] Antibody (Vector, I-2088) was used.",
+    ]
+    bundle = parse_references_from_paragraphs(paras)
+    assert [e.key for e in bundle.entries] == ["1", "2"]
+    keys = {k for c in bundle.in_text for k in c.keys}
+    assert keys == {"1", "2"}
+
+
 def test_ref_biblio_unit_warnings():
     bundle = parse_references_from_docx(SYN / "ref_biblio" / "manuscript.docx")
     warns = warnings_from_ref_biblio(bundle)

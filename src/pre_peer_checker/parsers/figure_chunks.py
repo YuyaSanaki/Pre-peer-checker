@@ -6,19 +6,18 @@ import re
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
-from docx import Document
-
 from pre_peer_checker.parsers.legend_struct import (
     StructuredLegend,
-    extract_structured_legends,
+    extract_structured_legends_from_paragraphs,
 )
+from pre_peer_checker.parsers.manuscript_text import manuscript_paragraphs
 
 # Section headings (English life-science manuscripts)
 _SECTION_RE = re.compile(
     r"^(?:"
     r"Abstract|Introduction|Results?|Discussion|"
-    r"(?:Materials?\s+and\s+)?Methods|"
-    r"Experimental\s+Procedures|Statistical\s+Analysis|"
+    r"(?:Materials?\s+and\s+|STAR\W*|Online\s+)?Methods|Method\s+Details|"
+    r"Experimental\s+Procedures|(?:Quantification\s+and\s+)?Statistical\s+Analysis|"
     r"References|Acknowledgments?|Author\s+Contributions|"
     r"Competing\s+Interests|Data\s+Availability|"
     r"Supplementary\s+(?:Information|Materials?|Note)|"
@@ -96,7 +95,7 @@ def _classify_section(text: str) -> str | None:
     head = m.group(0).lower()
     if head.startswith("result"):
         return "results"
-    if "method" in head or "experimental" in head or head.startswith("statistical"):
+    if "method" in head or "experimental" in head or "statistical" in head:
         return "methods"
     if "figure legend" in head or "table legend" in head:
         return "legends"
@@ -278,10 +277,10 @@ def build_figure_chunks_from_paragraphs(
 
 
 def build_figure_chunks_from_docx(path: Path | str) -> list[FigureChunk]:
-    doc = Document(str(path))
-    paragraphs = [p.text.strip() for p in doc.paragraphs if p.text.strip()]
+    """Figure chunks from a Word (.docx) or PDF manuscript."""
+    paragraphs = manuscript_paragraphs(path)
     try:
-        legends = extract_structured_legends(path)
+        legends = extract_structured_legends_from_paragraphs(paragraphs)
     except Exception:  # noqa: BLE001
         legends = []
     return build_figure_chunks_from_paragraphs(paragraphs, legends)

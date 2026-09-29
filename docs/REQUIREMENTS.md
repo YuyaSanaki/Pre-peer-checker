@@ -4,7 +4,7 @@
 
 本システムの目的は、**広く生命科学・医学生物学の論文投稿前検証を行い、研究公正上・PubPeer 上で問題視されやすい不整合を未然に防ぐ**ことである。
 
-開発では過去の指摘事例（`check_reference/`）と実データ（例: `input/private_benchmark/`）、および研究公正関連文献・**公式オープンデータ**（Retraction Watch / Crossref、ORI、COPE 類型）を **benchmark・ネタ帳・回帰** に用いるが、**照合エンジンは特定データセット専用ではない**。任意の原稿・生データ・Figure セットに対して、`fixtures/patterns/pubpeer_patterns.json` に定義した汎用パターンで動作すること。**PubPeer サイトの自動クロールは行わない**。RW Crossref 公式 Git／API 等の許諾データは可（[DETECTION_AND_MODELS.md](DETECTION_AND_MODELS.md) §1.2、[ROADMAP.md](ROADMAP.md) Phase 5）。
+開発では過去の指摘事例（`check_reference/`）と実データ（例: `input/private_benchmark/`）、および研究公正関連文献・**公式オープンデータ**（Retraction Watch / Crossref、ORI、COPE 類型）を **benchmark・ネタ帳・回帰** に用いるが、**照合エンジンは特定データセット専用ではない**。任意の原稿・生データ・Figure セットに対して、`fixtures/patterns/pubpeer_patterns.json` に定義した汎用パターンで動作すること。**PubPeer サイトの自動クロールは行わない**。RW Crossref 公式 Git／API 等の許諾データは可（[DETECTION_AND_MODELS.md](DETECTION_AND_MODELS.md) §1.2）。benchmark への過適合禁止などの設計ルールは [ARCHITECTURE.md](ARCHITECTURE.md)「設計ルール」。
 
 ### 1.1.1 カタログ倫理の絶対ルール
 
@@ -29,7 +29,7 @@
 | -------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
 | 開発環境     | DGX Spark (NVIDIA GPU / CUDA 12.x+, Ubuntu Linux)                                                                                           |
 | **コンテナ** | **開発・照合実行・モデル学習は Docker + NVIDIA Container Toolkit で再現可能であること**（`Dockerfile` / `docker-compose.yml`）。GPU パススルー必須。詳細は [DOCKER.md](DOCKER.md) |
-| 配布・実行環境  | Apple Silicon Mac / Linux。**エンドユーザー起動は** `./install.sh` **→ ショートカット → ローカル WebUI**（Docker・`.dmg`・Developer Program 不要）。詳細 [PACKAGING.md](PACKAGING.md) |
+| 配布・実行環境  | Apple Silicon Mac / Linux。**エンドユーザー起動は** `./install.sh` **→ ショートカット → ローカル WebUI**（Docker・`.dmg`・Developer Program 不要）。手順は [README](../README.md) |
 | コスト      | 完全ローカル。外部 API・クラウドアシスタント課金なし（$0）。学習もローカル GPU のみ                                                                                             |
 | ネットワーク   | 外部抽出 API への依存なし。未発表データはイメージに焼かず実行時マウントで渡す（機密担保）。モデル重みの初回取得など配布・セットアップ時のネットワークは可                                              |
 | UI/UX    | 親フォルダ（`manuscript/` + `data/`）を選択し「照合開始」1クリック。CLI / 任意 PyQt GUI も可                                                                 |
@@ -66,7 +66,7 @@
     └── 論文図表 (.pdf)
 ```
 
-原稿は **Word（`.docx`）を推奨**する。PDF（proof 原稿など）も受け付けるが、精度が落ちる可能性がある。現状、Legend の n・本文の統計記載・参考文献の読み取りは Word が対象で、PDF 原稿のみの場合は主に図（パネル・埋め込み画像）の照合となる。
+原稿は **Word（`.docx`）を推奨**する。PDF（proof 原稿・掲載版など）も受け付ける。Word が無い場合は PDF の埋め込みテキストから段落を復元し（ヘッダー・フッターと図中ラベルの除去、段組みで途切れた段落の連結、Legend の分離、上付き引用番号の `[n]` 化）、Legend の n・本文の統計記載・参考文献も Word と同じ規則で読む。段組みの復元に頼るぶん Word より取りこぼしが出やすい。テキスト層の無いスキャンページは Tesseract で OCR する（`install.sh` が OS のパッケージ管理で任意導入。`PRE_PEER_CHECKER_SKIP_OCR=1` で省略）。導入できなかった環境では、読めなかったページをカバレッジに示す。Word と PDF が両方ある場合は Word を優先する（`parsers/manuscript_text.py`）。
 
 
 

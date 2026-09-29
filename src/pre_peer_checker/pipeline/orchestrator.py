@@ -61,7 +61,12 @@ from pre_peer_checker.engine.ref_pdf_meta import match_bib_to_pdfs, warnings_fro
 from pre_peer_checker.engine.ref_claim import review_claims_against_pdfs
 from pre_peer_checker.engine.exclusion_trace import warnings_from_exclusion_id_trace
 from pre_peer_checker.llm.claim_cite_schema import claims_from_in_text
-from pre_peer_checker.parsers.references import parse_references_from_docx
+from pre_peer_checker.parsers.references import parse_references_from_paragraphs
+from pre_peer_checker.parsers.manuscript_text import (
+    manuscript_paragraphs,
+    manuscript_source_artifact,
+    select_manuscript_pdfs,
+)
 from pre_peer_checker.parsers.cited_paper_ingest import ensure_pdfs_ingested
 from pre_peer_checker.parsers.figure_panel_labels import collect_panel_labels_by_figure
 from pre_peer_checker.engine.stats_residue_match import (
@@ -203,8 +208,9 @@ def _plan_stages(
     def n(*kinds: FileKind) -> int:
         return sum(len(bundle.get(k)) for k in kinds) if bundle is not None else 4
 
-    n_docx = min(n(FileKind.DOCX), 2)
     n_pdf = n(FileKind.PDF)
+    # Without Word, one PDF is read as the manuscript.
+    n_docx = min(n(FileKind.DOCX), 2) or min(n_pdf, 1)
     n_fig_pdf = (
         sum(1 for p in bundle.get(FileKind.PDF) if is_publication_figure_pdf(p))
         if bundle is not None
@@ -516,17 +522,31 @@ def run_verification(
             {"path": str(p), "groups": extract_group_defs(cfg)}
         )
 
-    # Prefer primary manuscript docx to reduce duplicate legends from versioned copies
+    # Prefer primary manuscript docx to reduce duplicate legends from versioned copies.
+    # Without a Word file, read the manuscript text out of a PDF instead.
     docx_files = bundle.get(FileKind.DOCX)
-    docx_for_legend = _select_docx_for_legend(docx_files)
+    manuscripts = _select_docx_for_legend(docx_files)
+    manuscript_kind = "docx" if manuscripts else "none"
     tracker.start(
         "legend_llm" if legend_llm else "legend",
-        "Word 原稿から Figure Legend を抽出中",
+        "Word 原稿から Figure Legend を抽出中"
+        if manuscripts
+        else "PDF から原稿本文を読み取り中",
+    )
+    if not manuscripts:
+        manuscripts = select_manuscript_pdfs(
+            bundle.get(FileKind.PDF), exclude_under=cited_paper_roots
+        )
+        if manuscripts:
+            manuscript_kind = "pdf"
+            tracker.update(detail="PDF 原稿から Figure Legend を抽出中")
+    result.artifacts["manuscript_source"] = manuscript_source_artifact(
+        manuscript_kind, manuscripts
     )
 
     panel_ns = []
     docx_arts = []
-    for p in docx_for_legend:
+    for p in manuscripts:
         try:
             legends = extract_structured_legends(p)
         except Exception as exc:  # noqa: BLE001
@@ -538,10 +558,11 @@ def run_verification(
                     " Word で一度開いて再保存するか、コピー／~$ 一時ファイルを除いて再実行してください。"
                     f" 詳細: {exc}"
                 )
+            kind_label = "PDF" if p.suffix.lower() == ".pdf" else "Word"
             result.warnings.append(
                 WarningItem(
                     tag=WarningTag.CONFIG_MISMATCH,
-                    title=f"Word 読込失敗: {p.name}",
+                    title=f"{kind_label} 読込失敗: {p.name}",
                     location=str(p),
                     reason=msg,
                     sources=[str(p)],
@@ -569,7 +590,7 @@ def run_verification(
     legend_jsons = []
     legend_llm_meta: list[dict] = []
     figure_chunks_art: list[dict] = []
-    n_legend_docs = len(docx_for_legend)
+    n_legend_docs = len(manuscripts)
     legend_figs_before = 0
     # One text model for every manuscript and the n-matrix alias step; each
     # select_backend() call would otherwise load the weights again.
@@ -585,7 +606,7 @@ def run_verification(
             )
         except Exception:  # noqa: BLE001
             shared_llm = None
-    for i_doc, p in enumerate(docx_for_legend):
+    for i_doc, p in enumerate(manuscripts):
         doc_fig_total = [0]
 
         def _on_figure(
@@ -744,7 +765,7 @@ def run_verification(
     from pre_peer_checker.engine.shared_control import shared_control_disclosure
 
     claim_texts: list[str] = []
-    for p in docx_for_legend:
+    for p in manuscripts:
         try:
             for leg in extract_structured_legends(p):
                 claim_texts.append(leg.text)
@@ -752,12 +773,7 @@ def run_verification(
             continue
         # Methods / Results 本文も主張スパーン用に取り込む（Figure Legend 以外）
         try:
-            from docx import Document as _Docx
-
-            for para in _Docx(str(p)).paragraphs:
-                t = (para.text or "").strip()
-                if t:
-                    claim_texts.append(t)
+            claim_texts.extend(manuscript_paragraphs(p))
         except Exception:
             continue
     for ch in figure_chunks_art:
@@ -865,9 +881,10 @@ def run_verification(
     # --- 参考文献メタ（原稿内）+ 任意: 引用先 PDF ---
     tracker.start("references", "原稿の References と本文中の引用を照合中")
     ref_bundle = None
-    for p in bundle.get(FileKind.DOCX):
+    ref_sources = bundle.get(FileKind.DOCX) if manuscript_kind == "docx" else manuscripts
+    for p in ref_sources:
         try:
-            ref_bundle = parse_references_from_docx(p)
+            ref_bundle = parse_references_from_paragraphs(manuscript_paragraphs(p))
             if ref_bundle.entries or ref_bundle.in_text:
                 break
         except Exception:
@@ -907,7 +924,7 @@ def run_verification(
             result.artifacts["ref_pdf_link"] = {"note": "cited_papers not provided"}
     else:
         result.artifacts["reference_bundle"] = {
-            "note": "no DOCX references parsed",
+            "note": "no manuscript references parsed",
             "entries": [],
             "in_text": [],
         }
@@ -946,7 +963,7 @@ def run_verification(
         from pre_peer_checker.parsers.legend_struct import _N_BARE_RE, extract_structured_legends as _esl
 
         bare_ns: list[tuple[str, int]] = []
-        for p in bundle.get(FileKind.DOCX):
+        for p in bundle.get(FileKind.DOCX) if manuscript_kind == "docx" else manuscripts:
             try:
                 legs = _esl(p)
             except Exception:

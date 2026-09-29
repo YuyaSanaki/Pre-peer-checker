@@ -51,6 +51,7 @@ class ProgressTracker:
         self._durations: dict[str, float] = {}
         self._current: int = -1
         self._t0 = clock()
+        self._t_end: float | None = None
         self._stage_t0 = self._t0
         self._sub_done: int | None = None
         self._sub_total: int | None = None
@@ -64,10 +65,19 @@ class ProgressTracker:
 
     # --- 書き手 API ---
     def set_stages(self, stages: list[Stage]) -> None:
-        """ステージ一覧を差し替える（同じ id の完了記録・現在位置は保持）。"""
+        """ステージ一覧を差し替える（同じ id の完了記録・現在位置は保持）。
+
+        開始済みで新しい一覧に無いステージ（照合前の準備など）は先頭に残す。
+        """
         with self._lock:
             current_id = self._stages[self._current].id if self._current >= 0 else None
-            self._stages = list(stages)
+            new_ids = {s.id for s in stages}
+            kept = [
+                s
+                for s in self._stages
+                if s.id not in new_ids and (s.id in self._durations or s.id == current_id)
+            ]
+            self._stages = kept + list(stages)
             self._current = next(
                 (i for i, s in enumerate(self._stages) if s.id == current_id), -1
             )
@@ -114,7 +124,10 @@ class ProgressTracker:
 
     def finish(self) -> None:
         with self._lock:
-            self._close_current(self._clock())
+            if self._finished:
+                return
+            self._t_end = self._clock()
+            self._close_current(self._t_end)
             self._current = -1
             self._detail = ""
             self._finished = True
@@ -132,7 +145,7 @@ class ProgressTracker:
     def snapshot(self) -> dict[str, Any]:
         with self._lock:
             now = self._clock()
-            elapsed = now - self._t0
+            elapsed = (self._t_end if self._t_end is not None else now) - self._t0
             eta = None if self._finished else self._eta_locked(now)
             if self._finished:
                 fraction = 1.0

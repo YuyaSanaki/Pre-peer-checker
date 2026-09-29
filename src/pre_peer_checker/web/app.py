@@ -16,7 +16,7 @@ from fastapi.responses import FileResponse, HTMLResponse
 from pydantic import BaseModel, Field
 
 from pre_peer_checker.gui.worker import GuiRunConfig, run_verification_job
-from pre_peer_checker.pipeline.progress import ProgressTracker, load_history
+from pre_peer_checker.pipeline.progress import ProgressTracker, Stage, load_history
 from pre_peer_checker.pipeline.run_archive import (
     DEFAULT_RUNS_DIR,
     REPORT_DIR,
@@ -30,6 +30,8 @@ from pre_peer_checker.web.folder_picker import pick_folder
 HOST = "127.0.0.1"
 DEFAULT_PORT = 8765
 RUNS_DIR = DEFAULT_RUNS_DIR
+# 照合フォルダへの入力複製・SHA-256 は照合本体（orchestrator）の前に走るので、独立ステージで計上する
+ARCHIVE_STAGE = Stage("archive", "照合フォルダへの入力保存・SHA-256 記録", 10.0)
 
 _TEMPLATE = Path(__file__).resolve().parent / "templates" / "index.html"
 _pick_lock = threading.Lock()
@@ -147,21 +149,28 @@ def _build_run_config(body: RunBody) -> tuple[GuiRunConfig | None, str | None]:
     )
 
 
-def _library_hashes(dirs: list[Path]) -> list[dict[str, Any]]:
+def _library_hashes(
+    dirs: list[Path], progress: ProgressTracker | None = None
+) -> list[dict[str, Any]]:
     from pre_peer_checker.pipeline.run_archive import sha256_file
 
     out = []
     for d in dirs:
         base = d if d.is_dir() else d.parent
         files = sorted(p for p in d.rglob("*") if p.is_file()) if d.is_dir() else [d]
-        entries = [
-            {
-                "path": p.relative_to(base).as_posix(),
-                "sha256": sha256_file(p),
-                "size": p.stat().st_size,
-            }
-            for p in files
-        ]
+        entries = []
+        for i, p in enumerate(files, 1):
+            if progress is not None and (i == 1 or i % 20 == 0 or i == len(files)):
+                progress.update(
+                    detail=f"参照ライブラリの SHA-256 を記録中: {d.name}（{i}/{len(files)}）"
+                )
+            entries.append(
+                {
+                    "path": p.relative_to(base).as_posix(),
+                    "sha256": sha256_file(p),
+                    "size": p.stat().st_size,
+                }
+            )
         out.append({"path": str(d), "files": entries})
     return out
 
@@ -174,7 +183,21 @@ def _run_urls(name: str) -> dict[str, str]:
 def _prepare_archive(config: GuiRunConfig, body: RunBody) -> RunArchive:
     """照合フォルダを作り、入力・照合条件を保存して config の出力先を差し替える。"""
     from pre_peer_checker.catalog.runtime import resolve_patterns_path
+    from pre_peer_checker.pipeline.orchestrator import initial_stages
 
+    if config.progress is not None:
+        config.progress.set_stages(
+            [
+                ARCHIVE_STAGE,
+                *initial_stages(
+                    legend_llm=config.legend_llm,
+                    vlm_assist=config.vlm_assist,
+                    corpus=config.corpus,
+                    cited_papers=config.cited_papers,
+                ),
+            ]
+        )
+        config.progress.start(ARCHIVE_STAGE.id, "照合フォルダを作成中")
     case_root = config.inputs[0].parent
     archive = RunArchive.create(
         RUNS_DIR,
@@ -197,13 +220,11 @@ def _prepare_archive(config: GuiRunConfig, body: RunBody) -> RunArchive:
     }
     config.patterns_path = archive.snapshot_conditions(settings, patterns_path=catalog_src)
     if config.corpus or config.cited_papers:
-        if config.progress is not None:
-            config.progress.update(detail="参照ライブラリの SHA-256 を記録中")
         archive.add_condition(
             "reference_libraries.json",
             {
-                "corpus": _library_hashes(config.corpus),
-                "cited_papers": _library_hashes(config.cited_papers),
+                "corpus": _library_hashes(config.corpus, config.progress),
+                "cited_papers": _library_hashes(config.cited_papers, config.progress),
             },
         )
     config.output_html = archive.report_dir / "report.html"

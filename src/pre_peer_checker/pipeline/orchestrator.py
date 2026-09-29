@@ -282,6 +282,39 @@ def _plan_stages(
     return stages
 
 
+def _plan_flags(
+    *,
+    legend_llm: bool,
+    vlm_assist: bool,
+    corpus: list[Path | str] | None,
+    cited_papers: list[Path | str] | None,
+) -> dict[str, bool | int]:
+    return {
+        "legend_llm": bool(legend_llm),
+        "vlm_assist": bool(vlm_assist),
+        "n_corpus_images": len(collect_corpus_images(list(corpus))) if corpus else 0,
+        "cited_papers": bool(cited_papers),
+    }
+
+
+def initial_stages(
+    *,
+    legend_llm: bool,
+    vlm_assist: bool,
+    corpus: list[Path | str] | None = None,
+    cited_papers: list[Path | str] | None = None,
+) -> list[Stage]:
+    """入力走査前の暫定ステージ一覧（照合前の準備中から全体の残り時間を出すため）。"""
+    return _plan_stages(
+        **_plan_flags(
+            legend_llm=legend_llm,
+            vlm_assist=vlm_assist,
+            corpus=corpus,
+            cited_papers=cited_papers,
+        )
+    )
+
+
 def run_verification(
     paths: list[Path | str],
     *,
@@ -318,12 +351,12 @@ def run_verification(
     from pre_peer_checker.llm.registry import resolve_model
 
     tracker = progress if progress is not None else ProgressTracker()
-    plan_flags = {
-        "legend_llm": bool(legend_llm),
-        "vlm_assist": bool(vlm_assist),
-        "n_corpus_images": len(collect_corpus_images(list(corpus))) if corpus else 0,
-        "cited_papers": bool(cited_papers),
-    }
+    plan_flags = _plan_flags(
+        legend_llm=legend_llm,
+        vlm_assist=vlm_assist,
+        corpus=corpus,
+        cited_papers=cited_papers,
+    )
     tracker.set_stages(_plan_stages(**plan_flags))
     tracker.start("collect", "入力フォルダを走査中")
 

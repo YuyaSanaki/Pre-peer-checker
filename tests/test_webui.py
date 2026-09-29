@@ -239,6 +239,10 @@ def test_web_api_run_start_reports_progress(
     assert st["done"] is False
     assert snap["stage_label"] == "Figure Legend の読み取り"
     assert snap["detail"] == "Figure 2 を読み取り中（2/3）"
+    # 照合フォルダへの入力保存は照合本体の前に走るので、完了済みステージとして先頭に残る
+    assert snap["stages"][0]["id"] == "archive"
+    assert snap["stages"][0]["status"] == "done"
+    assert snap["stages"][0]["seconds"] is not None
     assert client.get("/api/run/current").json()["job_id"] == job_id
 
     busy = client.post("/api/run/start", json={"root": str(root)})

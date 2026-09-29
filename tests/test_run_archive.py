@@ -69,3 +69,23 @@ def test_archive_layout_and_same_minute_runs(tmp_path: Path) -> None:
     assert resolve_run_dir(runs, first.name) == first.run_dir.resolve()
     assert resolve_run_dir(runs, "..") is None
     assert resolve_run_dir(runs, "../case") is None
+
+
+def test_snapshot_inputs_reports_byte_progress(tmp_path: Path) -> None:
+    from pre_peer_checker.pipeline.progress import ProgressTracker, Stage
+
+    case = tmp_path / "case"
+    (case / "data").mkdir(parents=True)
+    (case / "data" / "big.bin").write_bytes(b"x" * 3000)
+    (case / "data" / "small.csv").write_bytes(b"y" * 1000)
+    tr = ProgressTracker()
+    tr.set_stages([Stage("archive", "Archive", 10.0)])
+    tr.start("archive")
+
+    archive = RunArchive.create(tmp_path / "runs", case_root=case, title="T")
+    archive.snapshot_inputs([case / "data"], progress=tr)
+
+    snap = tr.snapshot()
+    assert snap["sub_total"] == 4000
+    assert snap["sub_done"] == 4000
+    assert "2/2" in snap["detail"]

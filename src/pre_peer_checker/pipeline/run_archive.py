@@ -186,6 +186,15 @@ def _is_skipped(p: Path) -> bool:
     return p.name in _SKIP_NAMES or p.name.startswith("~$")
 
 
+def _fmt_bytes(n: int) -> str:
+    size = float(n)
+    for unit in ("B", "KB", "MB", "GB"):
+        if size < 1024:
+            return f"{size:.0f} {unit}" if unit == "B" else f"{size:.1f} {unit}"
+        size /= 1024
+    return f"{size:.1f} TB"
+
+
 def sha256_file(path: Path) -> str:
     h = hashlib.sha256()
     with path.open("rb") as fh:
@@ -371,9 +380,17 @@ class RunArchive:
                     plan.append((p, dest_root / p.relative_to(src_root)))
 
         total = len(plan)
+        # 残り時間はバイト数で外挿する（顕微鏡の生データ 1 件と CSV 1 件では桁が違う）
+        total_bytes = sum(src.stat().st_size for src, _ in plan)
+        done_bytes = 0
+        if progress is not None:
+            progress.update(done=0, total=total_bytes)
         for i, (src, dst) in enumerate(plan, 1):
             if progress is not None and (i == 1 or i % 20 == 0 or i == total):
-                progress.update(detail=f"入力ファイルを保存・SHA-256 計算中（{i}/{total}）")
+                progress.update(
+                    detail=f"入力ファイルを保存・SHA-256 計算中（{i}/{total}"
+                    f" · {_fmt_bytes(done_bytes)} / {_fmt_bytes(total_bytes)}）"
+                )
             dst.parent.mkdir(parents=True, exist_ok=True)
             st = src.stat()
             _clone_or_copy(src, dst)
@@ -382,6 +399,9 @@ class RunArchive:
                 {"path": rel, "sha256": sha256_file(dst), "size": st.st_size, "source": str(src)}
             )
             self._source_stats[rel] = (st.st_size, st.st_mtime_ns, src)
+            done_bytes += st.st_size
+            if progress is not None:
+                progress.update(done=done_bytes)
         self._write_manifest(status="running")
 
     def _changed_sources(self) -> list[str]:

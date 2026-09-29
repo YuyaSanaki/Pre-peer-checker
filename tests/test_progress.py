@@ -173,3 +173,38 @@ def test_stage_ratios_and_set_stages_keeps_current() -> None:
     snap = tr.snapshot()
     assert snap["stage_id"] == "llm"
     assert tr.stage_ratios() == {"a": 2.0}
+
+
+def test_set_stages_keeps_started_stages_missing_from_new_plan() -> None:
+    clock = FakeClock()
+    tr = ProgressTracker(clock=clock)
+    tr.set_stages([Stage("prep", "Prep", 5.0), Stage("a", "A", 10.0)])
+    tr.start("prep")
+    clock.t = 30.0
+    tr.set_stages([Stage("a", "A", 10.0), Stage("b", "B", 10.0)])
+    assert tr.snapshot()["stage_id"] == "prep"
+    tr.start("a")
+    clock.t = 40.0
+    tr.set_stages([Stage("a", "A", 10.0), Stage("b", "B", 10.0)])
+    snap = tr.snapshot()
+    assert [s["id"] for s in snap["stages"]] == ["prep", "a", "b"]
+    assert snap["stages"][0]["status"] == "done"
+    assert snap["stages"][0]["seconds"] == 30.0
+    assert snap["stage_index"] == 2
+
+
+def test_elapsed_is_frozen_at_finish_and_matches_stage_sum() -> None:
+    clock = FakeClock()
+    tr = _tracker(clock)
+    tr.start("a")
+    clock.t = 10.0
+    tr.start("llm")
+    clock.t = 25.0
+    tr.start("b")
+    clock.t = 30.0
+    tr.finish()
+    clock.t = 500.0  # 完了後の後処理（監査ハッシュ等）は所要時間に含めない
+    tr.finish()
+    snap = tr.snapshot()
+    assert snap["elapsed_s"] == 30.0
+    assert sum(s["seconds"] for s in snap["stages"]) == snap["elapsed_s"]

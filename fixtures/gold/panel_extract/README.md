@@ -15,6 +15,8 @@ Legend → `(figure, panel, group, n)` の抽出品質用。**Warning gold / 実
 正本スキーマ: [`panel_extract_gold.schema.json`](panel_extract_gold.schema.json)  
 人手手順の詳細: [`HUMAN_REVIEW.md`](HUMAN_REVIEW.md)
 
+各 case の `case_manifest` に `split: dev | holdout` がある。paper_01 / paper_02 は dev（ルール作りに使用済み）。**未見論文は holdout** として `scripts/dev_holdout_prepare.py --case paper_NN --new` で作り、ブラインドで gold を確定してから `scripts/dev_generalization_eval.py` で測る（[`HUMAN_REVIEW.md`「holdout（汎化評価）」](HUMAN_REVIEW.md#holdout汎化評価)）。
+
 ## 新規論文を足す
 
 ```bash

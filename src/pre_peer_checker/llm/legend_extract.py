@@ -56,6 +56,26 @@ def structured_to_legend_json(leg: StructuredLegend) -> LegendFigureJSON:
     )
 
 
+# Merge guards that post-filter / supplement LLM rows. The product always runs with
+# ALL_GUARDS; subsets exist only for generalization ablation (eval/generalization.py).
+GUARD_GROUNDING = "grounding"
+GUARD_SECTION_MISATTRIB = "section_misattrib"
+GUARD_DOSE_ON_WRONG = "dose_on_wrong"
+GUARD_STOLEN_FROM_RULES = "stolen_from_rules"
+GUARD_GROUP_CONFLICT = "group_conflict"
+GUARD_RULE_FILL = "rule_fill"
+ALL_GUARDS: frozenset[str] = frozenset(
+    {
+        GUARD_GROUNDING,
+        GUARD_SECTION_MISATTRIB,
+        GUARD_DOSE_ON_WRONG,
+        GUARD_STOLEN_FROM_RULES,
+        GUARD_GROUP_CONFLICT,
+        GUARD_RULE_FILL,
+    }
+)
+
+
 def _rules_from_chunk(chunk: FigureChunk) -> LegendFigureJSON:
     """Rule extract primarily from legend text; citation scan includes all sections."""
     from pre_peer_checker.parsers.legend_struct import parse_panel_ns, _TEST_RE, _P_RE
@@ -272,6 +292,7 @@ def _merge_llm_over_rules(
     *,
     llm_primary: bool = True,
     source_text: str | None = None,
+    guards: frozenset[str] = ALL_GUARDS,
 ) -> LegendFigureJSON:
     """Merge LLM + rules. Rules own parenthesis class (panel-letter → empty group).
 
@@ -279,7 +300,15 @@ def _merge_llm_over_rules(
     - Drop K←(H,I,J) section misattribution and dose-on-A mistakes.
     - If rules assign panel+n with empty group, strip LLM-invented groups on that key.
     - Always keep rule rows the LLM omitted (shared n, last list element, published styles).
+
+    ``guards`` selects which of these steps run (see ``ALL_GUARDS``); the
+    group-strip step belongs to ``group_conflict``.
     """
+    unknown = set(guards) - ALL_GUARDS
+    if unknown:
+        raise ValueError(f"unknown guards: {sorted(unknown)}")
+    dose_guard = GUARD_DOSE_ON_WRONG in guards
+    rule_fill = GUARD_RULE_FILL in guards
     if not parsed.figure:
         parsed.figure = base.figure
     if base.citation.mentioned and not parsed.citation.mentioned:
@@ -302,20 +331,26 @@ def _merge_llm_over_rules(
     }
     rule_pn = {(rp.panel.upper(), int(rp.n)) for rp in base.panels if rp.n is not None}
 
-    if parsed.panels:
+    if parsed.panels and GUARD_GROUNDING in guards:
         parsed.panels = _drop_ungrounded_llm_rows(parsed.panels, source_text)
 
     if llm_primary and parsed.panels:
-        kept = [p for p in parsed.panels if not _is_misattributed_section_panel(p)]
-        kept = _drop_dose_on_wrong_panels(kept)
-        kept = _drop_llm_n_stolen_from_rules(kept, rule_pn)
-        kept = _drop_llm_group_conflicts(kept, base.panels)
+        kept = list(parsed.panels)
+        if GUARD_SECTION_MISATTRIB in guards:
+            kept = [p for p in kept if not _is_misattributed_section_panel(p)]
+        if dose_guard:
+            kept = _drop_dose_on_wrong_panels(kept)
+        if GUARD_STOLEN_FROM_RULES in guards:
+            kept = _drop_llm_n_stolen_from_rules(kept, rule_pn)
+        if GUARD_GROUP_CONFLICT in guards:
+            kept = _drop_llm_group_conflicts(kept, base.panels)
         by_key: dict[tuple[str, str, int | None], LegendPanelJSON] = {}
         overlaid = False
         for p in kept:
             g = str(p.groups[0]) if p.groups else ""
             if (
-                p.n is not None
+                GUARD_GROUP_CONFLICT in guards
+                and p.n is not None
                 and (p.panel.upper(), int(p.n)) in rule_empty_pn
                 and g
             ):
@@ -336,7 +371,7 @@ def _merge_llm_over_rules(
         llm_empty_pn = {
             (k[0], k[2]) for k in by_key if not k[1] and k[2] is not None
         }
-        for rp in base.panels:
+        for rp in base.panels if rule_fill else []:
             g = str(rp.groups[0]) if rp.groups else ""
             key = (rp.panel.upper(), g, rp.n)
             if key in by_key:
@@ -357,8 +392,13 @@ def _merge_llm_over_rules(
             ):
                 by_key[key] = rp
                 overlaid = True
-        parsed.panels = _drop_dose_on_wrong_panels(list(by_key.values()))
+        merged = list(by_key.values())
+        parsed.panels = _drop_dose_on_wrong_panels(merged) if dose_guard else merged
         parsed.extractor = "llm+rules" if overlaid else "llm"
+        return parsed
+
+    if not rule_fill:
+        parsed.extractor = "llm"
         return parsed
 
     if not parsed.panels and base.panels:
@@ -424,28 +464,40 @@ def extract_check_items_from_chunk(
     prefer_llm: bool = False,
     legend_only_prompt: bool = False,
     llm_primary: bool = True,
+    guards: frozenset[str] = ALL_GUARDS,
+    prompt_variant: str = "full",
 ) -> LegendFigureJSON:
-    """Rules fallback; when prefer_llm, LLM panels take priority by default."""
+    """Rules fallback; when prefer_llm, LLM panels take priority by default.
+
+    Without the ``rule_fill`` guard an LLM failure yields no panels instead of
+    the rules result, so ablations measure the LLM path alone.
+    """
     base = _rules_from_chunk(chunk)
     if not prefer_llm or llm_generate is None:
         return base
     if legend_only_prompt:
-        prompt = build_legend_llm_prompt(chunk.legend or "", figure_hint=chunk.figure_id)
+        prompt = build_legend_llm_prompt(
+            chunk.legend or "", figure_hint=chunk.figure_id, variant=prompt_variant
+        )
     else:
         prompt = build_figure_chunk_llm_prompt(
             chunk.prompt_body(),
             figure_hint=chunk.figure_id,
+            variant=prompt_variant,
         )
+    fallback = base if GUARD_RULE_FILL in guards else LegendFigureJSON(
+        figure=base.figure, extractor="llm-failed"
+    )
     try:
         raw = llm_generate(prompt)
         parsed = parse_legend_llm_response(raw)
     except Exception:
-        return base
+        return fallback
     if parsed is None:
-        return base
+        return fallback
     source = "\n".join([chunk.legend or "", *chunk.results, *chunk.methods])
     return _merge_llm_over_rules(
-        base, parsed, llm_primary=llm_primary, source_text=source
+        base, parsed, llm_primary=llm_primary, source_text=source, guards=guards
     )
 
 

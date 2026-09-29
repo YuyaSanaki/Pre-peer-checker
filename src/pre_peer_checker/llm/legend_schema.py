@@ -325,10 +325,39 @@ def legend_json_schema() -> dict[str, Any]:
     return dict(LEGEND_JSON_SCHEMA)
 
 
-def build_legend_llm_prompt(legend_text: str, figure_hint: str | None = None) -> str:
+_MINIMAL_RULE = (
+    "Rules:\n"
+    "- Emit one panels[] object per (panel, group, n) stated in the text.\n"
+    "- Do not invent panels or statistics absent from the provided text.\n"
+)
+
+# Schema-only baselines for generalization ablation (no case-derived disambiguation rules).
+LEGEND_JSON_MINIMAL_PROMPT = (
+    LEGEND_JSON_SYSTEM_PROMPT.split("Critical rules:")[0] + _MINIMAL_RULE
+)
+FIGURE_CHUNK_MINIMAL_PROMPT = (
+    FIGURE_CHUNK_SYSTEM_PROMPT.split("Critical disambiguation:")[0] + _MINIMAL_RULE
+)
+
+PROMPT_VARIANTS = ("full", "minimal")
+
+
+def _check_variant(variant: str) -> None:
+    if variant not in PROMPT_VARIANTS:
+        raise ValueError(f"unknown prompt variant: {variant!r}")
+
+
+def build_legend_llm_prompt(
+    legend_text: str,
+    figure_hint: str | None = None,
+    *,
+    variant: str = "full",
+) -> str:
+    _check_variant(variant)
     hint = figure_hint or "unknown"
+    system = LEGEND_JSON_SYSTEM_PROMPT if variant == "full" else LEGEND_JSON_MINIMAL_PROMPT
     return (
-        f"{LEGEND_JSON_SYSTEM_PROMPT}\n\n"
+        f"{system}\n\n"
         f"Figure hint: {hint}\n\n"
         f"Legend text:\n{legend_text}\n"
     )
@@ -338,10 +367,13 @@ def build_figure_chunk_llm_prompt(
     chunk_text: str,
     *,
     figure_hint: str | None = None,
+    variant: str = "full",
 ) -> str:
+    _check_variant(variant)
     hint = figure_hint or "unknown"
+    system = FIGURE_CHUNK_SYSTEM_PROMPT if variant == "full" else FIGURE_CHUNK_MINIMAL_PROMPT
     return (
-        f"{FIGURE_CHUNK_SYSTEM_PROMPT}\n\n"
+        f"{system}\n\n"
         f"Target figure: {hint}\n\n"
         f"{chunk_text}\n"
     )

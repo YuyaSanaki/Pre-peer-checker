@@ -9,12 +9,14 @@ Example:
     --case paper_01 --case paper_02 \\
     --profile qwen2.5-7b-hf \\
     -o outputs/metrics/panel_extract_paper_7b_ruleslock.json
+
+Prints individual misses, so it only accepts dev cases. holdout cases and
+ablations go through scripts/dev_generalization_eval.py.
 """
 
 from __future__ import annotations
 
 import argparse
-import importlib.util
 import json
 import os
 import sys
@@ -27,6 +29,8 @@ os.environ.setdefault("TORCH_COMPILE_DISABLE", "1")
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
+from pre_peer_checker.eval import generalization as gz
+from pre_peer_checker.eval import panel_extract_score as ev
 from pre_peer_checker.llm.backend import select_backend
 from pre_peer_checker.llm.legend_extract import extract_check_items_from_chunk
 from pre_peer_checker.parsers.figure_chunks import FigureChunk
@@ -35,38 +39,21 @@ from pre_peer_checker.parsers.legend_struct import (
     parse_panel_ns,
 )
 
-CASE_DIR = {
-    "paper_01": ROOT / "input/panel_extract/paper_01",
-    "paper_02": ROOT / "input/panel_extract/paper_02",
-}
-CASE_GOLD = {
-    "paper_01": ROOT / "fixtures/gold/panel_extract/paper_01/panel_extract_gold.json",
-    "paper_02": ROOT / "fixtures/gold/panel_extract/paper_02/panel_extract_gold.json",
-}
-CASE_KEEP = {
-    "paper_01": {"1", "2", "3", "4", "5"},
-    "paper_02": {"1", "2", "3", "4", "5", "6", "7"},
-}
+
+def _dev_case(case_id: str) -> gz.Case:
+    case = gz.discover_cases(case_ids=[case_id])[0]
+    if case.split != "dev":
+        raise SystemExit(
+            f"{case_id} is holdout; use scripts/dev_generalization_eval.py (aggregates only)"
+        )
+    return case
 
 
-def _case_pdf(case: str) -> Path:
-    """Local PDF under input/panel_extract/<case>/. Do not hardcode the filename."""
-    directory = CASE_DIR[case]
-    pdfs = sorted(p for p in directory.glob("*.pdf") if p.is_file())
-    if len(pdfs) != 1:
-        rel = directory.relative_to(ROOT)
-        raise SystemExit(f"{case}: expected one PDF under {rel}/, found {len(pdfs)}")
-    return pdfs[0]
-
-
-def _load_eval():
-    spec = importlib.util.spec_from_file_location(
-        "ev", ROOT / "scripts/dev_panel_extract_eval.py"
-    )
-    mod = importlib.util.module_from_spec(spec)
-    assert spec.loader is not None
-    spec.loader.exec_module(mod)
-    return mod
+def _case_pdf(case: gz.Case) -> Path:
+    src = case.legend_source()
+    if src is None or src[0] != "pdf":
+        raise SystemExit(f"{case.case_id}: expected one PDF under {case.input_dir}/")
+    return src[1]
 
 
 def _style_bucket(item: dict) -> str:
@@ -85,20 +72,23 @@ def run_case(
     case: str,
     *,
     profile: str,
+    prefer: str,
     rules_only: bool,
     max_tokens: int,
 ) -> dict:
-    ev = _load_eval()
-    pdf = _case_pdf(case)
-    gold = json.loads(CASE_GOLD[case].read_text(encoding="utf-8"))
-    pairs = extract_figure_captions_from_pdf(pdf, keep=CASE_KEEP[case])
+    c = _dev_case(case)
+    pdf = _case_pdf(c)
+    gold = c.load_gold("legend")
+    if gold is None:
+        raise SystemExit(f"{case}: missing {c.gold_path('legend')}")
+    pairs = extract_figure_captions_from_pdf(pdf, keep=c.figures_in_scope)
     if not pairs:
         raise SystemExit(f"{case}: no captions from {pdf}")
 
     gen = None
     backend_info = None
     if not rules_only:
-        backend = select_backend("cuda", profile_id=profile)
+        backend = select_backend(prefer, profile_id=profile)
         if backend is None:
             raise SystemExit(f"no backend for {profile}")
         backend_info = backend.info()
@@ -225,13 +215,9 @@ def run_case(
 
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument(
-        "--case",
-        action="append",
-        choices=sorted(CASE_DIR),
-        required=True,
-    )
+    ap.add_argument("--case", action="append", required=True, help="dev case id (repeatable)")
     ap.add_argument("--profile", default="qwen2.5-7b-hf")
+    ap.add_argument("--prefer", default="cuda", help="LLM backend: auto | mlx | cuda")
     ap.add_argument(
         "--rules-only",
         action="store_true",
@@ -250,6 +236,7 @@ def main(argv: list[str] | None = None) -> int:
         run_case(
             c,
             profile=args.profile,
+            prefer=args.prefer,
             rules_only=args.rules_only,
             max_tokens=args.max_tokens,
         )

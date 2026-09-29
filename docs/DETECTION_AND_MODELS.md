@@ -560,6 +560,7 @@ Tier 3 で「この Fig は不正か」を聞かない（§5.4）。
 - `gold_eval` / `metrics_suite` で **pattern_id 単位**の Precision / Recall を計測（「100%」の製品宣伝はしない）。
 - CI ゲート例: 合成＋必須ゴールドで **required recall = 1.0**；拡張スイート（〜20 ケース目標）で Precision／Recall を記録し回帰を検知。
 - 失敗時は **パーサー／紐付け／照合**のどこで落ちたかをレポート（カバレッジと一体）。
+- **汎化（読む側）**: dev（ルール作りに使った論文）の満点は汎化を示さない。Legend 抽出とパネル文字 OCR は `scripts/dev_generalization_eval.py` で **holdout（未見論文・ブラインド gold・凍結）** と分けて測り、ガード／プロンプト規則ごとの holdout 寄与を `fixtures/gold/rule_ledger.json` に残す。holdout で寄与の無い規則は削除候補。
 
 ### 5.6 やらないこと
 
@@ -590,6 +591,7 @@ primary private benchmark 相当の fixture（匿名化コピー可）:
 
 ## 7. 改訂履歴
 
+- 2026-09-29: **dev / holdout 汎化評価** — case に `split`。holdout は未見 OA 論文をブラインドで全件 gold 化し、初回採点で sha256 凍結、集計のみ表示（`--reveal` で dev へ burn）。`rules_only` / `llm_minimal` / `prompt_minimal` / `current-minus-<guard>` の ablation、`--gate`（dev 非悪化・holdout 許容幅）、`rule_ledger.json`。`legend_extract` のマージガードと `legend_schema` のプロンプトを切替可能に（製品既定は不変）。`scripts/dev_holdout_prepare.py` / `dev_generalization_eval.py`。
 - 2026-09-25: **bbox ゴールデン + P-EXCLUSION-UNDECLARED 初期** — 2×2 合成 pct CI。data_n>legend_n かつ除外基準なしで Warning（合成 exclusion_undeclared）。
 - 2026-09-25: **P0 抽出キー** — `error_bar_type` / `independence_claims` / `exclusion_criteria` を Legend JSON スキーマ・rules・coerce に追加。
 - 2026-09-25: **typo merge 抑制** — `_drop_llm_n_stolen_from_rules`（rules 所有 empty-group n の別パネル付け替えを drop）。CUDA 7B hybrid で forbid_fp=0。

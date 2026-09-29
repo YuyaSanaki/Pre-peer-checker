@@ -14,6 +14,11 @@
     },
     "role": { "type": "string", "const": "legend_panel_extract_gold" },
     "description": { "type": "string" },
+    "coverage": {
+      "type": "string",
+      "enum": ["hard_span", "exhaustive"],
+      "description": "exhaustive = every legend n in figures_in_scope is listed (required for holdout; makes precision meaningful). hard_span = only difficult spans (dev legacy)."
+    },
     "notes": { "type": "array", "items": { "type": "string" } },
     "source": {
       "type": "object",

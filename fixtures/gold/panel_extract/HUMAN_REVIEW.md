@@ -92,6 +92,38 @@
 3. 合意分だけ `panel_extract_gold.json` に追記（draft の `review_status` も更新）
 4. 全 hard-span が終わったらケース `review.status=confirmed`
 
+## holdout（汎化評価）
+
+dev（paper_01 / paper_02 / private_benchmark）はルール作りに使った論文なので、そこでの満点は汎化を示さない。**未見論文 = holdout** を別に持ち、変更の採否をそこで確かめる。
+
+| | dev | holdout |
+|--|-----|---------|
+| 役割 | 失敗を見てプロンプト・規則・ガードを直す | 直した結果が他の論文にも効くかを測る |
+| gold の作り方 | draft（規則／32B）を人が直す可 | **ツール出力を一切見ずに**作る |
+| 範囲 | hard-span（`coverage: hard_span`）可 | Figure 内の n を**全件**（`coverage: exhaustive`） |
+| レポート | 個別の取りこぼし・余分行まで表示 | **集計値のみ** |
+| 個別の誤りを見たら | — | そのケースは dev に移る（burn）。新しい holdout を足す |
+
+### 手順（1 論文）
+
+1. OA 論文を選ぶ。既存 holdout と書き方がばらけるように（大文字／小文字パネル、`N =`／後置 `(n = )`、Cell 系／Nature 系など）。
+2. `mkdir -p input/panel_extract/paper_NN` に PDF を 1 本置き、`python scripts/dev_holdout_prepare.py --case paper_NN --new`。
+   - `legend_excerpt.txt`（`pdftotext -raw` のキャプション）、`figures/FigN.pdf`（評価入力）、`review/FigN.png`（目視用）と、空の gold 2 つができる。**予測は出さない。**
+   - 図ページを取り違えたら `--figure-page N=ページ` で固定して再実行。
+3. `case_manifest.json` の `style_tags` を埋める（論文名・DOI は書かない）。
+4. **Legend gold**（`panel_extract_gold.json`）: excerpt を読み、`figures_in_scope` の全 Figure について legend にある n を全部 item にする。判断ルールは上の「判断ルール」と同じ。迷う n は `review_status: dropped`。
+   - Cursor 対話で作る場合も、エージェントには excerpt だけを渡し、`dev_generalization_eval.py` や WebUI の出力は開かない。
+5. **パネル文字 gold**（`panel_labels_gold.json`）: `review/FigN.png` を見て、図に**印字されている**パネル文字を列挙（legend の記述ではなく図面）。
+6. 両方の `review.status` を `confirmed` にする。
+7. `python scripts/dev_generalization_eval.py --task legend` / `--task panel_ocr`。初回の採点で gold の sha256 が manifest の `frozen` に記録される。
+   - 凍結後に gold を直すと停止する。ツール出力と無関係な訂正（読み違い・typo）に限り `--revise-gold "理由"` で通す（`gold_revisions` に残る）。
+8. holdout の個別の誤りを見たいときは `--reveal paper_NN`。表示と同時にそのケースは dev へ移る。
+
+### 変更を入れるとき
+
+- dev の失敗だけを見て直す → `--configs current --gate`。dev が悪化せず、holdout の recall 低下が許容幅（1 件または 2 ポイント）以内、precision 非悪化なら PASS で基準を更新（`outputs/generalization/history.jsonl`）。
+- ガード・プロンプト規則の効き目は `--configs all --update-ledger` で [`../rule_ledger.json`](../rule_ledger.json) に書く。`suggestion` が `remove` / `narrow` の規則は dev で条件を絞るか外す。`decision` 欄は人が決める。
+
 ## ケース先頭の `review` オブジェクト
 
 ```json

@@ -84,7 +84,28 @@ def _paper_pdf(paper: str) -> Path:
     return pdfs[0]
 
 
-def _legend_panels(paper: str, fig: str) -> list[str]:
+def _case_json(paper: str, name: str) -> dict | None:
+    p = ROOT / "fixtures/gold/panel_extract" / PAPER_DIRS[paper].name / name
+    return json.loads(p.read_text()) if p.is_file() else None
+
+
+def _manifest(paper: str) -> dict:
+    return _case_json(paper, "case_manifest.json") or _case_json(paper, "case_manifest.example.json") or {}
+
+
+def _gold_panels(paper: str, fig: str) -> tuple[list[str], str] | None:
+    """Human-confirmed letters from panel_labels_gold.json, if curated."""
+    gold = _case_json(paper, "panel_labels_gold.json")
+    for f in (gold or {}).get("figures") or []:
+        if re.sub(r"\D", "", str(f.get("figure", ""))) == fig:
+            panels = [str(c) for c in f.get("panels") or []]
+            case = f.get("case") or ("upper" if all(c.isupper() for c in panels) else "lower")
+            return panels, case
+    return None
+
+
+def _legend_panels(paper: str, fig: str) -> tuple[list[str], str]:
+    """Fallback answer key from the legend: (A)-style uppercase, else `a,b`-style lowercase."""
     sys.path.insert(0, str(ROOT / "src"))
     from pre_peer_checker.parsers.manuscript_text import pdf_text
 
@@ -98,17 +119,19 @@ def _legend_panels(paper: str, fig: str) -> list[str]:
         if legend or head.match(p):
             legend.append(p)
     text = " ".join(legend)
-    if paper == "p02":
-        hits = re.findall(r"\(([A-Z])((?:\s*(?:[-–,]|and)\s*[A-Z])*)\)", text)
-        letters = [a for a, _ in hits] + [c for _, rest in hits for c in re.findall(r"[A-Z]", rest)]
-    else:
-        hits = re.findall(r"(?:\|[^.]*?\.|\.)\s+([a-z])((?:\s*[,–-]\s*[a-z])*)\s+(?=[A-Z0-9])", text)
-        letters = [a for a, _ in hits] + [c for _, rest in hits for c in re.findall(r"[a-z]", rest)]
+    hits = re.findall(r"\(([A-Z])((?:\s*(?:[-–,]|and)\s*[A-Z])*)\)", text)
+    upper = [a for a, _ in hits] + [c for _, rest in hits for c in re.findall(r"[A-Z]", rest)]
+    hits = re.findall(r"(?:\|[^.]*?\.|\.)\s+([a-z])((?:\s*[,–-]\s*[a-z])*)\s+(?=[A-Z0-9])", text)
+    lower = [a for a, _ in hits] + [c for _, rest in hits for c in re.findall(r"[a-z]", rest)]
+    letters, base, case = (upper, "A", "upper") if len(upper) >= len(lower) else (lower, "a", "lower")
     if not letters:
-        return []
-    base = "A" if paper == "p02" else "a"
+        return [], case
     top = max(letters)
-    return [chr(c) for c in range(ord(base), ord(top) + 1)]
+    return [chr(c) for c in range(ord(base), ord(top) + 1)], case
+
+
+def _answer_key(paper: str, fig: str) -> tuple[list[str], str]:
+    return _gold_panels(paper, fig) or _legend_panels(paper, fig)
 
 
 def _words_in(page, clip) -> list[dict]:
@@ -159,6 +182,7 @@ def cmd_prepare(out: Path, n_rplots: int, *, profile: str) -> None:
 
     for paper in PAPER_DIRS:
         doc = pymupdf.open(_paper_pdf(paper))
+        page_to_fig = {int(pg): str(k) for k, pg in (_manifest(paper).get("figure_pages") or {}).items()}
         for page in doc:
             infos = page.get_image_info()
             area = sum((r["bbox"][2] - r["bbox"][0]) * (r["bbox"][3] - r["bbox"][1]) for r in infos)
@@ -167,10 +191,8 @@ def cmd_prepare(out: Path, n_rplots: int, *, profile: str) -> None:
             big = max(infos, key=lambda r: (r["bbox"][2] - r["bbox"][0]) * (r["bbox"][3] - r["bbox"][1]))
             clip = pymupdf.Rect(big["bbox"])
             m = _CAP_RE.search(page.get_text())
-            fig = m.group(1) if m else None
-            if fig is None:
-                # Nature Fig.1/2 pages: caption split across spans; fall back to page order
-                fig = {3: "1", 5: "2"}.get(page.number + 1) if paper == "p01" else None
+            # Captions split across spans (e.g. Nature Fig.1/2): pin via manifest figure_pages
+            fig = page_to_fig.get(page.number + 1) or (m.group(1) if m else None)
             if fig is None:
                 continue
             iid = f"{paper}_fig{fig}"
@@ -181,8 +203,9 @@ def cmd_prepare(out: Path, n_rplots: int, *, profile: str) -> None:
             img = img_dir / f"{iid}.png"
             pix.save(img)
             words = _words_in(page, clip)
+            panels, letter_case = _answer_key(paper, fig)
             item = {"id": iid, "image": f"images/{img.name}", "W": pix.width, "H": pix.height,
-                    "case": "upper" if paper == "p02" else "lower", "panels": _legend_panels(paper, fig)}
+                    "case": letter_case, "panels": panels}
             if words:
                 item["set"] = "vector"
                 item["words"] = words

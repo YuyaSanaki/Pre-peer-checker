@@ -1,0 +1,23 @@
+{
+  "schema_version": "1.0",
+  "case_id": "REPLACE_WITH_SLOT_ID",
+  "role": "panel_labels_gold",
+  "description": "Human-confirmed panel letters printed on each figure (raster/vector OCR eval). List what is visible on the artwork, not what the legend mentions.",
+  "notes": [
+    "Copy to panel_labels_gold.json (gitignored). Fill from the rendered figures/FigN.png before running any OCR.",
+    "Letters are compared case-insensitively; case records the printed style."
+  ],
+  "review": {
+    "status": "draft",
+    "reviewed_by": "",
+    "reviewed_at": ""
+  },
+  "figures": [
+    {
+      "figure": "Figure 1",
+      "case": "upper",
+      "panels": ["A", "B", "C"],
+      "human_note": "Replace with the letters actually printed on the figure."
+    }
+  ]
+}

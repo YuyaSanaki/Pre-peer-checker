@@ -3,6 +3,7 @@
   "case_id": "REPLACE_WITH_SLOT_ID",
   "role": "legend_panel_extract_gold",
   "description": "Hard legend spans for extraction-quality eval (not Warning gold).",
+  "coverage": "exhaustive",
   "notes": [
     "Keys are (figure, panel, group). Empty group means panel-level n.",
     "Copy to panel_extract_gold.json (gitignored). Confirm each item before eval/distill.",

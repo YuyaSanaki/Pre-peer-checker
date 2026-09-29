@@ -104,9 +104,9 @@
 | 切出し | 出版 PDF は **`pdftotext -raw`**（段の順）。layout 抽出の左右混線は使わない |
 | 規則 | 括弧の中身でパネル／群を分類。出版 4 型（パネル単位 `N=` / 時点リスト / 共有小文字 / 後置 `(n=)`）を `legend_struct` が先に取る |
 | 7B | 規則が空だった文だけ埋める。**規則行は上書きしない**（空 group・同一パネルの別 n も残す） |
-| 採点 | hard-span gold の `(figure, panel, group, n)`。7B の余分行は許容ノイズ（Warning 確定には使わない） |
+| 採点 | dev は hard-span gold、holdout は全件 gold（`coverage: exhaustive`）の `(figure, panel, group, n)`。holdout では余分行も precision で数える |
 
-回帰の入口: `scripts/dev_panel_extract_eval.py` / `scripts/dev_panel_extract_paper_eval.py`。出版 PDF 向けにプロンプトを足して既存ケースの括弧分類を崩さないこと。
+回帰の入口: **`scripts/dev_generalization_eval.py`**（`--task legend|panel_ocr`）。case は `split: dev | holdout` を持ち、dev（ルール作りに使った論文）と holdout（未見論文、ブラインドで gold 確定・凍結）を分けて集計する。構成は `rules_only` / `llm_minimal`（最小プロンプト＋根拠照合のみ）/ `prompt_minimal` / `current` / `current-minus-<guard>`（`legend_extract.ALL_GUARDS` を 1 つずつ外す）。変更の採否は `--gate`（dev 非悪化・holdout 許容幅内）、各ガード・プロンプト規則の holdout 寄与は `fixtures/gold/rule_ledger.json`（`--update-ledger`）。holdout の個別の誤りは `--reveal` でのみ表示し、そのケースは dev に移る。手順: [fixtures/gold/panel_extract/HUMAN_REVIEW.md](../fixtures/gold/panel_extract/HUMAN_REVIEW.md)「holdout（汎化評価）」。dev の個別確認は従来どおり `scripts/dev_panel_extract_paper_eval.py`（dev case のみ受け付ける）。出版 PDF 向けにプロンプトを足して既存ケースの括弧分類を崩さないこと。
 
 **選定根拠・検知観点・精度向上**: [DETECTION_AND_MODELS.md](DETECTION_AND_MODELS.md)
 

@@ -2,6 +2,7 @@
   "schema_version": "1.0",
   "case_id": "CASE_ID_PLACEHOLDER",
   "role": "benchmark_case",
+  "split": "dev",
   "description": "TEMPLATE — copy to case_manifest.json locally. Do not commit filled manifests that embed private manuscript paths or real n.",
   "root_relative": "input/CASE_ID_PLACEHOLDER",
   "docker_root": "/data/input/CASE_ID_PLACEHOLDER",

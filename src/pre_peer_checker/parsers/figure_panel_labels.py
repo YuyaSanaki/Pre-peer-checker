@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -31,6 +32,13 @@ def is_publication_figure_raster(path: Path | str) -> bool:
 
 def is_raster_figure_path(path: Path | str) -> bool:
     return Path(path).suffix.lower() in _RASTER_FIGURE_SUFFIXES
+
+
+def _panel_run(letters) -> set[str]:
+    """``dominant_panel_run`` unless PRE_PEER_CHECKER_PANEL_RUN_FILTER=0 (ablation bench only)."""
+    if (os.environ.get("PRE_PEER_CHECKER_PANEL_RUN_FILTER") or "").strip() == "0":
+        return {c for c in letters if c.isascii() and c.isalpha() and len(c) == 1}
+    return dominant_panel_run(letters)
 
 
 def _figure_num_from_pdf_name(path: Path) -> str | None:
@@ -176,7 +184,7 @@ def panel_labels_from_pdf_detailed(
     from pre_peer_checker.parsers.raster_figure_panel_ocr import raster_panel_letters_from_pdf
 
     raw, engine = raster_panel_letters_from_pdf(path, max_pages=min(max_pages, 2))
-    ocr = dominant_panel_run(raw)
+    ocr = _panel_run(raw)
     prov.dropped = sorted(raw - ocr)
     if not ocr:
         prov.labels = sorted(vector)
@@ -213,7 +221,7 @@ def panel_labels_from_raster_image_detailed(
     analysis = raster_panel_analysis_from_image(path)
     prov.width = analysis.width
     prov.height = analysis.height
-    ocr = dominant_panel_run(analysis.letters)
+    ocr = _panel_run(analysis.letters)
     prov.dropped = sorted(analysis.letters - ocr)
     if not ocr:
         return [], prov

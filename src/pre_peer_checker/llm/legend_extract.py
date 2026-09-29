@@ -456,6 +456,8 @@ def extract_legends_json_from_docx(
     llm_generate: Callable[[str], str] | None = None,
     use_figure_chunks: bool = True,
     figure_pdfs: list[Path] | None = None,
+    panel_labels_by_figure: dict[str, list[str]] | None = None,
+    panel_label_meta: dict | None = None,
     on_item: Callable[[int, int, str], None] | None = None,
 ) -> tuple[list[LegendFigureJSON], list[FigureChunk]]:
     """Extract check-item JSON per figure; returns (items, chunks used).
@@ -468,7 +470,13 @@ def extract_legends_json_from_docx(
             on_item(done, total, label)
 
     chunks = build_figure_chunks_from_docx(path) if use_figure_chunks else []
-    if figure_pdfs and chunks:
+    if chunks and panel_labels_by_figure is not None:
+        from pre_peer_checker.parsers.figure_panel_labels import attach_panel_labels_to_chunks
+
+        attach_panel_labels_to_chunks(
+            chunks, panel_labels_by_figure, meta_by_figure=panel_label_meta
+        )
+    elif figure_pdfs and chunks:
         from pre_peer_checker.parsers.figure_panel_labels import (
             attach_panel_labels_to_chunks,
             collect_panel_labels_by_figure_detailed,
@@ -517,6 +525,8 @@ def extract_legends_with_backend(
     profile_id: str | None = None,
     enabled: bool = False,
     figure_pdfs: list[Path] | None = None,
+    panel_labels_by_figure: dict[str, list[str]] | None = None,
+    panel_label_meta: dict | None = None,
     on_item: Callable[[int, int, str], None] | None = None,
     backend: Any | None = None,
 ) -> tuple[list[LegendFigureJSON], dict[str, Any]]:
@@ -534,7 +544,11 @@ def extract_legends_with_backend(
     }
     if not enabled:
         items, chunks = extract_legends_json_from_docx(
-            path, figure_pdfs=figure_pdfs, on_item=on_item
+            path,
+            figure_pdfs=figure_pdfs,
+            panel_labels_by_figure=panel_labels_by_figure,
+            panel_label_meta=panel_label_meta,
+            on_item=on_item,
         )
         meta["n_figure_chunks"] = len(chunks)
         meta["figure_chunks"] = chunks_to_artifact(chunks)
@@ -558,7 +572,11 @@ def extract_legends_with_backend(
         meta["note"] = "no MLX/transformers backend; used rules only"
         meta["llm_primary"] = False
         items, chunks = extract_legends_json_from_docx(
-            path, figure_pdfs=figure_pdfs, on_item=on_item
+            path,
+            figure_pdfs=figure_pdfs,
+            panel_labels_by_figure=panel_labels_by_figure,
+            panel_label_meta=panel_label_meta,
+            on_item=on_item,
         )
         meta["n_figure_chunks"] = len(chunks)
         meta["figure_chunks"] = chunks_to_artifact(chunks)
@@ -582,6 +600,8 @@ def extract_legends_with_backend(
         prefer_llm=True,
         llm_generate=_gen,
         figure_pdfs=figure_pdfs,
+        panel_labels_by_figure=panel_labels_by_figure,
+        panel_label_meta=panel_label_meta,
         on_item=on_item,
     )
     meta["n_figure_chunks"] = len(chunks)

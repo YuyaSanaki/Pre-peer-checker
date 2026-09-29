@@ -91,3 +91,61 @@ def crops_from_panel_letters(
             if x1 - x0 > 20 and y1 - y0 > 20:
                 out.append({"panel": ch, "box": [x0, y0, x1, y1]})
     return out or [{"panel": "*", "box": [0.0, 0.0, float(width), float(height)]}]
+
+
+def region_dicts_from_crops(
+    path,
+    crops: list[dict],
+    width: float,
+    height: float,
+    *,
+    page_index: int = 0,
+    geometry_source: str = "raster_ocr",
+) -> list[dict]:
+    """Convert letter-anchor crops to ``figure_panel_regions`` dicts.
+
+    Whole-image fallback crops (panel ``*``) are skipped — they are not a split.
+    """
+    from pathlib import Path
+
+    path = Path(path)
+    if width <= 0 or height <= 0:
+        return []
+    out: list[dict] = []
+    for ent in crops:
+        panel = str(ent.get("panel") or "").strip()
+        if not panel or panel == "*":
+            continue
+        box = ent.get("box") or []
+        if len(box) < 4:
+            continue
+        x0, y0, x1, y1 = (float(box[0]), float(box[1]), float(box[2]), float(box[3]))
+        if x1 - x0 <= 20 or y1 - y0 <= 20:
+            continue
+        x0 = max(0.0, min(x0, width))
+        y0 = max(0.0, min(y0, height))
+        x1 = max(0.0, min(x1, width))
+        y1 = max(0.0, min(y1, height))
+        out.append(
+            {
+                "panel": panel.upper() if panel.isascii() else panel,
+                "page_index": page_index,
+                "x0": x0,
+                "y0": y0,
+                "x1": x1,
+                "y1": y1,
+                "label_x": x0 + min(12.0, (x1 - x0) * 0.1),
+                "label_y": y0 + min(12.0, (y1 - y0) * 0.1),
+                "font_size": 0.0,
+                "pct": {
+                    "left_pct": round(100.0 * x0 / width, 3),
+                    "top_pct": round(100.0 * y0 / height, 3),
+                    "width_pct": round(100.0 * (x1 - x0) / width, 3),
+                    "height_pct": round(100.0 * (y1 - y0) / height, 3),
+                },
+                "source": str(path),
+                "source_name": path.name,
+                "geometry_source": geometry_source,
+            }
+        )
+    return out

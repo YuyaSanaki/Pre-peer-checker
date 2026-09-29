@@ -23,23 +23,88 @@ N_AUTHORITY_META = {"n_authority": "raw_data_nrows"}
 
 
 def is_plot_quant_table(path: Path) -> bool:
-    """True for plot/quant exports (graph*.xlsx, Prism .pzfx, etc.)."""
+    """True for plot/quant exports (graph*.xlsx, Prism .pzfx, etc.).
+
+    A parent folder named ``Fig1`` is an experiment unit, not a plot-table
+    marker — otherwise ``data/Fig1/WT.xlsx`` would be excluded from raw linking.
+    """
     suf = path.suffix.lower()
     if suf in {".pzfx", ".pzf"}:
         return True
     name = path.name.lower()
     if suf not in {".xlsx", ".xls", ".csv"}:
         return False
-    if name.startswith("graph") or name.startswith("quant_"):
-        return True
-    if re.search(r"fig\d+[a-z]?$", path.parent.name.lower()):
-        return True
-    return False
+    return name.startswith("graph") or name.startswith("quant_")
 
 
 def figure_num_from_label(figure: str) -> str | None:
     m = re.search(r"(S?\d+)", figure, re.I)
     return m.group(1).upper() if m else None
+
+
+def _norm_path_token(name: str) -> str:
+    return name.lower().replace(" ", "").replace("_", "").replace("-", "")
+
+
+def _same_fig_num(a: str, b: str) -> bool:
+    a_u, b_u = a.upper(), b.upper()
+    if a_u.startswith("S") != b_u.startswith("S"):
+        return False
+    return (a_u.lstrip("0") or a_u) == (b_u.lstrip("0") or b_u)
+
+
+def figure_num_from_dir_name(name: str) -> str | None:
+    """Figure key implied by a directory name (``Fig1`` → ``1``, ``FigS2`` → ``S2``)."""
+    t = _norm_path_token(name)
+    m = re.search(r"fig(?:ure)?supp?(\d+)", t)
+    if m:
+        return f"S{m.group(1)}"
+    m = re.search(r"figs(\d+)", t)
+    if m:
+        return f"S{m.group(1)}"
+    m = re.search(r"fig(?:ure)?(\d+)", t)
+    if m:
+        return m.group(1)
+    return None
+
+
+def experiment_unit_dir(path: Path) -> Path:
+    """Directory treated as one experiment bundle.
+
+    Prefer the nearest ancestor named ``Fig1`` / ``FigS1`` / etc. Otherwise the
+    immediate child of ``data/``. Files sitting directly in ``data/`` have
+    ``data`` itself as the unit (discouraged layout).
+    """
+    p = Path(path)
+    for parent in p.parents:
+        if figure_num_from_dir_name(parent.name):
+            return parent
+        if parent.name.lower() == "data":
+            break
+    parts = p.parts
+    for i, part in enumerate(parts[:-1]):
+        if part.lower() != "data":
+            continue
+        if i + 1 < len(parts) - 1:
+            return Path(*parts[: i + 2])
+        return Path(*parts[: i + 1])
+    return p.parent
+
+
+def dir_claims_figure(path: Path, fnum: str | None) -> bool:
+    """True when the experiment-unit folder is named for this figure."""
+    if not fnum:
+        return False
+    claimed = figure_num_from_dir_name(experiment_unit_dir(path).name)
+    return bool(claimed) and _same_fig_num(claimed, fnum)
+
+
+def other_experiment_folder(path: Path, fnum: str | None) -> bool:
+    """True when the experiment-unit folder is named for a *different* figure."""
+    if not fnum:
+        return False
+    claimed = figure_num_from_dir_name(experiment_unit_dir(path).name)
+    return bool(claimed) and not _same_fig_num(claimed, fnum)
 
 
 def path_compatible_with_figure(path: Path, fnum: str | None) -> bool:
@@ -189,11 +254,15 @@ def score_table_for_panel(
     """Higher is better. Used for both raw and plot tables."""
     score = _score_candidate(path, panel)
     blob = str(path).lower().replace(" ", "")
-    if fnum and re.search(rf"fig(?:ure)?_?{fnum}", blob):
+    if dir_claims_figure(path, fnum):
+        score += 12
+    elif fnum and re.search(rf"fig(?:ure)?_?{fnum}", blob):
         score += 8
     if path_mentions_panel(path, panel, fnum):
         score += 12
-    if path_compatible_with_figure(path, fnum):
+    if other_experiment_folder(path, fnum):
+        score -= 4
+    elif path_compatible_with_figure(path, fnum):
         score += 6
     elif path_soft_compatible_with_figure(path, fnum):
         score += 2
@@ -228,7 +297,9 @@ def resolve_table_link(
     """Best table vector for a legend panel (raw or plot).
 
     prefer_plot=True → graph*/quant_* only; False → exclude those; None → any.
-    Soft-falls back so flat layouts without FigN folders can still link.
+    Prefers the experiment-unit folder named for this figure. A file sitting
+    under a *different* Fig folder is admitted only with group+n (misplaced
+    files), never on n-only (similar experiments in every figure).
 
     Soft FP guards: Fig-folder alone is not enough; near-tie across different
     files refuses the link (競合 → 未紐付け).
@@ -246,12 +317,15 @@ def resolve_table_link(
             continue
         if _side_conflict(v.source, pn.panel):
             continue
-        if not path_soft_compatible_with_figure(v.source, fnum):
+        other_folder = other_experiment_folder(v.source, fnum)
+        if not other_folder and not path_soft_compatible_with_figure(v.source, fnum):
             continue
         group_ok = _vector_group_matches(v, keys) if keys else False
         n_ok = v.n == pn.n
         panel_in_path = path_mentions_panel(v.source, pn.panel, fnum)
         claims_fig = path_claims_figure(v.source, fnum) if fnum else True
+        if other_folder and not (group_ok and n_ok):
+            continue
         # Soft FP guard: living under FigN/ is not a concrete panel signal
         if not (group_ok or n_ok or panel_in_path):
             continue
@@ -274,6 +348,8 @@ def resolve_table_link(
             reasons.append("n一致")
         if path_compatible_with_figure(v.source, fnum):
             reasons.append("figパス")
+        elif other_folder:
+            reasons.append("別実験フォルダ")
         elif path_soft_compatible_with_figure(v.source, fnum):
             reasons.append("軟紐付け")
         if panel_in_path:

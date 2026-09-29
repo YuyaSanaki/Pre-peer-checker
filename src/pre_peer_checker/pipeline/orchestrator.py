@@ -70,6 +70,8 @@ from pre_peer_checker.parsers.manuscript_text import (
 from pre_peer_checker.parsers.cited_paper_ingest import ensure_pdfs_ingested
 from pre_peer_checker.parsers.figure_panel_labels import (
     collect_panel_labels_by_figure_detailed,
+    is_publication_figure_raster,
+    raster_regions_from_meta,
 )
 from pre_peer_checker.engine.stats_residue_match import (
     match_residue_to_tables,
@@ -197,6 +199,60 @@ def _release_model_memory() -> None:
                 pass
 
 
+def _publication_figure_files(bundle: InputBundle, roots: list[Path]) -> list[Path]:
+    """Fig*.pdf plus standalone JPEG/PNG/TIFF named like publication figures."""
+    seen: set[Path] = set()
+    out: list[Path] = []
+
+    def add(p: Path) -> None:
+        try:
+            rp = p.resolve()
+        except OSError:
+            return
+        if rp in seen or not p.is_file():
+            return
+        seen.add(rp)
+        out.append(p)
+
+    for p in bundle.get(FileKind.PDF):
+        if is_publication_figure_pdf(p):
+            add(p)
+    for p in bundle.get(FileKind.IMAGE):
+        if is_publication_figure_raster(p):
+            add(p)
+    for root in roots:
+        base = root if root.is_dir() else root.parent
+        if not base.is_dir():
+            continue
+        for p in base.rglob("*"):
+            if not p.is_file():
+                continue
+            if is_publication_figure_pdf(p) or is_publication_figure_raster(p):
+                add(p)
+    return out
+
+
+def _letter_crop_boxes_by_source(meta: dict) -> dict[str, list]:
+    from pre_peer_checker.imaging.panel_split import PanelBox
+
+    out: dict[str, list] = {}
+    for r in raster_regions_from_meta(meta):
+        src = r.get("source")
+        if not src:
+            continue
+        try:
+            key = str(Path(src).resolve())
+        except OSError:
+            key = str(src)
+        try:
+            box = PanelBox(int(r["x0"]), int(r["y0"]), int(r["x1"]), int(r["y1"]))
+        except (KeyError, TypeError, ValueError):
+            continue
+        if box.width > 20 and box.height > 20:
+            out.setdefault(key, []).append(box)
+    return out
+
+
 def _plan_stages(
     *,
     legend_llm: bool,
@@ -218,10 +274,17 @@ def _plan_stages(
         if bundle is not None
         else 4
     )
+    n_fig_raster = (
+        sum(1 for p in bundle.get(FileKind.IMAGE) if is_publication_figure_raster(p))
+        if bundle is not None
+        else 0
+    )
+    n_fig = n_fig_pdf + n_fig_raster
     n_images = n(FileKind.IMAGE)
     n_micro = n(FileKind.LIF, FileKind.CZI)
     # Legend LLM は Figure 数ぶん生成する（Figure 数は抽出するまで不明なので 1 原稿 8 Figure と仮定）
     legend_est = (20.0 + 30.0 * 8 * n_docx) if legend_llm else (1.0 + 2.0 * n_docx)
+    legend_est += 8.0 * n_fig_raster
     panels_est = 2.0 + 3.0 * n_fig_pdf
     if vlm_assist:
         panels_est += 30.0 + 25.0 * min(n_fig_pdf, 6) * 0.5
@@ -241,7 +304,7 @@ def _plan_stages(
             legend_est,
         ),
         Stage("tables", "表データの読み込み・統計の再計算", 1.0 + 0.5 * n(FileKind.CSV, FileKind.EXCEL)),
-        Stage("consistency", "本文・Legend とデータの整合チェック", 2.0 + 1.5 * n_fig_pdf),
+        Stage("consistency", "本文・Legend とデータの整合チェック", 2.0 + 1.5 * n_fig),
         Stage(
             "references",
             "参考文献チェック（引用先 PDF 照合あり）" if cited_papers else "参考文献チェック",
@@ -546,6 +609,37 @@ def run_verification(
         manuscript_kind, manuscripts
     )
 
+    fig_files = _publication_figure_files(bundle, roots)
+    if fig_files:
+        tracker.update(
+            detail=f"Figure のパネルラベルを読み取り中（{len(fig_files)} 件・PDF/JPEG/PNG）"
+        )
+    labels_by_figure, panel_label_meta = collect_panel_labels_by_figure_detailed(
+        fig_files
+    )
+    result.artifacts["figure_panel_labels"] = labels_by_figure
+    result.artifacts["figure_panel_labels_meta"] = {
+        k: {
+            "source": v.source,
+            "needs_review": v.needs_review,
+            "ocr_engine": v.ocr_engine,
+            "pdf": v.pdf,
+            "labels": v.labels,
+            "dropped": v.dropped,
+            "regions_n": len(v.regions),
+        }
+        for k, v in panel_label_meta.items()
+    }
+    from pre_peer_checker.parsers.raster_figure_panel_ocr import unload_raster_ocr_models
+
+    unload_raster_ocr_models()
+    if manuscripts:
+        tracker.update(
+            detail="PDF 原稿から Figure Legend を抽出中"
+            if manuscript_kind == "pdf"
+            else "Word 原稿から Figure Legend を抽出中"
+        )
+
     panel_ns = []
     docx_arts = []
     for p in manuscripts:
@@ -643,7 +737,9 @@ def run_verification(
                 prefer=legend_llm_prefer,
                 model_id=legend_llm_model,
                 profile_id=legend_llm_profile,
-                figure_pdfs=list(bundle.get(FileKind.PDF)),
+                figure_pdfs=fig_files,
+                panel_labels_by_figure=labels_by_figure,
+                panel_label_meta=panel_label_meta,
                 on_item=_on_figure,
                 backend=shared_llm,
             )
@@ -868,31 +964,10 @@ def run_verification(
             all_vectors if all_vectors else plot_vectors,
         )
     )
-    fig_pdfs = [
-        p
-        for p in bundle.get(FileKind.PDF)
-        if is_publication_figure_pdf(p)
-    ]
-    tracker.update(detail=f"Figure PDF のパネルラベルを読み取り中（{len(fig_pdfs)} 件）")
-    labels_by_figure, panel_label_meta = collect_panel_labels_by_figure_detailed(fig_pdfs)
-    result.artifacts["figure_panel_labels"] = labels_by_figure
-    result.artifacts["figure_panel_labels_meta"] = {
-        k: {
-            "source": v.source,
-            "needs_review": v.needs_review,
-            "ocr_engine": v.ocr_engine,
-            "pdf": v.pdf,
-            "labels": v.labels,
-            "dropped": v.dropped,
-        }
-        for k, v in panel_label_meta.items()
-    }
+    tracker.update(detail=f"本文の Fig 参照と図上のパネルラベルを照合中（{len(fig_files)} 件）")
     result.warnings.extend(
         warnings_from_ref_labels(claim_texts, labels_by_figure)
     )
-    from pre_peer_checker.parsers.raster_figure_panel_ocr import unload_raster_ocr_models
-
-    unload_raster_ocr_models()
 
     # --- 参考文献メタ（原稿内）+ 任意: 引用先 PDF ---
     tracker.start("references", "原稿の References と本文中の引用を照合中")
@@ -1257,7 +1332,7 @@ def run_verification(
         "figure_panels_vlm" if vlm_assist else "figure_panels",
         "Figure PDF のパネル間で同一の点列がないか確認中",
     )
-    pub_figs = [p for p in bundle.get(FileKind.PDF) if is_publication_figure_pdf(p)]
+    pub_figs = [p for p in fig_files if p.suffix.lower() == ".pdf"]
     # Also discover Fig*.pdf under roots even if classify missed
     for root in roots:
         base = root if root.is_dir() else root.parent
@@ -1269,7 +1344,7 @@ def run_verification(
     result.artifacts["figure_panel_plots"] = panel_arts
     attach_fig_pdf_counts(result.artifacts["n_matrix"], panel_arts, roots=case_roots)
     # Paths only here; JPEG embed happens when writing HTML (keeps warnings.json small)
-    result.artifacts["figure_preview_sources"] = [str(p) for p in pub_figs]
+    result.artifacts["figure_preview_sources"] = [str(p) for p in fig_files]
     # Phase 6A: vector panel geometry; optional VLM assist when empty
     try:
         from pre_peer_checker.llm.panel_map_assist import extract_panel_regions_vector_then_vlm
@@ -1289,13 +1364,29 @@ def run_verification(
             min_vector_panels=1,
             on_item=_on_panel_pdf,
         )
+        raster_regions = raster_regions_from_meta(panel_label_meta)
+        if raster_regions:
+            covered = {
+                (str(r.get("source") or ""), str(r.get("panel") or ""), int(r.get("page_index") or 0))
+                for r in panel_regions
+            }
+            for r in raster_regions:
+                key = (
+                    str(r.get("source") or ""),
+                    str(r.get("panel") or ""),
+                    int(r.get("page_index") or 0),
+                )
+                if key not in covered:
+                    panel_regions.append(r)
+            geom_status["n_raster"] = len(raster_regions)
         result.artifacts["figure_panel_regions"] = panel_regions
         result.artifacts["figure_panel_regions_n"] = len(panel_regions)
         result.artifacts["panel_geometry_status"] = geom_status
     except Exception as exc:  # noqa: BLE001
-        result.artifacts["figure_panel_regions"] = []
-        result.artifacts["figure_panel_regions_n"] = 0
-        result.artifacts["panel_geometry_status"] = {"error": str(exc)}
+        raster_regions = raster_regions_from_meta(panel_label_meta)
+        result.artifacts["figure_panel_regions"] = raster_regions
+        result.artifacts["figure_panel_regions_n"] = len(raster_regions)
+        result.artifacts["panel_geometry_status"] = {"error": str(exc), "n_raster": len(raster_regions)}
 
     # --- PDF 埋め込み画像 + 顕微鏡/ラスタ同一セット重複 ---
     pdf_meta = []
@@ -1400,7 +1491,11 @@ def run_verification(
                 tracker.update(detail=label)
 
         reuse_result = scan_internal_panel_reuse(
-            internal_imgs, prefer_dino=True, prefer_lightglue=True, on_progress=_on_panel_reuse
+            internal_imgs,
+            prefer_dino=True,
+            prefer_lightglue=True,
+            on_progress=_on_panel_reuse,
+            panel_boxes=_letter_crop_boxes_by_source(panel_label_meta),
         )
         result.warnings.extend(reuse_result.warnings)
         result.artifacts["internal_panel_reuse"] = reuse_result.artifacts

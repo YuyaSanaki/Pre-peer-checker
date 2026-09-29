@@ -152,8 +152,9 @@ def candidate_vectors(
 ) -> list[GroupVector]:
     """Table vectors usable for linking.
 
-    By default does **not** filter by Fig-folder path — linking is content/filename
-    first. Pass ``restrict_figure_path=True`` only for legacy soft inventories.
+    By default does **not** filter by Fig-folder path — linking is content first,
+    with the experiment-unit folder as a prior. Pass ``restrict_figure_path=True``
+    only for legacy soft inventories.
     """
     pool = _nonempty(vectors) if require_nonempty else list(vectors)
     out: list[GroupVector] = []
@@ -322,23 +323,25 @@ def _tier1_by_anchor(
         if v.source.resolve() != anchor.source.resolve()
         and values_exact_match(anchor.values, v.values)
     ]
+    misplaced = False
     if fnum:
         local = [v for v in hits if path_claims_figure(v.source, fnum)]
         if local:
             hits = local
         elif hits:
-            # Cross-figure exact match is a swap signal, not panel identity
-            return None
+            # Unique exact values in another Fig folder: misplaced file, still link.
+            misplaced = True
     best = _unique_by_source(hits)
     if best is None:
         return None
     fp = fingerprint_from_vector(best)
+    note = " · 別実験フォルダ" if misplaced else ""
     return EntityLink(
         status=LinkStatus.LINKED,
         tier=LinkTier.TIER1,
         vector=best,
-        score=100,
-        reason=f"指紋一致 · hash={fp.value_hash} · n={fp.n}",
+        score=95 if misplaced else 100,
+        reason=f"指紋一致{note} · hash={fp.value_hash} · n={fp.n}",
         fingerprint=fp,
     )
 
@@ -434,6 +437,38 @@ def _tier2_unique_n_group(
         vector=best,
         score=60,
         reason=f"n+group一致 · group={best.group_key} · n={fp.n}",
+        fingerprint=fp,
+    )
+
+
+def _cross_folder_unique_n_group(
+    candidates: list[GroupVector],
+    pn: PanelN,
+    keys: set[str],
+    *,
+    fnum: str | None = None,
+) -> EntityLink | None:
+    """Misplaced file: unique n+group outside folders/names that claim this figure.
+
+    n-only is not enough — similar experiments reuse the same n across figures.
+    """
+    if not fnum or not keys:
+        return None
+    hits = [
+        v
+        for v in candidates
+        if v.n == pn.n and _group_ok(v, keys) and not path_claims_figure(v.source, fnum)
+    ]
+    best = _unique_by_source(hits)
+    if best is None:
+        return None
+    fp = fingerprint_from_vector(best)
+    return EntityLink(
+        status=LinkStatus.LINKED,
+        tier=LinkTier.TIER2,
+        vector=best,
+        score=55,
+        reason=f"n+group一致 · 別実験フォルダ · group={best.group_key} · n={fp.n}",
         fingerprint=fp,
     )
 
@@ -684,6 +719,9 @@ def link_raw_for_panel(
     hit = _tier2_by_legend_mean(cands_fp, pn, keys, hints, fnum=fnum)
     if hit is not None:
         return hit
+    hit = _cross_folder_unique_n_group(cands_fp, pn, keys, fnum=fnum)
+    if hit is not None:
+        return hit
 
     soft = resolve_table_link(
         pn, vectors, prefer_plot=False, extra_groups=extra_groups, min_score=min_soft_score
@@ -771,6 +809,9 @@ def link_plot_for_panel(
     if hit is not None:
         return hit
     hit = _tier2_by_legend_mean(cands_fp, pn, keys, hints, fnum=fnum)
+    if hit is not None:
+        return hit
+    hit = _cross_folder_unique_n_group(cands_fp, pn, keys, fnum=fnum)
     if hit is not None:
         return hit
 

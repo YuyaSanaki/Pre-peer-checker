@@ -88,6 +88,7 @@ def scan_internal_panel_reuse(
     prefer_dino: bool = True,
     prefer_lightglue: bool = True,
     on_progress: Callable[[int, int, str], None] | None = None,
+    panel_boxes: dict[str, list] | None = None,
 ) -> PanelReuseResult:
     """Find the same photo used twice inside the manuscript's own images.
 
@@ -109,7 +110,12 @@ def scan_internal_panel_reuse(
     try:
         _notify(0, 0, f"パネルに分割中（{len(sources)} 枚）")
         _prev, units = prepare_panel_sources(
-            sources, tmp / "u", n_preview=0, panels=True, max_units=max_units
+            sources,
+            tmp / "u",
+            n_preview=0,
+            panels=True,
+            max_units=max_units,
+            panel_boxes=panel_boxes,
         )
         result.artifacts["panel_units"] = len(units)
         if len(units) < 2:

@@ -28,9 +28,14 @@
 
 **Qwen2.5-VL / Qwen3-VL（ベンチ脚本）**: Spark aarch64 では推論未達（OOM / `ConstTensorWrapper` 等）。**本番必須にしない**。Legend の Qwen（**テキスト 7B**）が Spark で動くことと、ベンチの **VL** は別モデル・別コード経路である点に注意（[会話整理](#legend-と-vl-の混同を避ける)）。
 
-**製品配線（2026-09-29）**
+**製品配線（2026-09-29、JPEG/PNG 単体は 2026-09-29 追記）**
 
-`collect_panel_labels_by_figure_detailed` → ベクター文字が **空、またはスパン内に欠けがある**（欠けた文字だけ画像に焼かれている典型）なら `raster_figure_panel_ocr` を呼び、ベクターと和を取る。結果は `figure_panel_labels_meta`（`source` / `needs_review` / `ocr_engine` / `dropped`）とチャンク `[figure_panel_labels]`（要確認注記付き）に載る。
+`collect_panel_labels_by_figure_detailed` は **Fig*.pdf と Fig*.png/jpg/tif** を同じ入口で扱う。
+
+- **PDF**: ベクター文字が空、またはスパン内に欠けがあるときだけ `raster_figure_panel_ocr`（300 dpi 描画）→ ベクターと和。
+- **JPEG/PNG/TIFF**（ファイル名に `fig` / `figure` / `supp`）: ベクター層が無いので **ネイティブ解像度** で同じ Florence layout + crop OCR。MuPDF で画像を開いて 300 dpi に引き伸ばさない（巨大化・劣化を避ける）。
+- 結果は `figure_panel_labels_meta`（`source` / `needs_review` / `ocr_engine` / `dropped` / `regions_n`）とチャンク `[figure_panel_labels]`（要確認注記付き）。文字アンカー crop は `figure_panel_regions`（`geometry_source=raster_ocr`）と、余白の無い合成図向けの内部パネル再利用分割にも使う。
+- パイプラインは **OCR を Legend LLM の前に一度だけ** 走らせ、Florence を unload してから Qwen を載せる。
 
 ベンチが測った設定がそのまま既定値: **300 dpi 描画・layout 1280px・Florence はタイル分割**。これらを変えると精度が変わる。
 
@@ -87,7 +92,9 @@ rsync -avz spark-host:~/20260922Pre-peer-checker/tmp/figure_ocr_bench/ tmp/figur
    - 出力は **needs review** 扱い（VLM 幻覚リスク）。Warning 確定は決定論のまま。
 
 4. **製品への配線**  
-   - ラスタ Figure PDF: ベクター空 → **Florence layout + Vision/Florence crop**（実装済）。Qwen3-VL はベンチで上回った場合のみ OCR バックエンド差し替え候補。  
+   - ラスタ Figure PDF: ベクター空 → **Florence layout + Vision/Florence crop**（実装済）。  
+   - **JPEG/PNG 単体**（`Fig1.png` 等）: 同じ OCR をネイティブ解像度で実行（実装済）。  
+   - Qwen3-VL はベンチで上回った場合のみ OCR バックエンド差し替え候補。  
    - `llm/model_registry.yaml` に **Apache-2.0** の Qwen3-VL プロファイルを追加（配布既定は 7B テキスト/VLM 本線をいきなり差し替えない）。
 
 5. **やらないこと**  
@@ -98,7 +105,8 @@ rsync -avz spark-host:~/20260922Pre-peer-checker/tmp/figure_ocr_bench/ tmp/figur
 
 - ベンチ: `scripts/dev_figure_ocr_bench.py`（`QwenVL`, `--layout panels`）
 - 製品 VLM 補助: `src/pre_peer_checker/llm/vlm_backend.py`, `panel_map_assist.py`
-- パネル文字（ベクター）: `src/pre_peer_checker/parsers/figure_panel_labels.py`
+- パネル文字: `src/pre_peer_checker/parsers/figure_panel_labels.py`（PDF ベクター + JPEG/PNG ラスタ）
+- ラスタ OCR: `src/pre_peer_checker/parsers/raster_figure_panel_ocr.py`
 
 ---
 

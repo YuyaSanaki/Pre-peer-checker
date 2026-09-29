@@ -155,13 +155,25 @@ bash install.sh
 
 ```text
 MyCase/
-  manuscript/   # 原稿（Word）と Figure の PDF
-  data/         # Excel・CSV などの生データ、顕微鏡画像、R / Python スクリプトなど
+  manuscript/          # 原稿（Word）と Figure の PDF
+    paper.docx
+    Fig1.pdf
+    Fig2.pdf
+  data/                # 実験データ。**実験一式は必ずサブフォルダにまとめる**
+    Fig1/              # Figure 1 の表・スクリプト・関連画像
+      WT.xlsx
+      graph.xlsx
+      analyze.R
+    Fig2/
+      ...
+    FigS1/
+      ...
 ```
 
+- **（絶対条件）実験一つ分のまとまりはフォルダです。** `data/` 直下に Excel や CSV を全部並べないでください。同じ実験の生データ・作図表・スクリプトは **1 つのサブフォルダ** に入れます。似た結果の図が多い論文でも、フォルダ単位で突合します。
+- **フォルダ名は `Fig1` / `Fig2` / `FigS1` を推奨します**（原稿の図番号に合わせる）。照合はこのフォルダを優先します。別の Fig フォルダにファイルを置いてしまっても、中身の数値や群名がはっきり一致すればそちらにも紐付けます。
 - **原稿は Word（`.docx`）がおすすめです。** Word が無いときは PDF 原稿から本文を読み取り、Figure Legend の n・本文の統計・参考文献も照合します。ただし段組みや改行の復元に頼るため、Word より取りこぼしが出やすくなります。スキャン画像だけのページは OCR（Tesseract）で読みます。Tesseract は `install.sh` が入れます（Mac は Homebrew、Linux は apt / dnf を使い、Linux では管理者パスワードを求められます）。入れられなかった場合はそのページを読めず、カバレッジに表示します。Figure の PDF は原稿と一緒に置いてください。
-- **出版 Figure PDF（文字が画像に焼き込まれたもの）** では、パネル文字（A/B/C…）を読み取り、Legend LLM のヒント `[figure_panel_labels]` に渡します。まず PDF 内のベクター文字を探し、取れない文字があるときだけ OCR します。**Mac** では `install.sh` が入れる **Apple Vision**（`pyobjc-framework-Vision`）と Florence-2 の両方で読み、**Linux + GPU** では Florence-2 で読みます（`install.sh` の transformers 構成）。読み取り結果は要確認として扱います。無効にするには `PRE_PEER_CHECKER_RASTER_PANEL_OCR=0`、Mac で Vision だけ省略するには `PRE_PEER_CHECKER_SKIP_FIGURE_VISION=1` を設定します。
-- `data/` の中の整理のしかたは自由です（Figure ごとのフォルダ分けは不要）。
+- **出版 Figure（PDF、または `Fig1.png` のような JPEG/PNG）** では、パネル文字（A/B/C…）を読み取り、Legend LLM のヒント `[figure_panel_labels]` に渡します。PDF はまずベクター文字を探し、取れない文字があるときだけ OCR します。JPEG/PNG は最初から OCR します（PDF 経由で 300 dpi に引き伸ばしません）。**Mac** では `install.sh` が入れる **Apple Vision**（`pyobjc-framework-Vision`）と Florence-2 の両方で読み、**Linux + GPU** では Florence-2 で読みます（`install.sh` の transformers 構成）。読み取り結果は要確認として扱います。無効にするには `PRE_PEER_CHECKER_RASTER_PANEL_OCR=0`、Mac で Vision だけ省略するには `PRE_PEER_CHECKER_SKIP_FIGURE_VISION=1` を設定します。
 - `.zip` のまま入れても自動で展開します。
 
 
@@ -199,6 +211,7 @@ MyCase/
 
 - **インストールが途中で失敗した**: ネットワークを確認して `bash install.sh` をもう一度実行してください。足りない分だけ補います。
 - **「フォルダが見つからない」旨のエラーが出る**: 選んだ親フォルダの中に `manuscript` と `data` があるか確認してください。
+- **n 対照表がほとんど空／未紐付け**: `data/` 直下に表を並べていませんか。実験一式を `Fig1/` などのサブフォルダに分けてください。
 - **ブラウザが開かない**: 起動した状態のまま、ブラウザで [http://127.0.0.1:8765](http://127.0.0.1:8765) を開いてください。
 - **利用区分を変えたい**: `bash install.sh` を再実行すると選び直せます。
 - **原稿やデータは外部に送られますか？**: 送られません。照合はすべてこのパソコンの中で行います。インターネットは主にインストール時のソフトとモデルのダウンロードに使います。

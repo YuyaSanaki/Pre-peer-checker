@@ -147,13 +147,25 @@ Create one parent folder and put two folders named `manuscript` and `data` insid
 
 ```text
 MyCase/
-  manuscript/   # manuscript (Word) and figure PDFs
-  data/         # raw data such as Excel / CSV, microscopy images, R / Python scripts, etc.
+  manuscript/          # manuscript (Word) and figure PDFs
+    paper.docx
+    Fig1.pdf
+    Fig2.pdf
+  data/                # experimental files. **Each experiment must be its own subfolder**
+    Fig1/              # tables, scripts, and related images for Figure 1
+      WT.xlsx
+      graph.xlsx
+      analyze.R
+    Fig2/
+      ...
+    FigS1/
+      ...
 ```
 
+- **(Required) One experiment = one folder.** Do not dump every Excel/CSV into `data/` as siblings. Put that experiment's raw table, plot table, and scripts in **one subfolder**. Linking uses the folder as the experiment unit, which matters when many figures look similar.
+- **Name those folders `Fig1` / `Fig2` / `FigS1` to match the manuscript figure numbers.** Matching prefers the matching folder. A file placed in the wrong Fig folder can still link if its values and group labels clearly match.
 - **Word (`.docx`) manuscripts are recommended.** Without a Word file, the text is read from the PDF manuscript, so Figure Legend n values, statistics in the text, and references are still checked. Because this relies on reconstructing columns and line breaks, it misses more than Word does. Image-only (scanned) pages are OCR'd with Tesseract, which `install.sh` installs (Homebrew on Mac; apt / dnf on Linux, which asks for the administrator password). If it cannot be installed, those pages are skipped and listed in the coverage summary. Put figure PDFs together with the manuscript.
 - **Publication figure PDFs (text baked into images)** — panel letters (A/B/C…) are read for Legend LLM hints (`[figure_panel_labels]`). Embedded vector text is tried first, and OCR runs only for letters it cannot recover. On **Mac** both **Apple Vision** (`pyobjc-framework-Vision`, installed by `install.sh`) and Florence-2 read the artwork; on **Linux with GPU** Florence-2 does (transformers stack from `install.sh`). Treat OCR panel labels as needing human review. Disable with `PRE_PEER_CHECKER_RASTER_PANEL_OCR=0`, or skip Vision on Mac only with `PRE_PEER_CHECKER_SKIP_FIGURE_VISION=1`.
-- You can organize `data/` however you like (no need for per-figure folders).
 - `.zip` files are extracted automatically.
 
 ### 2. Run the check
@@ -189,6 +201,7 @@ Tips for reading the results:
 
 - **Installation failed midway**: check your network and run `bash install.sh` again. It fills in only what is missing.
 - **An error says a folder is missing**: check that the parent folder you chose contains `manuscript` and `data`.
+- **The n comparison table is mostly empty / unlinked**: tables may be sitting directly in `data/`. Put each experiment's files in a subfolder such as `Fig1/`.
 - **The browser does not open**: keep the app running and open http://127.0.0.1:8765 in your browser.
 - **You want to change the usage category**: run `bash install.sh` again to choose again.
 - **Is my manuscript or data sent anywhere?**: No. All checks run on this computer. The internet is used mainly to download software and models during installation.

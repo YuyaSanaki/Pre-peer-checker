@@ -125,8 +125,12 @@ def ensure_figure_previews(coverage: dict | None) -> dict | None:
     from pre_peer_checker.report.figure_previews import build_figure_previews
 
     paths = [Path(p) for p in sources if p]
+    regions = coverage.get("figure_panel_regions")
     try:
-        previews = build_figure_previews(paths)
+        previews = build_figure_previews(
+            paths,
+            regions=regions if isinstance(regions, list) else None,
+        )
     except Exception:
         previews = []
     out = dict(coverage)

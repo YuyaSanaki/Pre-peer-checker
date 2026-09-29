@@ -39,8 +39,7 @@ def test_fingerprint_exact_and_stats():
 
 def test_tier1_links_renamed_raw_to_plot(tmp_path: Path):
     """Same numeric content under different filenames → Tier1 fingerprint link."""
-    # Parent must not be bare FigN (is_plot_quant_table treats those as plot-only).
-    data = tmp_path / "Fig1" / "plotDump"
+    data = tmp_path / "data" / "Fig1"
     data.mkdir(parents=True)
     raw = data / "experiment_A.csv"
     plot = data / "graph_panel.csv"
@@ -307,3 +306,98 @@ def test_llm_alias_hook_adopts_via_tier3(tmp_path: Path):
     assert linked.status == LinkStatus.LINKED
     assert linked.vector is not None
     assert linked.vector.group_key == "alpha"
+
+def test_fig_folder_is_not_plot_table_by_itself(tmp_path: Path):
+    from pre_peer_checker.engine.n_and_names import is_plot_quant_table
+
+    raw = tmp_path / "data" / "Fig1" / "WT.xlsx"
+    raw.parent.mkdir(parents=True)
+    raw.write_bytes(b"")
+    assert is_plot_quant_table(raw) is False
+    graph = raw.parent / "graph.xlsx"
+    graph.write_bytes(b"")
+    assert is_plot_quant_table(graph) is True
+
+
+def test_same_n_group_prefers_matching_fig_folder(tmp_path: Path):
+    """Similar experiments in Fig1 and Fig2: Figure 1 stays in Fig1/."""
+    fig1 = tmp_path / "data" / "Fig1"
+    fig2 = tmp_path / "data" / "Fig2"
+    fig1.mkdir(parents=True)
+    fig2.mkdir(parents=True)
+    body = "group,value\nwt,1\nwt,2\nwt,3\nwt,4\n"
+    a = fig1 / "wt.csv"
+    b = fig2 / "wt.csv"
+    a.write_text(body)
+    b.write_text(body)
+    vecs = extract_group_vectors(a) + extract_group_vectors(b)
+    pn = PanelN(panel="A", n=4, figure="Figure 1", context="n=4 (A)", group="wt")
+    raw = link_raw_for_panel(pn, vecs, table_paths=[a, b])
+    assert raw.status == LinkStatus.LINKED
+    assert raw.vector is not None
+    assert "Fig1" in raw.vector.source.parts
+    assert "Fig2" not in raw.vector.source.parts
+
+
+def test_misplaced_file_in_other_fig_folder_still_links(tmp_path: Path):
+    """Figure 1 data sitting only under Fig2/ still links via unique n+group."""
+    fig2 = tmp_path / "data" / "Fig2"
+    fig2.mkdir(parents=True)
+    tab = fig2 / "wt.csv"
+    tab.write_text("group,value\nwt,1.0\nwt,2.0\nwt,3.0\nwt,4.0\nwt,5.0\n")
+    vecs = extract_group_vectors(tab)
+    pn = PanelN(panel="B", n=5, figure="Figure 1", context="n=5 (B)", group="wt")
+    raw = link_raw_for_panel(pn, vecs, table_paths=[tab])
+    assert raw.status == LinkStatus.LINKED
+    assert raw.vector is not None
+    assert raw.vector.source.name == "wt.csv"
+    assert "別実験フォルダ" in raw.reason
+
+
+def test_n_only_does_not_jump_other_fig_folder(tmp_path: Path):
+    """n-only (no group) in Fig2 must not satisfy Figure 1 — similar-n trap."""
+    fig2 = tmp_path / "data" / "Fig2"
+    fig2.mkdir(parents=True)
+    tab = fig2 / "counts.csv"
+    tab.write_text("group,value\nx,1\nx,2\nx,3\nx,4\nx,5\n")
+    vecs = extract_group_vectors(tab)
+    pn = PanelN(panel="Z", n=5, figure="Figure 1", context="n=5 (Z)")
+    raw = link_raw_for_panel(pn, vecs, table_paths=[tab])
+    assert raw.status == LinkStatus.UNLINKED
+
+
+def test_fingerprint_links_unique_raw_in_other_fig_folder(tmp_path: Path):
+    fig1 = tmp_path / "data" / "Fig1"
+    fig2 = tmp_path / "data" / "Fig2"
+    fig1.mkdir(parents=True)
+    fig2.mkdir(parents=True)
+    body = "group,value\nwt,10\nwt,11\nwt,12\n"
+    plot = fig1 / "graph_wt.csv"
+    raw = fig2 / "experiment.csv"
+    plot.write_text(body)
+    raw.write_text(body)
+    vecs = extract_group_vectors(plot) + extract_group_vectors(raw)
+    pn = PanelN(panel="E", n=3, figure="Figure 1", context="n=3 (E)", group="wt")
+    plot_link = link_plot_for_panel(pn, vecs, table_paths=[plot, raw])
+    assert plot_link.status == LinkStatus.LINKED
+    raw_link = link_raw_for_panel(
+        pn, vecs, plot_anchor=plot_link.vector, table_paths=[plot, raw]
+    )
+    assert raw_link.status == LinkStatus.LINKED
+    assert raw_link.tier == LinkTier.TIER1
+    assert raw_link.vector is not None
+    assert raw_link.vector.source.name == "experiment.csv"
+    assert "別実験フォルダ" in raw_link.reason
+
+
+def test_experiment_unit_dir_prefers_fig_folder(tmp_path: Path):
+    from pre_peer_checker.engine.n_and_names import experiment_unit_dir, figure_num_from_dir_name
+
+    nested = tmp_path / "data" / "Fig1" / "plotDump" / "WT.xlsx"
+    nested.parent.mkdir(parents=True)
+    nested.write_bytes(b"")
+    assert experiment_unit_dir(nested).name == "Fig1"
+    assert figure_num_from_dir_name("FigS2") == "S2"
+    loose = tmp_path / "data" / "orphan.csv"
+    loose.write_text("a,1\n")
+    assert experiment_unit_dir(loose).name == "data"

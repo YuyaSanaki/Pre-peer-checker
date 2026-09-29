@@ -16,6 +16,7 @@ def test_fig_s1_is_supplementary_not_main():
     assert _figure_num_from_pdf_name(Path("FigS1.pdf")) == "S1"
     assert _figure_num_from_pdf_name(Path("figs1.pdf")) == "S1"
     assert _figure_num_from_pdf_name(Path("FigS12_panel.pdf")) == "S12"
+    assert _figure_num_from_pdf_name(Path("FigureS2.jpg")) == "S2"
 
 
 def test_fig_supp_variants():
@@ -29,6 +30,8 @@ def test_main_figure_names():
     assert _figure_num_from_pdf_name(Path("Fig2_rev.pdf")) == "2"
     assert _figure_num_from_pdf_name(Path("Figure3.pdf")) == "3"
     assert _figure_num_from_pdf_name(Path("fig1_final.pdf")) == "1"
+    assert _figure_num_from_pdf_name(Path("Fig1.png")) == "1"
+    assert _figure_num_from_pdf_name(Path("FigureS2.jpg")) == "S2"
 
 
 def test_unrelated_name():

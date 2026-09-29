@@ -78,6 +78,84 @@ def _page_to_jpeg_data_uri(
     return f"data:image/jpeg;base64,{b64}"
 
 
+def _rgb_to_jpeg_data_uri(img, *, max_width: int = 960, quality: int = 70) -> str:
+    from io import BytesIO
+
+    from PIL import Image
+
+    rgb = img.convert("RGB")
+    w, h = rgb.size
+    if w > max_width > 0:
+        nh = max(1, int(h * max_width / w))
+        rgb = rgb.resize((max_width, nh), Image.Resampling.LANCZOS)
+    buf = BytesIO()
+    rgb.save(buf, format="JPEG", quality=quality)
+    b64 = base64.b64encode(buf.getvalue()).decode("ascii")
+    return f"data:image/jpeg;base64,{b64}"
+
+
+def _figure_id_from_filename(path: Path) -> str | None:
+    from pre_peer_checker.parsers.figure_panel_labels import _figure_num_from_pdf_name
+
+    fnum = _figure_num_from_pdf_name(path)
+    if not fnum:
+        return None
+    if fnum.startswith("S"):
+        return normalize_figure_id("Supplementary Figure", fnum)
+    return normalize_figure_id("Figure", fnum)
+
+
+def _regions_for_path(path: Path, regions: list[dict]) -> list[dict]:
+    want = {str(path), path.name}
+    try:
+        want.add(str(path.resolve()))
+    except OSError:
+        pass
+    out: list[dict] = []
+    for r in regions:
+        src = str(r.get("source") or "")
+        if src in want or Path(src).name == path.name:
+            out.append(r)
+    return out
+
+
+def build_raster_figure_preview(
+    path: Path,
+    *,
+    regions: list[dict] | None = None,
+    max_width: int = 960,
+    quality: int = 70,
+) -> dict | None:
+    """JPEG/PNG/TIFF figure → HTML preview using filename + letter-anchor boxes."""
+    from pre_peer_checker.parsers.raster_figure_panel_ocr import load_figure_rgb
+
+    figure_id = _figure_id_from_filename(path)
+    if not figure_id:
+        return None
+    try:
+        img = load_figure_rgb(path)
+        uri = _rgb_to_jpeg_data_uri(img, max_width=max_width, quality=quality)
+    except Exception:
+        return None
+    matched = _regions_for_path(path, regions or [])
+    panels = []
+    for r in matched:
+        pct = r.get("pct") or {}
+        if not pct:
+            continue
+        panels.append({"panel": r.get("panel"), **pct})
+    panels.sort(key=lambda p: str(p.get("panel") or ""))
+    return {
+        "figure_id": figure_id,
+        "source": str(path),
+        "source_name": path.name,
+        "page": 0,
+        "image_data_uri": uri,
+        "panels": panels,
+        "n_panels": len(panels),
+    }
+
+
 def build_figure_preview_for_page(
     page,
     *,
@@ -118,18 +196,36 @@ def build_figure_previews(
     max_figures: int = 16,
     max_width: int = 960,
     quality: int = 70,
+    regions: list[dict] | None = None,
 ) -> list[dict]:
-    """Render publication figure PDFs into HTML-embeddable previews.
+    """Render publication figures (PDF or JPEG/PNG) into HTML-embeddable previews.
 
     Returns a list (stable order) and prefers the first preview per figure_id.
     """
     import fitz
 
+    from pre_peer_checker.parsers.figure_panel_labels import is_raster_figure_path
+
+    region_list = [r for r in (regions or []) if isinstance(r, dict)]
     by_id: dict[str, dict] = {}
     order: list[str] = []
     for raw in pdf_paths:
         path = Path(raw)
         if not path.is_file():
+            continue
+        if is_raster_figure_path(path):
+            prev = build_raster_figure_preview(
+                path, regions=region_list, max_width=max_width, quality=quality
+            )
+            if not prev:
+                continue
+            fid = prev["figure_id"]
+            if fid in by_id:
+                continue
+            if len(by_id) >= max_figures:
+                break
+            by_id[fid] = prev
+            order.append(fid)
             continue
         try:
             doc = fitz.open(path)

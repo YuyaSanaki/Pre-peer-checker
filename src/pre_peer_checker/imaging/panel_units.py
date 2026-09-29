@@ -42,15 +42,21 @@ def prepare_panel_sources(
     panel_max_side: int = 768,
     max_panels_per_image: int = 24,
     max_units: int = 800,
+    panel_boxes: dict[str, list] | None = None,
 ) -> tuple[list[tuple[Path, Path]], list[PanelUnit]]:
     """Load each source once; write whole-image previews and panel crops.
 
     Returns (previews for the first ``n_preview`` sources as (preview, source),
     panel units — the whole image plus split panels — for every source).
+
+    ``panel_boxes`` maps a resolved source path to letter-anchor crops (from
+    figure OCR). When present they replace XY-cut for that file; crops that are
+    not photo-like fall back to XY-cut so graphs do not become LightGlue units.
     """
     out_dir.mkdir(parents=True, exist_ok=True)
     previews: list[tuple[Path, Path]] = []
     units: list[PanelUnit] = []
+    boxes_map = panel_boxes or {}
     for i, src in enumerate(paths):
         want_units = panels and len(units) < max_units
         if i >= n_preview and not want_units:
@@ -65,7 +71,21 @@ def prepare_panel_sources(
             previews.append((save_scaled(img, out_dir / f"{stem}.png", preview_max_side), src))
         if not want_units:
             continue
-        boxes = split_panels(img, max_panels=max_panels_per_image)
+        try:
+            src_key = str(src.resolve())
+        except OSError:
+            src_key = str(src)
+        precomputed = boxes_map.get(src_key) or boxes_map.get(str(src)) or []
+        boxes = []
+        if precomputed:
+            photo_boxes = []
+            for box in precomputed:
+                crop = img.crop((box.left, box.top, box.right, box.bottom))
+                if is_photo_like(crop):
+                    photo_boxes.append(box)
+            boxes = photo_boxes
+        if not boxes:
+            boxes = split_panels(img, max_panels=max_panels_per_image)
         # Charts / text pages share glyphs and axes, which LightGlue happily matches,
         # so the whole image is a unit only when it is itself photo-like
         if is_photo_like(img):

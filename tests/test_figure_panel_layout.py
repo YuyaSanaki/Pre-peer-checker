@@ -28,6 +28,24 @@ def test_crops_from_letters_two_columns():
     assert all(c["panel"] in {"A", "B"} for c in crops)
 
 
+def test_region_dicts_from_crops_skip_star():
+    from pre_peer_checker.parsers.figure_panel_layout import region_dicts_from_crops
+
+    regs = region_dicts_from_crops(
+        "Fig1.png",
+        [
+            {"panel": "*", "box": [0, 0, 200, 100]},
+            {"panel": "A", "box": [0, 0, 90, 100]},
+            {"panel": "B", "box": [90, 0, 200, 100]},
+        ],
+        200,
+        100,
+    )
+    assert {r["panel"] for r in regs} == {"A", "B"}
+    assert regs[0]["geometry_source"] == "raster_ocr"
+    assert regs[0]["pct"]["width_pct"] > 0
+
+
 def test_dominant_run_keeps_single_missed_letter():
     """Observed OCR output: A..K with E and I missed, plus stray O and U."""
     assert dominant_panel_run(set("ABCDFGHJK") | {"O", "U"}) == set("ABCDFGHJK")

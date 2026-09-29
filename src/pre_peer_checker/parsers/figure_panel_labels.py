@@ -1,4 +1,4 @@
-"""出版 Figure PDF からパネル文字 (A,B,C,…) を収集し LLM ヒントにする。"""
+"""出版 Figure（PDF / JPEG / PNG）からパネル文字 (A,B,C,…) を収集し LLM ヒントにする。"""
 
 from __future__ import annotations
 
@@ -6,8 +6,31 @@ import re
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from pre_peer_checker.parsers.figure_panel_layout import dominant_panel_run
+from pre_peer_checker.parsers.figure_panel_layout import (
+    dominant_panel_run,
+    region_dicts_from_crops,
+)
 from pre_peer_checker.parsers.pdf_panel_plots import _panel_labels
+
+_RASTER_FIGURE_SUFFIXES = {".png", ".jpg", ".jpeg", ".tif", ".tiff", ".webp"}
+
+
+def looks_like_figure_filename(path: Path | str) -> bool:
+    """True for Fig1 / FigureS2 / Supp names; skips Rplot and editorial PDFs."""
+    name = Path(path).name.lower()
+    if name.startswith("rplot") or "editorial" in name:
+        return False
+    return any(k in name for k in ("fig", "figure", "supp"))
+
+
+def is_publication_figure_raster(path: Path | str) -> bool:
+    """Standalone JPEG/PNG/TIFF named like a publication figure."""
+    p = Path(path)
+    return p.suffix.lower() in _RASTER_FIGURE_SUFFIXES and looks_like_figure_filename(p)
+
+
+def is_raster_figure_path(path: Path | str) -> bool:
+    return Path(path).suffix.lower() in _RASTER_FIGURE_SUFFIXES
 
 
 def _figure_num_from_pdf_name(path: Path) -> str | None:
@@ -23,6 +46,10 @@ def _figure_num_from_pdf_name(path: Path) -> str | None:
         return f"S{m.group(1)}"
     # FigS1.pdf → figs1 (literal S after fig, not optional s of figs?)
     m = re.search(r"figs(\d+)", name)
+    if m:
+        return f"S{m.group(1)}"
+    # FigureS1.png → figures1 (JPEG/PNG export of a supplementary figure)
+    m = re.search(r"figures(\d+)", name)
     if m:
         return f"S{m.group(1)}"
     # Main: Fig1 / Figure2 / Fig2_rev
@@ -59,8 +86,41 @@ class PanelLabelProvenance:
     source: str = "none"  # vector | raster_ocr | mixed
     needs_review: bool = False
     ocr_engine: str = ""
-    pdf: str = ""
+    pdf: str = ""  # source path (PDF or raster figure)
     dropped: list[str] = field(default_factory=list)
+    regions: list[dict] = field(default_factory=list)
+    width: int = 0
+    height: int = 0
+
+
+def _merge_provenance(
+    prev: PanelLabelProvenance, prov: PanelLabelProvenance, labels: list[str]
+) -> PanelLabelProvenance:
+    return PanelLabelProvenance(
+        labels=labels,
+        source=prev.source if prev.source == prov.source else "mixed",
+        needs_review=prev.needs_review or prov.needs_review,
+        ocr_engine=prov.ocr_engine or prev.ocr_engine,
+        pdf=prev.pdf or prov.pdf,
+        dropped=sorted(set(prev.dropped) | set(prov.dropped)),
+        regions=list(prev.regions) + list(prov.regions),
+        width=prev.width or prov.width,
+        height=prev.height or prov.height,
+    )
+
+
+def _regions_for_kept_letters(
+    path: Path, analysis, kept: set[str]
+) -> list[dict]:
+    keep = {c.upper() for c in kept}
+    crops = [
+        c
+        for c in (analysis.crops or [])
+        if str(c.get("panel") or "").upper() in keep
+    ]
+    return region_dicts_from_crops(
+        path, crops, float(analysis.width), float(analysis.height)
+    )
 
 
 def _has_internal_gap(labels: set[str]) -> bool:
@@ -130,6 +190,58 @@ def panel_labels_from_pdf_detailed(
     return prov.labels, prov
 
 
+def panel_labels_from_raster_image_detailed(
+    path: Path | str,
+    *,
+    raster_fallback: bool | None = None,
+) -> tuple[list[str], PanelLabelProvenance]:
+    """OCR a standalone JPEG/PNG/TIFF figure at native resolution (no vector layer)."""
+    path = Path(path)
+    prov = PanelLabelProvenance(pdf=str(path))
+    use_raster = raster_fallback
+    if use_raster is None:
+        from pre_peer_checker.parsers.raster_figure_panel_ocr import raster_panel_ocr_enabled
+
+        use_raster = raster_panel_ocr_enabled()
+    if not use_raster:
+        return [], prov
+
+    from pre_peer_checker.parsers.raster_figure_panel_ocr import (
+        raster_panel_analysis_from_image,
+    )
+
+    analysis = raster_panel_analysis_from_image(path)
+    prov.width = analysis.width
+    prov.height = analysis.height
+    ocr = dominant_panel_run(analysis.letters)
+    prov.dropped = sorted(analysis.letters - ocr)
+    if not ocr:
+        return [], prov
+    prov.labels = sorted(ocr)
+    prov.source = "raster_ocr"
+    prov.needs_review = True
+    prov.ocr_engine = analysis.engine_label
+    prov.regions = _regions_for_kept_letters(path, analysis, ocr)
+    return prov.labels, prov
+
+
+def panel_labels_from_figure_detailed(
+    path: Path | str,
+    *,
+    max_pages: int = 4,
+    raster_fallback: bool | None = None,
+) -> tuple[list[str], PanelLabelProvenance]:
+    """Dispatch: native raster OCR for JPEG/PNG/TIFF, vector-then-OCR for PDF."""
+    path = Path(path)
+    if is_raster_figure_path(path):
+        return panel_labels_from_raster_image_detailed(
+            path, raster_fallback=raster_fallback
+        )
+    return panel_labels_from_pdf_detailed(
+        path, max_pages=max_pages, raster_fallback=raster_fallback
+    )
+
+
 def collect_panel_labels_by_figure(
     pdf_paths: list[Path | str],
     *,
@@ -147,18 +259,18 @@ def collect_panel_labels_by_figure_detailed(
     *,
     raster_fallback: bool | None = None,
 ) -> tuple[dict[str, list[str]], dict[str, PanelLabelProvenance]]:
-    """Like collect_panel_labels_by_figure with per-figure provenance for artifacts."""
+    """Like collect_panel_labels_by_figure with per-figure provenance for artifacts.
+
+    ``pdf_paths`` may also contain JPEG/PNG/TIFF figures named like Fig1.png.
+    """
     by_fig: dict[str, set[str]] = {}
     meta: dict[str, PanelLabelProvenance] = {}
     for raw in pdf_paths:
         path = Path(raw)
-        name_l = path.name.lower()
-        if not any(k in name_l for k in ("fig", "figure", "supp")):
-            continue
-        if "editorial" in name_l or name_l.startswith("rplot"):
+        if not looks_like_figure_filename(path):
             continue
         fnum = _figure_num_from_pdf_name(path)
-        labels, prov = panel_labels_from_pdf_detailed(
+        labels, prov = panel_labels_from_figure_detailed(
             path, raster_fallback=raster_fallback
         )
         if not labels:
@@ -169,18 +281,29 @@ def collect_panel_labels_by_figure_detailed(
         if prev is None:
             meta[key] = prov
         else:
-            meta[key] = PanelLabelProvenance(
-                labels=sorted(by_fig[key]),
-                source=prev.source if prev.source == prov.source else "mixed",
-                needs_review=prev.needs_review or prov.needs_review,
-                ocr_engine=prov.ocr_engine or prev.ocr_engine,
-                pdf=prev.pdf or prov.pdf,
-                dropped=sorted(set(prev.dropped) | set(prov.dropped)),
-            )
+            meta[key] = _merge_provenance(prev, prov, sorted(by_fig[key]))
     out = {k: sorted(v) for k, v in by_fig.items()}
     for k, prov in meta.items():
         prov.labels = out.get(k, prov.labels)
     return out, meta
+
+
+def raster_regions_from_meta(meta_by_figure: dict[str, PanelLabelProvenance]) -> list[dict]:
+    """Flatten letter-anchor regions stored on raster-figure provenance."""
+    out: list[dict] = []
+    seen: set[tuple] = set()
+    for prov in meta_by_figure.values():
+        for r in prov.regions:
+            key = (
+                str(r.get("source") or ""),
+                str(r.get("panel") or ""),
+                int(r.get("page_index") or 0),
+            )
+            if key in seen:
+                continue
+            seen.add(key)
+            out.append(r)
+    return out
 
 
 def attach_panel_labels_to_chunks(

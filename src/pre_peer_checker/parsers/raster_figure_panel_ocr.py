@@ -13,6 +13,7 @@ import platform
 import sys
 import tempfile
 import threading
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -260,14 +261,41 @@ def _panel_crops(full, engines: list[str]) -> tuple[list[dict], str]:
     return crops, case
 
 
-def raster_panel_letters_from_page(page) -> tuple[set[str], list[str]]:
-    """OCR one page. Returns (raw single letters, engines used) — unfiltered."""
-    engines = ocr_engine_names()
-    if not engines:
-        return set(), []
+@dataclass
+class RasterPanelOcrResult:
+    """Native-resolution panel OCR (JPEG/PNG/TIFF or a rendered PDF page)."""
 
-    full = _page_figure_image(page)
+    letters: set[str] = field(default_factory=set)
+    engines: list[str] = field(default_factory=list)
+    crops: list[dict] = field(default_factory=list)
+    width: int = 0
+    height: int = 0
+
+    @property
+    def engine_label(self) -> str:
+        return "+".join(self.engines)
+
+
+def load_figure_rgb(path: Path | str):
+    """RGB PIL image at native pixels (no 300 dpi upscale). Honours EXIF orientation."""
+    from PIL import Image, ImageOps
+
+    path = Path(path)
+    with Image.open(path) as im:
+        im = ImageOps.exif_transpose(im) or im
+        return im.convert("RGB")
+
+
+def raster_panel_analysis_from_rgb(full, *, engines: list[str] | None = None) -> RasterPanelOcrResult:
+    """Layout + crop OCR on an already-loaded RGB image."""
+    engines = list(engines) if engines is not None else ocr_engine_names()
+    result = RasterPanelOcrResult(
+        engines=engines, width=int(full.width), height=int(full.height)
+    )
+    if not engines:
+        return result
     crops, case = _panel_crops(full, engines)
+    result.crops = crops
 
     vision = _AppleVisionOcr() if "vision" in engines else None
     florence = _get_florence() if "florence" in engines else None
@@ -283,7 +311,32 @@ def raster_panel_letters_from_page(page) -> tuple[set[str], list[str]]:
             if florence is not None:
                 dets.extend(florence.ocr_image(crop))
 
-    return {ch for ch, _ in panel_letter_dets(dets, case=case)}, engines
+    result.letters = {ch for ch, _ in panel_letter_dets(dets, case=case)}
+    return result
+
+
+def raster_panel_analysis_from_image(path: Path | str) -> RasterPanelOcrResult:
+    """OCR a standalone JPEG/PNG/TIFF figure at native resolution."""
+    try:
+        full = load_figure_rgb(path)
+    except Exception:
+        return RasterPanelOcrResult()
+    return raster_panel_analysis_from_rgb(full)
+
+
+def raster_panel_letters_from_image(path: Path | str) -> tuple[set[str], str]:
+    """Raw panel letters from a raster figure. Returns (letters, engine label)."""
+    result = raster_panel_analysis_from_image(path)
+    return result.letters, result.engine_label
+
+
+def raster_panel_letters_from_page(page) -> tuple[set[str], list[str]]:
+    """OCR one page. Returns (raw single letters, engines used) — unfiltered."""
+    engines = ocr_engine_names()
+    if not engines:
+        return set(), []
+    result = raster_panel_analysis_from_rgb(_page_figure_image(page), engines=engines)
+    return result.letters, result.engines
 
 
 def raster_panel_letters_from_pdf(

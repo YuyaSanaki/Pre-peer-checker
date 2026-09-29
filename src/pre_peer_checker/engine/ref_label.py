@@ -1,4 +1,4 @@
-"""本文 Fig パネル参照 ↔ PDF ラベル — P-REF-LABEL-MISMATCH."""
+"""本文 Fig パネル参照 ↔ 図上ラベル — P-REF-LABEL-MISMATCH."""
 
 from __future__ import annotations
 
@@ -41,7 +41,7 @@ def warnings_from_ref_labels(
     *,
     max_warnings: int = 5,
 ) -> list[WarningItem]:
-    """Body/Legend cites a panel letter that does not appear on the figure PDF."""
+    """Body/Legend cites a panel letter that does not appear on the figure."""
     if not labels_by_figure:
         return []
     refs = extract_fig_panel_refs(texts)
@@ -62,12 +62,12 @@ def warnings_from_ref_labels(
         warnings.append(
             WarningItem(
                 tag=WarningTag.REF_INCONSISTENCY,
-                title=f"Figure {fig}: 本文参照パネルが PDF ラベルに無い",
+                title=f"Figure {fig}: 本文参照パネルが図のラベルに無い",
                 location=f"Fig.{fig}{''.join(missing)}",
                 reason=(
                     f"本文／Legend が Figure {fig} のパネル "
                     f"{', '.join(missing)} を参照していますが、"
-                    f"出版 PDF 上のラベルは {', '.join(sorted(present))} のみです。"
+                    f"出版図上のラベルは {', '.join(sorted(present))} のみです。"
                 ),
                 sources=[],
                 metadata={
@@ -75,6 +75,7 @@ def warnings_from_ref_labels(
                     "figure": fig,
                     "cited_panels": sorted(cited),
                     "pdf_panels": sorted(present),
+                    "figure_panels": sorted(present),
                     "missing_panels": missing,
                 },
             )

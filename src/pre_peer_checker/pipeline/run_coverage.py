@@ -94,6 +94,37 @@ def build_run_coverage(
         if table_errors:
             detail += f" · 読込失敗 {len(table_errors)} 件"
         add("tables", "表（CSV/Excel）読込・群ベクトル", "ran", detail)
+        from pre_peer_checker.engine.n_and_names import experiment_unit_dir
+
+        table_paths = bundle.get(FileKind.CSV) + bundle.get(FileKind.EXCEL)
+        loose = [
+            p.name
+            for p in table_paths
+            if experiment_unit_dir(p).name.lower() == "data"
+        ]
+        units = {
+            experiment_unit_dir(p).name
+            for p in table_paths
+            if experiment_unit_dir(p).name.lower() != "data"
+        }
+        if loose:
+            add(
+                "experiment_folders",
+                "実験単位フォルダ（data/ 配下）",
+                "ran",
+                (
+                    f"data/ 直下に表が {len(loose)} 件あります。"
+                    "実験一式は Fig1/ などのサブフォルダにまとめてください"
+                    + (f"（検出した実験フォルダ {len(units)}）" if units else "")
+                ),
+            )
+        elif table_paths:
+            add(
+                "experiment_folders",
+                "実験単位フォルダ（data/ 配下）",
+                "ran",
+                f"実験フォルダ {len(units)} 件",
+            )
     else:
         add("tables", "表（CSV/Excel）読込・群ベクトル", "skipped", "csv/xlsx なし")
 
@@ -155,15 +186,25 @@ def build_run_coverage(
     else:
         add("plot_digitize", "Rplot 等のプロット数値化", "skipped", "Rplot*.pdf 等なし")
 
-    if n_pdf:
+    n_fig_raster = len(
+        [
+            p
+            for p in bundle.get(FileKind.IMAGE)
+            if any(k in p.name.lower() for k in ("fig", "figure", "supp"))
+        ]
+    )
+    if n_pdf or n_fig_raster:
+        detail = f"PDF {n_pdf} 件 · パネル解析 {len(fig_panels)}"
+        if n_fig_raster:
+            detail += f" · Figure 画像 {n_fig_raster} 件"
         add(
             "figure_pdf",
-            "Figure PDF / 埋め込み画像スキャン",
+            "Figure PDF/画像 / 埋め込み画像スキャン",
             "ran",
-            f"PDF {n_pdf} 件 · パネル解析 {len(fig_panels)}",
+            detail,
         )
     else:
-        add("figure_pdf", "Figure PDF / 埋め込み画像スキャン", "skipped", "pdf なし")
+        add("figure_pdf", "Figure PDF/画像 / 埋め込み画像スキャン", "skipped", "pdf / Fig 画像なし")
 
     if n_img or n_micro:
         add(

@@ -128,8 +128,8 @@ def _row_name(r: int, n_rows: int) -> str:
     return f"上から{r + 1}段目"
 
 
-def _grid_labels(boxes: list[tuple[int, ...]]) -> dict[tuple[int, ...], str]:
-    """Reading-order position ("上段・左から2枚目") of each box among its siblings."""
+def _grid_rows(boxes: list[tuple[int, ...]]) -> list[list[tuple[int, ...]]]:
+    """Group boxes into rows (top to bottom), each row sorted left to right."""
     rows: list[list[tuple[int, ...]]] = []
     for box in sorted(boxes, key=lambda b: (b[1], b[0])):
         top, bottom = box[1], box[3]
@@ -143,9 +143,16 @@ def _grid_labels(boxes: list[tuple[int, ...]]) -> dict[tuple[int, ...], str]:
         else:
             rows.append([box])
     rows.sort(key=lambda row: min(b[1] for b in row))
+    for row in rows:
+        row.sort(key=lambda b: b[0])
+    return rows
+
+
+def _grid_labels(boxes: list[tuple[int, ...]]) -> dict[tuple[int, ...], str]:
+    """Reading-order position ("上段・左から2枚目") of each box among its siblings."""
+    rows = _grid_rows(boxes)
     out: dict[tuple[int, ...], str] = {}
     for r, row in enumerate(rows):
-        row.sort(key=lambda b: b[0])
         for c, box in enumerate(row):
             col = f"左から{c + 1}枚目" if len(row) > 1 else ""
             if len(rows) == 1:
@@ -165,6 +172,20 @@ def panel_positions(units: list[PanelUnit]) -> PanelPositions:
     for source, boxes in by_source.items():
         for box, label in _grid_labels(boxes).items():
             out[(source, box)] = label
+    return out
+
+
+def panel_reading_order(units: list[PanelUnit]) -> dict[tuple[str, tuple[int, ...]], tuple[int, int]]:
+    """(source, box) -> (row, column) in reading order within its source image."""
+    by_source: dict[str, list[tuple[int, ...]]] = {}
+    for u in units:
+        if u.box is not None:
+            by_source.setdefault(str(u.source), []).append(tuple(u.box))
+    out: dict[tuple[str, tuple[int, ...]], tuple[int, int]] = {}
+    for source, boxes in by_source.items():
+        for r, row in enumerate(_grid_rows(boxes)):
+            for c, box in enumerate(row):
+                out[(source, box)] = (r, c)
     return out
 
 

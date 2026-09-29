@@ -47,6 +47,27 @@ def test_same_photo_in_two_figures_is_flagged(tmp_path: Path):
     assert {Path(s).name for s in warns[0].sources} == {"fig2.png", "fig5.png"}
 
 
+def test_reuse_warnings_keep_anchor_panel_on_left_in_figure_order(tmp_path: Path):
+    pytest.importorskip("lightglue")
+    shared = _photo(26)
+    _page([_photo(27), _degraded(shared)]).save(tmp_path / "fig10.png")
+    _page([shared, _photo(28)]).save(tmp_path / "fig2.png")
+    _page([_photo(29), _degraded(shared, side=260)]).save(tmp_path / "fig3.png")
+
+    result = scan_internal_panel_reuse(
+        [tmp_path / "fig10.png", tmp_path / "fig3.png", tmp_path / "fig2.png"],
+        prefer_dino=False,
+    )
+    order = [tuple(Path(s).name for s in w.sources) for w in _reuse_warnings(result)]
+    assert order == [
+        ("fig2.png", "fig3.png"),
+        ("fig2.png", "fig10.png"),
+        ("fig3.png", "fig10.png"),
+    ]
+    first = _reuse_warnings(result)[0]
+    assert first.location.startswith("fig2.png（左から1枚目）")
+
+
 def test_same_photo_twice_in_one_figure_is_flagged(tmp_path: Path):
     pytest.importorskip("lightglue")
     shared = _photo(24)

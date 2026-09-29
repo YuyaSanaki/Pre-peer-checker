@@ -7,6 +7,7 @@
 
 from __future__ import annotations
 
+import re
 import tempfile
 from collections.abc import Callable
 from dataclasses import dataclass, field
@@ -22,6 +23,7 @@ from pre_peer_checker.imaging.panel_units import (
     panel_label,
     panel_position,
     panel_positions,
+    panel_reading_order,
     prepare_panel_sources,
     rank_vectors,
 )
@@ -141,18 +143,23 @@ def scan_internal_panel_reuse(
             if u.box is not None:
                 panel_counts[str(u.source)] = panel_counts.get(str(u.source), 0) + 1
         positions = panel_positions(units)
+        reading = panel_reading_order(units)
 
-        hits = 0
+        reuse: list[tuple[tuple, WarningItem]] = []
         for key, matches in groups.items():
-            matches = sorted(matches, key=lambda m: match_rank(*m), reverse=True)
             if _is_same_figure(key, matches, panel_counts):
                 result.artifacts.setdefault("duplicate_file_pairs", []).append(
                     {"a": key[0], "b": key[1], "panels": len(matches)}
                 )
                 continue
-            hits += 1
-            result.warnings.append(_warning_for(key, matches, positions))
-        result.artifacts["reuse_source_pairs"] = hits
+            matches = _anchor_first(matches, reading)
+            ua, ub, _vr = matches[0]
+            sort_key = (_unit_order(ua, reading), _unit_order(ub, reading))
+            reuse.append((sort_key, _warning_for(key, matches, positions)))
+        # Anchor panel fixed on the left, in figure order: 1A↔2A, 1A↔3G, 2B↔2G, 2B↔7A …
+        reuse.sort(key=lambda kw: kw[0])
+        result.warnings.extend(w for _, w in reuse)
+        result.artifacts["reuse_source_pairs"] = len(reuse)
     finally:
         import shutil
 
@@ -177,12 +184,44 @@ def _is_same_figure(
     return covered / smaller >= SAME_FIGURE_MIN_COVERAGE
 
 
+def _natural_key(name: str) -> tuple:
+    """image9 < image10; compare digit runs as numbers."""
+    return tuple(
+        (0, int(part)) if part.isdigit() else (1, part)
+        for part in re.split(r"(\d+)", name.lower())
+        if part
+    )
+
+
+def _unit_order(
+    unit: PanelUnit, reading: dict[tuple[str, tuple[int, ...]], tuple[int, int]]
+) -> tuple:
+    """Figure file first, then reading order inside it (whole image before panels)."""
+    rc = (-1, -1) if unit.box is None else reading.get((str(unit.source), tuple(unit.box)), (0, 0))
+    return (_natural_key(Path(unit.source).name), str(unit.source), rc)
+
+
+def _anchor_first(
+    matches: list[tuple[PanelUnit, PanelUnit, object]],
+    reading: dict[tuple[str, tuple[int, ...]], tuple[int, int]],
+) -> list[tuple[PanelUnit, PanelUnit, object]]:
+    """Put the earlier panel of every pair on the left, then list pairs anchor by anchor."""
+    oriented = [
+        (b, a, vr) if _unit_order(b, reading) < _unit_order(a, reading) else (a, b, vr)
+        for a, b, vr in matches
+    ]
+    return sorted(
+        oriented, key=lambda m: (_unit_order(m[0], reading), _unit_order(m[1], reading))
+    )
+
+
 def _warning_for(
     key: tuple[str, str],
     matches: list[tuple[PanelUnit, PanelUnit, object]],
     positions: PanelPositions | None = None,
 ) -> WarningItem:
-    ua, ub, vr = matches[0]
+    ua, ub, _ = matches[0]
+    vr = max(matches, key=lambda m: match_rank(*m))[2]
     same_file = key[0] == key[1]
     panel_matches = [
         {
@@ -217,7 +256,7 @@ def _warning_for(
             "別条件・別実験として提示したパネルが同じ写真になっていないか確認してください。"
             "全体像と拡大像のように意図的に同じ写真を再掲している場合もあります。"
         ),
-        sources=[key[0]] if same_file else [key[0], key[1]],
+        sources=[key[0]] if same_file else [str(ua.source), str(ub.source)],
         metadata={
             "pattern_id": "P-IMAGE-DUPLICATE-INTERNAL",
             "method": vr.method,

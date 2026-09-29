@@ -44,13 +44,24 @@ def test_duplicate_scan_detects_identical_copy(tmp_path: Path):
 def test_scan_auto_fallback_without_dino(tmp_path: Path):
     a = tmp_path / "a.png"
     b = tmp_path / "b.png"
-    Image.fromarray(np.zeros((40, 40), dtype=np.uint8)).save(a)
-    Image.fromarray(np.zeros((40, 40), dtype=np.uint8)).save(b)
+    # Blank frames have no keypoints, so the precise stage rightly rejects them.
+    arr = np.random.default_rng(1).integers(0, 255, (128, 128), dtype=np.uint8)
+    Image.fromarray(arr).save(a)
+    Image.fromarray(arr).save(b)
     matches, method = scan_image_duplicates_auto([a, b], prefer_dino=False)
     assert method.startswith("gray64+ahash16")
     assert any(m.likely_duplicate for m in matches)
     # available() is boolean regardless of prefer flag
     assert isinstance(DinoDuplicateScanner.available(), bool)
+
+
+def test_scan_auto_rejects_blank_frames(tmp_path: Path):
+    a = tmp_path / "a.png"
+    b = tmp_path / "b.png"
+    Image.fromarray(np.zeros((40, 40), dtype=np.uint8)).save(a)
+    Image.fromarray(np.zeros((40, 40), dtype=np.uint8)).save(b)
+    matches, _ = scan_image_duplicates_auto([a, b], prefer_dino=False)
+    assert matches and not any(m.likely_duplicate for m in matches)
 
 
 def test_try_load_lif_reports_missing_dep(tmp_path: Path):

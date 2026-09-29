@@ -37,9 +37,9 @@ ROOT = Path(__file__).resolve().parents[1]
 DEVICE = os.environ.get("BENCH_DEVICE", "cuda")
 DPI = 300
 SCALE = DPI / 72.0
-PAPERS = {
-    "p01": ROOT / "input/panel_extract/paper_01/s41467-026-76569-2.pdf",
-    "p02": ROOT / "input/panel_extract/paper_02/1-s2.0-S1550413124004133-main.pdf",
+PAPER_DIRS = {
+    "p01": ROOT / "input/panel_extract/paper_01",
+    "p02": ROOT / "input/panel_extract/paper_02",
 }
 _CAP_RE = re.compile(r"^(?:Fig\.?|Figure)\s*(\d+)\s*[|.:]", re.M)
 _TRIM = "()[]{},.;:'\"“”‘’"
@@ -74,11 +74,21 @@ def _profile_ids(profile: str) -> set[str] | None:
 
 
 # --------------------------------------------------------------------------- prepare
+def _paper_pdf(paper: str) -> Path:
+    """Local PDF under input/panel_extract/. Do not hardcode the filename."""
+    directory = PAPER_DIRS[paper]
+    pdfs = sorted(p for p in directory.glob("*.pdf") if p.is_file())
+    if len(pdfs) != 1:
+        rel = directory.relative_to(ROOT)
+        raise SystemExit(f"{paper}: expected one PDF under {rel}/, found {len(pdfs)}")
+    return pdfs[0]
+
+
 def _legend_panels(paper: str, fig: str) -> list[str]:
     sys.path.insert(0, str(ROOT / "src"))
     from pre_peer_checker.parsers.manuscript_text import pdf_text
 
-    paras = pdf_text(PAPERS[paper]).paragraphs
+    paras = pdf_text(_paper_pdf(paper)).paragraphs
     head = re.compile(rf"^(?:Fig\.?|Figure)\s*{fig}\s*[|.:]")
     other = re.compile(r"^(?:Fig\.?|Figure)\s*\d+\s*[|.:]|^References\b")
     legend: list[str] = []
@@ -147,8 +157,8 @@ def cmd_prepare(out: Path, n_rplots: int, *, profile: str) -> None:
     img_dir.mkdir(parents=True, exist_ok=True)
     items: list[dict] = []
 
-    for paper, path in PAPERS.items():
-        doc = pymupdf.open(path)
+    for paper in PAPER_DIRS:
+        doc = pymupdf.open(_paper_pdf(paper))
         for page in doc:
             infos = page.get_image_info()
             area = sum((r["bbox"][2] - r["bbox"][0]) * (r["bbox"][3] - r["bbox"][1]) for r in infos)

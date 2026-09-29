@@ -35,10 +35,9 @@ from pre_peer_checker.parsers.legend_struct import (
     parse_panel_ns,
 )
 
-CASE_PDF = {
-    "paper_01": ROOT / "input/panel_extract/paper_01/s41467-026-76569-2.pdf",
-    "paper_02": ROOT
-    / "input/panel_extract/paper_02/1-s2.0-S1550413124004133-main.pdf",
+CASE_DIR = {
+    "paper_01": ROOT / "input/panel_extract/paper_01",
+    "paper_02": ROOT / "input/panel_extract/paper_02",
 }
 CASE_GOLD = {
     "paper_01": ROOT / "fixtures/gold/panel_extract/paper_01/panel_extract_gold.json",
@@ -48,6 +47,16 @@ CASE_KEEP = {
     "paper_01": {"1", "2", "3", "4", "5"},
     "paper_02": {"1", "2", "3", "4", "5", "6", "7"},
 }
+
+
+def _case_pdf(case: str) -> Path:
+    """Local PDF under input/panel_extract/<case>/. Do not hardcode the filename."""
+    directory = CASE_DIR[case]
+    pdfs = sorted(p for p in directory.glob("*.pdf") if p.is_file())
+    if len(pdfs) != 1:
+        rel = directory.relative_to(ROOT)
+        raise SystemExit(f"{case}: expected one PDF under {rel}/, found {len(pdfs)}")
+    return pdfs[0]
 
 
 def _load_eval():
@@ -80,7 +89,7 @@ def run_case(
     max_tokens: int,
 ) -> dict:
     ev = _load_eval()
-    pdf = CASE_PDF[case]
+    pdf = _case_pdf(case)
     gold = json.loads(CASE_GOLD[case].read_text(encoding="utf-8"))
     pairs = extract_figure_captions_from_pdf(pdf, keep=CASE_KEEP[case])
     if not pairs:
@@ -219,7 +228,7 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument(
         "--case",
         action="append",
-        choices=sorted(CASE_PDF),
+        choices=sorted(CASE_DIR),
         required=True,
     )
     ap.add_argument("--profile", default="qwen2.5-7b-hf")

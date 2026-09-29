@@ -2,7 +2,7 @@
 
 Preference order when ``prefer=\"auto\"``:
   1. Apple MLX (``mlx_lm``) — Mac distribution path
-  2. HuggingFace transformers on CUDA / CPU — DGX / Linux path
+  2. HuggingFace transformers on GPU (CUDA / ROCm / XPU) or CPU — DGX / Linux path
   3. None → caller falls back to rules-only extraction
 """
 
@@ -77,7 +77,7 @@ class MLXBackend(LocalLLMBackend):
 
 
 class TransformersBackend(LocalLLMBackend):
-    """CUDA (preferred) or CPU via transformers — DGX Spark path."""
+    """GPU (CUDA / ROCm / XPU / MPS) or CPU via transformers — DGX Spark / Linux path."""
 
     def __init__(
         self,
@@ -108,13 +108,9 @@ class TransformersBackend(LocalLLMBackend):
     def _resolve_device(self) -> str:
         if self.device_override:
             return self.device_override
-        import torch
+        from pre_peer_checker.accel import torch_device
 
-        if torch.cuda.is_available():
-            return "cuda"
-        if getattr(torch.backends, "mps", None) and torch.backends.mps.is_available():
-            return "mps"
-        return "cpu"
+        return torch_device()
 
     def info(self) -> BackendInfo:
         ok = self.available()
@@ -132,6 +128,13 @@ class TransformersBackend(LocalLLMBackend):
 
                     if torch.cuda.is_available() and torch.cuda.device_count() > 0:
                         detail = torch.cuda.get_device_name(0)
+                except Exception:
+                    detail = ""
+            elif device == "xpu":
+                try:
+                    import torch
+
+                    detail = torch.xpu.get_device_name(0)
                 except Exception:
                     detail = ""
         return BackendInfo(
@@ -162,40 +165,39 @@ class TransformersBackend(LocalLLMBackend):
         except Exception:
             pass
 
+        from pre_peer_checker.accel import GPU_DEVICES, load_pretrained
+
         device = self._resolve_device()
-        # Prefer explicit CPU when CUDA is advertised but unusable (no driver).
-        if device == "cuda":
+        # Prefer explicit CPU when the GPU is advertised but unusable (no driver).
+        if device in GPU_DEVICES:
             try:
-                torch.zeros(1, device="cuda")
+                torch.zeros(1, device=device)
             except Exception:
                 device = "cpu"
-        dtype = torch.float16 if device in {"cuda", "mps"} else torch.float32
-        if device == "cuda":
-            pipe_device: int | str = 0
-        elif device == "mps":
-            pipe_device = "mps"
-        else:
-            pipe_device = -1
+        dtype = torch.float16 if device in {"cuda", "xpu", "mps"} else torch.float32
         self._tokenizer = AutoTokenizer.from_pretrained(self.model_id)
-        self._model = AutoModelForCausalLM.from_pretrained(
+        self._model = load_pretrained(
+            AutoModelForCausalLM,
             self.model_id,
+            device=device,
             torch_dtype=dtype,
             low_cpu_mem_usage=True,
         )
-        # Keep model and tokenizer inputs on the same device for direct generate().
-        self._model = self._model.to(device)
+        pipe_kwargs: dict[str, object] = {}
+        if device not in GPU_DEVICES:
+            pipe_kwargs["device"] = "mps" if device == "mps" else -1
         self._pipe = pipeline(
             "text-generation",
             model=self._model,
             tokenizer=self._tokenizer,
-            device=pipe_device,
+            **pipe_kwargs,
         )
         self._device = device
 
     @staticmethod
     def _tensor_device(device: str) -> str:
         """Map backend device label to a torch .to() target."""
-        if device in {"cuda", "mps", "cpu"}:
+        if device in {"cuda", "xpu", "mps", "cpu"}:
             return device
         return "cpu"
 
@@ -280,17 +282,11 @@ def probe_backends() -> list[BackendInfo]:
     ]
 
 
-def _cuda_usable() -> bool:
-    """True when torch can allocate on a real CUDA device (DGX Spark / Linux GPU)."""
-    try:
-        import torch
+def _gpu_device() -> str | None:
+    """``cuda`` (NVIDIA / AMD ROCm) or ``xpu`` (Intel) when torch can allocate there."""
+    from pre_peer_checker.accel import gpu_device
 
-        if not torch.cuda.is_available() or torch.cuda.device_count() < 1:
-            return False
-        torch.zeros(1, device="cuda")
-        return True
-    except Exception:
-        return False
+    return gpu_device()
 
 
 def _hf_text_model_from_mlx_id(model_id: str) -> str:
@@ -312,13 +308,13 @@ def select_backend(
 ) -> LocalLLMBackend | None:
     """Return a ready backend or None (rules-only).
 
-    prefer: auto | mlx | cuda | transformers | none
+    prefer: auto | mlx | cuda | transformers | none  (``cuda`` = any torch GPU)
     profile_id: registry profile (``llm/model_registry.yaml``). When set,
     supplies default model_id / prefer unless overridden.
 
     Host policy:
       - Mac + MLX → MLX
-      - CUDA usable (DGX Spark / Linux GPU) → transformers on CUDA
+      - torch GPU usable (DGX Spark / NVIDIA / AMD ROCm / Intel XPU) → transformers on GPU
       - else → transformers CPU / None
     """
     from pre_peer_checker.llm.registry import resolve_model
@@ -347,11 +343,11 @@ def select_backend(
     if prefer_l == "mlx":
         if MLXBackend.available():
             return MLXBackend(mid)
-        # Default Mac profile on a CUDA host (Spark): fall through to HF+CUDA.
+        # Default Mac profile on a GPU host (Spark): fall through to HF+GPU.
         if TransformersBackend.available():
             return TransformersBackend(
                 model_id=_hf_text_model_from_mlx_id(mid),
-                device="cuda" if _cuda_usable() else None,
+                device=_gpu_device(),
             )
         return None
     if prefer_l in {"cuda", "transformers", "hf"}:
@@ -360,12 +356,8 @@ def select_backend(
         hf_mid = mid
         if mid.startswith("mlx-community/"):
             hf_mid = _hf_text_model_from_mlx_id(mid)
-        want_cuda = prefer_l == "cuda" or _cuda_usable()
-        return TransformersBackend(
-            model_id=hf_mid,
-            device="cuda" if want_cuda and _cuda_usable() else None,
-        )
-    # auto: MLX on Apple Silicon; else CUDA transformers when GPU works
+        return TransformersBackend(model_id=hf_mid, device=_gpu_device())
+    # auto: MLX on Apple Silicon; else GPU transformers when GPU works
     if MLXBackend.available():
         if not mid.startswith("mlx-community/"):
             # HF ids are not loadable via mlx_lm; use registry MLX default
@@ -375,8 +367,5 @@ def select_backend(
         hf_mid = mid
         if mid.startswith("mlx-community/"):
             hf_mid = _hf_text_model_from_mlx_id(mid)
-        return TransformersBackend(
-            model_id=hf_mid,
-            device="cuda" if _cuda_usable() else None,
-        )
+        return TransformersBackend(model_id=hf_mid, device=_gpu_device())
     return None

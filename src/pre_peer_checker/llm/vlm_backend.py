@@ -2,7 +2,7 @@
 
 Preference when ``prefer=\"auto\"``:
   1. mlx-vlm on Apple Silicon
-  2. transformers Qwen2.5-VL on CUDA
+  2. transformers Qwen2.5-VL on a torch GPU (CUDA / ROCm / XPU)
   3. None → caller keeps vector-only regions
 """
 
@@ -133,7 +133,7 @@ class MlxVlmBackend(LocalVlmBackend):
 
 
 class TransformersVlmBackend(LocalVlmBackend):
-    """Qwen2.5-VL via transformers (CUDA / CPU)."""
+    """Qwen2.5-VL via transformers (CUDA / ROCm / XPU / CPU)."""
 
     def __init__(self, model_id: str | None = None, *, device: str | None = None):
         self.model_id = model_id or "Qwen/Qwen2.5-VL-7B-Instruct"
@@ -155,11 +155,7 @@ class TransformersVlmBackend(LocalVlmBackend):
     def _resolve_device(self) -> str:
         if self.device_override:
             return self.device_override
-        import torch
-
-        if torch.cuda.is_available():
-            return "cuda"
-        return "cpu"
+        return _gpu_device() or "cpu"
 
     def info(self) -> VlmBackendInfo:
         ok = self.available()
@@ -170,11 +166,11 @@ class TransformersVlmBackend(LocalVlmBackend):
                 device = self._resolve_device()
             except Exception:
                 device = "error"
-            if device == "cuda":
+            if device in {"cuda", "xpu"}:
                 try:
                     import torch
 
-                    detail = torch.cuda.get_device_name(0)
+                    detail = getattr(torch, device).get_device_name(0)
                 except Exception:
                     detail = ""
         return VlmBackendInfo(
@@ -194,6 +190,8 @@ class TransformersVlmBackend(LocalVlmBackend):
         import torch
         from transformers import AutoProcessor
 
+        from pre_peer_checker.accel import GPU_DEVICES, load_pretrained
+
         device = self._resolve_device()
         # Prefer AutoModelForImageTextToText when present (transformers≥4.49)
         try:
@@ -202,14 +200,15 @@ class TransformersVlmBackend(LocalVlmBackend):
             from transformers import Qwen2_5_VLForConditionalGeneration as ModelCls  # type: ignore
 
         self._processor = AutoProcessor.from_pretrained(self.model_id, trust_remote_code=True)
-        dtype = torch.float16 if device == "cuda" else torch.float32
-        self._model = ModelCls.from_pretrained(
+        dtype = torch.float16 if device in GPU_DEVICES else torch.float32
+        self._model = load_pretrained(
+            ModelCls,
             self.model_id,
+            device=device,
             torch_dtype=dtype,
             trust_remote_code=True,
             low_cpu_mem_usage=True,
         )
-        self._model = self._model.to(device)
         self._device = device
 
     def generate(self, prompt: str, image_path: Path | str, *, max_tokens: int = 768) -> str:
@@ -244,16 +243,10 @@ def probe_vlm_backends() -> list[VlmBackendInfo]:
     return [MlxVlmBackend().info(), TransformersVlmBackend().info()]
 
 
-def _cuda_usable() -> bool:
-    try:
-        import torch
+def _gpu_device() -> str | None:
+    from pre_peer_checker.accel import gpu_device
 
-        if not torch.cuda.is_available() or torch.cuda.device_count() < 1:
-            return False
-        torch.zeros(1, device="cuda")
-        return True
-    except Exception:
-        return False
+    return gpu_device()
 
 
 def _hf_vl_from_mlx_id(model_id: str) -> str:
@@ -297,19 +290,14 @@ def select_vlm_backend(
         if MlxVlmBackend.available():
             return MlxVlmBackend(mlx_id)
         if TransformersVlmBackend.available():
-            return TransformersVlmBackend(
-                _hf_vl_from_mlx_id(mid),
-                device="cuda" if _cuda_usable() else None,
-            )
+            return TransformersVlmBackend(_hf_vl_from_mlx_id(mid), device=_gpu_device())
         return None
 
     if prefer_l in {"cuda", "transformers", "hf"}:
         if not TransformersVlmBackend.available():
             return None
         hf = mid if not mid.startswith("mlx-community/") else _hf_vl_from_mlx_id(mid)
-        return TransformersVlmBackend(
-            hf, device="cuda" if (prefer_l == "cuda" or _cuda_usable()) and _cuda_usable() else None
-        )
+        return TransformersVlmBackend(hf, device=_gpu_device())
 
     # auto
     if MlxVlmBackend.available():
@@ -319,9 +307,10 @@ def select_vlm_backend(
             else "mlx-community/Qwen2.5-VL-7B-Instruct-4bit"
         )
         return MlxVlmBackend(mlx_id)
-    if TransformersVlmBackend.available() and _cuda_usable():
+    gpu = _gpu_device() if TransformersVlmBackend.available() else None
+    if gpu:
         hf = mid if not mid.startswith("mlx-community/") else _hf_vl_from_mlx_id(mid)
-        return TransformersVlmBackend(hf, device="cuda")
+        return TransformersVlmBackend(hf, device=gpu)
     return None
 
 

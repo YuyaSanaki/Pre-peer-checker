@@ -99,20 +99,17 @@ class DinoDuplicateScanner:
         if self._model is not None and self._transform is not None:
             return
         if self.device is None:
-            if torch.cuda.is_available():
-                self.device = "cuda"
-            elif getattr(torch.backends, "mps", None) and torch.backends.mps.is_available():
-                self.device = "mps"
-            else:
-                self.device = "cpu"
+            from pre_peer_checker.accel import torch_device
+
+            self.device = torch_device()
         self._model = torch.hub.load("facebookresearch/dinov2", self.model_name, trust_repo=True)
         self._model.eval().to(self.device)
-        if self.device == "mps":
-            # MPS 未実装の演算（位置埋め込みの補間など）があると scan 全体が
+        if self.device != "cpu":
+            # MPS / XPU / ROCm で未実装の演算（位置埋め込みの補間など）があると scan 全体が
             # 軽量フォールバックに落ちるため、先に試して CPU へ退避する
             try:
                 with torch.inference_mode():
-                    self._model(torch.zeros(1, 3, 224, 224, device="mps"))
+                    self._model(torch.zeros(1, 3, 224, 224, device=self.device))
             except Exception:  # noqa: BLE001
                 self.device = "cpu"
                 self._model.to("cpu")

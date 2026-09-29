@@ -52,7 +52,8 @@ mlx = [
   "mlx>=0.15",
   "mlx-lm>=0.15",
 ]
-# DGX / Linux Legend LLM（読む本線の CUDA バックエンド）
+# DGX / Linux Legend LLM（読む本線の GPU バックエンド。CUDA / ROCm / XPU 共通。
+# torch は install.sh が GPU 別の index から先に入れる）
 llm-cuda = [
   "torch>=2.2",
   "transformers>=4.40",
@@ -67,7 +68,7 @@ vlm-mlx = [
   "mlx>=0.15",
   "mlx-vlm>=0.1",
 ]
-# VLM パネル地図補助（CUDA）
+# VLM パネル地図補助（Linux GPU: CUDA / ROCm / XPU）
 vlm-cuda = [
   "torch>=2.2",
   "transformers>=4.45",

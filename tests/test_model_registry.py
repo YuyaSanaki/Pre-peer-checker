@@ -62,7 +62,7 @@ def test_select_backend_mlx_falls_back_to_cuda_transformers(monkeypatch):
 
     monkeypatch.setattr(be.MLXBackend, "available", staticmethod(lambda: False))
     monkeypatch.setattr(be.TransformersBackend, "available", staticmethod(lambda: True))
-    monkeypatch.setattr(be, "_cuda_usable", lambda: True)
+    monkeypatch.setattr(be, "_gpu_device", lambda: "cuda")
     selected = select_backend("auto", profile_id="qwen2.5-7b-mlx")
     assert selected is not None
     assert isinstance(selected, be.TransformersBackend)

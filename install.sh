@@ -2,11 +2,15 @@
 # One-shot setup for non-programmers: clone → ./install.sh → double-click launcher.
 #
 # Apple Silicon Mac では Legend LLM / VLM（MLX）・画像スタック・既定モデルの重みまで
-# 導入し、この 1 回で全機能が使える状態にする。再実行しても安全（不足分だけ補う）。
+# 導入し、この 1 回で全機能が使える状態にする。Linux では GPU（NVIDIA CUDA / AMD ROCm /
+# Intel XPU）を検出し、それに合う PyTorch で同じ機能一式を導入する（DGX Spark を含む）。
+# 再実行しても安全（不足分だけ補う）。
 #
 # 環境変数（任意）:
 #   PRE_PEER_CHECKER_PYTHON=/path/to/python3   使う Python を明示（3.11 以上）
 #   PRE_PEER_CHECKER_SKIP_MODELS=1             モデル重みの事前ダウンロードを省略
+#   PRE_PEER_CHECKER_ACCEL=cuda|rocm|xpu|cpu   Linux の GPU 種別を明示（既定: 自動検出）
+#   PRE_PEER_CHECKER_TORCH_INDEX=URL           PyTorch の取得元 index を明示（新しい CUDA / ROCm 版など）
 #   PRE_PEER_CHECKER_EXTRAS=dev,gui            追加で入れる extras（カンマ区切り）
 #   PRE_PEER_CHECKER_USAGE=academic|commercial 利用区分の質問を省略（非対話実行用）
 set -euo pipefail
@@ -25,6 +29,41 @@ if [[ "${OS}" == "Darwin" && "$(sysctl -n hw.optional.arm64 2>/dev/null || echo 
   fi
 fi
 
+# Linux の GPU 種別。NVIDIA はドライバ（nvidia-smi）、AMD は ROCm カーネルドライバ（/dev/kfd）、
+# Intel は DRM デバイスのベンダ ID で判定する。
+detect_linux_accel() {
+  local want="${PRE_PEER_CHECKER_ACCEL:-auto}"
+  if [[ "${want}" != "auto" ]]; then
+    echo "${want}"
+    return
+  fi
+  if command -v nvidia-smi >/dev/null 2>&1 && nvidia-smi -L >/dev/null 2>&1; then
+    echo cuda
+  elif [[ -e /dev/kfd ]] && grep -qsx 0x1002 /sys/class/drm/card*/device/vendor; then
+    echo rocm
+  elif grep -qsx 0x8086 /sys/class/drm/card*/device/vendor; then
+    echo xpu
+  else
+    echo cpu
+  fi
+}
+
+ACCEL="none"
+if [[ "${OS}" == "Linux" ]]; then
+  ACCEL="$(detect_linux_accel)"
+  case "${ACCEL}" in
+    cuda|rocm|xpu|cpu) ;;
+    *)
+      echo "ERROR: PRE_PEER_CHECKER_ACCEL は cuda / rocm / xpu / cpu のいずれかを指定してください（指定値: ${ACCEL}）。" >&2
+      exit 1
+      ;;
+  esac
+  if [[ "${ACCEL}" == "rocm" || "${ACCEL}" == "xpu" ]] && [[ "$(uname -m)" != "x86_64" ]]; then
+    echo "    注意: ${ACCEL} 版 PyTorch は x86_64 のみ提供されています。CPU で導入します。"
+    ACCEL="cpu"
+  fi
+fi
+
 PORT="${PRE_PEER_CHECKER_PORT:-8765}"
 URL="http://127.0.0.1:${PORT}"
 
@@ -35,6 +74,18 @@ if [[ "${APPLE_SILICON}" == "1" ]]; then
   MACOS_MAJOR="$(sw_vers -productVersion | cut -d. -f1)"
   if (( MACOS_MAJOR < 14 )); then
     echo "    注意: MLX は macOS 14 以降を推奨します。導入に失敗する場合は macOS を更新してください。"
+  fi
+elif [[ "${OS}" == "Linux" ]]; then
+  case "${ACCEL}" in
+    cuda) ACCEL_LABEL="NVIDIA GPU（CUDA）" ;;
+    rocm) ACCEL_LABEL="AMD GPU（ROCm）" ;;
+    xpu) ACCEL_LABEL="Intel GPU（XPU）" ;;
+    *) ACCEL_LABEL="GPU なし（CPU）" ;;
+  esac
+  echo "    環境: Linux $(uname -m) — ${ACCEL_LABEL} 構成で導入します"
+  if [[ "${ACCEL}" == "cpu" ]]; then
+    echo "    注意: GPU が見つかりません。Legend LLM / VLM は CPU では実用速度にならないため、"
+    echo "          GPU ドライバ導入後に ./install.sh を再実行してください。"
   fi
 else
   echo "    環境: ${OS} $(uname -m)"
@@ -196,12 +247,85 @@ fi
 echo "==> 本体をインストール中（extras: ${REQUIRED_EXTRAS}）…"
 python -m pip install --quiet -e ".[${REQUIRED_EXTRAS}]"
 
+# NVIDIA ドライバが対応する CUDA 版（nvidia-smi 表示）に合わせて PyTorch の index を選ぶ。
+# cu130: ドライバ 580 以上（DGX Spark / Blackwell 世代を含む）、cu128: 570 以上、cu126: 560 以上。
+cuda_torch_index() {
+  local major=0 minor=0 v
+  v="$(nvidia-smi 2>/dev/null | sed -n 's/.*CUDA Version: *\([0-9]*\)\.\([0-9]*\).*/\1 \2/p' | head -n 1)"
+  [[ -n "${v}" ]] && read -r major minor <<<"${v}"
+  if (( major >= 13 )); then
+    echo cu130
+  elif (( major == 12 && minor >= 8 )); then
+    echo cu128
+  else
+    if (( major < 12 || (major == 12 && minor < 6) )); then
+      echo "    警告: NVIDIA ドライバが古い可能性があります（CUDA ${major}.${minor}）。" \
+        "GPU を使うにはドライバを 560 以上に更新してください。" >&2
+    fi
+    echo cu126
+  fi
+}
+
+# 入っている torch が目的の GPU を使える状態なら 0。
+torch_matches_accel() {
+  python - "$1" >/dev/null 2>&1 <<'PY'
+import sys
+
+import torch
+import torchvision  # noqa: F401
+
+want = sys.argv[1]
+if want == "cuda":
+    ok = torch.version.cuda is not None and torch.cuda.is_available()
+elif want == "rocm":
+    ok = getattr(torch.version, "hip", None) is not None and torch.cuda.is_available()
+elif want == "xpu":
+    ok = hasattr(torch, "xpu") and torch.xpu.is_available()
+else:
+    ok = True
+raise SystemExit(0 if ok else 1)
+PY
+}
+
+install_linux_torch() {
+  local index="${PRE_PEER_CHECKER_TORCH_INDEX:-}"
+  if [[ -z "${index}" ]]; then
+    case "${ACCEL}" in
+      cuda) index="https://download.pytorch.org/whl/$(cuda_torch_index)" ;;
+      rocm) index="https://download.pytorch.org/whl/rocm7.2" ;;
+      xpu) index="https://download.pytorch.org/whl/xpu" ;;
+      *) index="https://download.pytorch.org/whl/cpu" ;;
+    esac
+  fi
+  if torch_matches_accel "${ACCEL}"; then
+    echo "==> PyTorch（${ACCEL}）は導入済みです"
+    return
+  fi
+  # CPU 版など別構成の torch が入っていると pip は入れ替えないため、先に外す
+  if python -c 'import torch' >/dev/null 2>&1; then
+    echo "==> 既存の PyTorch が ${ACCEL} に対応していないため入れ替えます…"
+    python -m pip uninstall --quiet -y torch torchvision
+  fi
+  try_install "PyTorch（${ACCEL}: ${index}）" torch torchvision --index-url "${index}"
+}
+
 try_install "R 構文解析（tree-sitter）" -e ".[r-ast]"
 if [[ "${APPLE_SILICON}" == "1" ]]; then
   try_install "VLM パネル地図補助（mlx-vlm）" -e ".[vlm-mlx]"
   try_install "JSON スキーマ強制（Outlines）" -e ".[llm-json]"
   try_install "画像スタック（torch / torchvision / OpenCV）" \
     "torch>=2.2" "torchvision>=0.17" "opencv-python-headless>=4.8"
+elif [[ "${OS}" == "Linux" ]]; then
+  # torch は GPU 別の index から先に入れる（後続の依存解決で PyPI 版に置き換わらないように）
+  install_linux_torch
+  try_install "Legend LLM / VLM パネル地図補助（transformers）" -e ".[llm-cuda,vlm-cuda]"
+  try_install "JSON スキーマ強制（Outlines）" -e ".[llm-json]"
+  # opencv-python（GUI 版）が既にあれば cv2 が衝突するため headless は入れない
+  if ! python -c 'import cv2' >/dev/null 2>&1; then
+    try_install "OpenCV" "opencv-python-headless>=4.8"
+  fi
+fi
+if [[ "${APPLE_SILICON}" == "1" || "${OS}" == "Linux" ]]; then
   # 上流の変更（ライセンス・重み・API）を検知できるようコミット固定。更新時は再較正:
   #   scripts/dev_lightglue_threshold_calib.py --features {superpoint,aliked}
   LIGHTGLUE_COMMIT="eb42fee2d71449efb0aa5c10549752b5d75384d8"
@@ -212,18 +336,30 @@ if [[ "${APPLE_SILICON}" == "1" ]]; then
 fi
 
 # ---------------------------------------------------------------------------
-# モデル重みの事前取得（Apple Silicon）
+# モデル重みの事前取得（Apple Silicon / Linux）
+# Linux は HF 版（fp16）の LLM + VLM で計 ~32GB。GPU が無い場合は画像モデルのみ。
 # ---------------------------------------------------------------------------
-if [[ "${APPLE_SILICON}" == "1" && "${PRE_PEER_CHECKER_SKIP_MODELS:-0}" != "1" ]]; then
-  MEM_GB=$(( $(sysctl -n hw.memsize) / 1024 / 1024 / 1024 ))
-  FREE_GB=$(( $(df -Pk "${HOME}" | awk 'NR==2 {print $4}') / 1024 / 1024 ))
+if [[ "${APPLE_SILICON}" == "1" || "${OS}" == "Linux" ]] \
+  && [[ "${PRE_PEER_CHECKER_SKIP_MODELS:-0}" != "1" ]]; then
+  if [[ "${APPLE_SILICON}" == "1" ]]; then
+    MEM_GB=$(( $(sysctl -n hw.memsize) / 1024 / 1024 / 1024 ))
+    NEED_GB=15
+  else
+    MEM_GB=$(( $(awk '/^MemTotal:/ {print $2}' /proc/meminfo) / 1024 / 1024 ))
+    NEED_GB=15
+    [[ "${ACCEL}" != "cpu" ]] && NEED_GB=40
+  fi
+  # 重みの保存先（HF_HOME を /work 等へ向けている場合はそちら）の空きを見る
+  MODEL_DIR="${HF_HOME:-${XDG_CACHE_HOME:-${HOME}/.cache}/huggingface}"
+  while [[ ! -d "${MODEL_DIR}" ]]; do MODEL_DIR="$(dirname "${MODEL_DIR}")"; done
+  FREE_GB=$(( $(df -Pk "${MODEL_DIR}" | awk 'NR==2 {print $4}') / 1024 / 1024 ))
   echo "==> 既定モデルの重みを取得中（メモリ ${MEM_GB}GB / 空きディスク ${FREE_GB}GB）…"
   if (( MEM_GB < 16 )); then
     echo "    注意: メモリ 16GB 未満では 7B モデルの推論が重くなります。"
     echo "          照合中は他のアプリを閉じてください。"
   fi
-  if (( FREE_GB < 15 )); then
-    echo "    警告: 空きディスクが 15GB 未満です。モデル取得を省略します"
+  if (( FREE_GB < NEED_GB )); then
+    echo "    警告: 空きディスクが ${NEED_GB}GB 未満です。モデル取得を省略します"
     echo "          （WebUI 初回実行時にダウンロードされます）。"
   else
     python "${ROOT}/scripts/setup_models.py" || true
@@ -265,9 +401,21 @@ echo
 echo "==> 機能チェック"
 CHECK_ARGS=()
 [[ "${APPLE_SILICON}" == "1" ]] && CHECK_ARGS+=(--require-mlx)
+# NVIDIA はドライバが動いていれば GPU を使えるはず。ROCm / XPU は対応 GPU が限られるため警告に留める。
+[[ "${ACCEL}" == "cuda" ]] && CHECK_ARGS+=(--require-gpu)
 if ! python "${ROOT}/scripts/setup_check.py" "${CHECK_ARGS[@]+"${CHECK_ARGS[@]}"}"; then
-  echo "ERROR: MLX の導入を確認できませんでした。上のログを確認して ./install.sh を再実行してください。" >&2
+  if [[ "${APPLE_SILICON}" == "1" ]]; then
+    echo "ERROR: MLX の導入を確認できませんでした。上のログを確認して ./install.sh を再実行してください。" >&2
+  else
+    echo "ERROR: GPU での動作を確認できませんでした。上のログを確認して ./install.sh を再実行してください。" >&2
+    echo "       GPU を使わずに導入する場合: PRE_PEER_CHECKER_ACCEL=cpu ./install.sh" >&2
+  fi
   exit 1
+fi
+if [[ "${ACCEL}" == "rocm" || "${ACCEL}" == "xpu" ]] \
+  && ! python -c 'from pre_peer_checker.accel import gpu_device; raise SystemExit(0 if gpu_device() else 1)' 2>/dev/null; then
+  echo "    注意: ${ACCEL_LABEL} を PyTorch から利用できませんでした。CPU で動作します"
+  echo "          （対応 GPU・ドライバを確認してください）。"
 fi
 if (( ${#OPTIONAL_NG[@]} > 0 )); then
   echo

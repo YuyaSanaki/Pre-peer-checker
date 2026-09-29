@@ -80,6 +80,14 @@ cd Pre-peer-checker
 
 Apple Silicon Mac では `install.sh` だけで MLX（Legend LLM / VLM）・画像スタック・既定モデルの重み（計 ~10GB）まで導入し、最後に機能チェックを表示します。途中で失敗した場合も `./install.sh` を再実行すれば不足分だけ補います。
 
+Linux では GPU（NVIDIA CUDA / AMD ROCm / Intel XPU）を検出し、それに合う PyTorch で Mac と同じ機能一式（Legend LLM / VLM・画像照合・顕微鏡形式）と既定モデルの重み（計 ~32GB）を導入します。NVIDIA GPU（ドライバ 560 以上）は DGX Spark（aarch64 / GB10）と x86_64 + H100 で動作確認済みです。AMD / Intel GPU は x86_64 のみ・実験的対応です。GPU メモリ 20GB 未満では AI モデルの一部を PC のメモリに置いて動かします（照合は完了しますが遅くなります）。
+
+| 環境変数 | 効果 |
+| --- | --- |
+| `PRE_PEER_CHECKER_ACCEL=cuda\|rocm\|xpu\|cpu` | Linux の GPU 種別を明示（既定: 自動検出） |
+| `PRE_PEER_CHECKER_TORCH_INDEX=URL` | PyTorch の取得元 index を明示 |
+| `HF_HOME=/path/to/cache` | AI モデルの保存先を変更（既定: `~/.cache/huggingface`） |
+
 **Git を使わない場合**: GitHub のリポジトリページで「Code → Download ZIP」を選ぶか、開発者から受け取った ZIP を展開し、ターミナルで展開したフォルダ（例: `Pre-peer-checker-main`）に移動して `bash install.sh` を実行してください。以降の起動方法は同じです。
 
 ![Untitled.001](docs/fig/Untitled.001.png)
@@ -161,7 +169,12 @@ pre-peer-checker path/to/manuscript --corpus path/to/past_figures -o outputs/rep
 #   python scripts/dev_legend_json_mode_verify.py --prefer mlx --require-outlines
 # Mac VLM パネル地図（ラベル無し PDF で補助経路）:
 #   python scripts/dev_vlm_panel_map_verify.py --prefer mlx --synthetic --require-vlm
-# auto: Mac→MLX、CUDA 利用可→transformers(CUDA)。MLX 既定プロファイルでも GPU ホストでは HF にフォールバック。
+# Linux GPU 受入:
+#   python scripts/dev_legend_json_mode_verify.py --prefer cuda
+#   python scripts/dev_vlm_panel_map_verify.py --prefer cuda --profile qwen2.5-vl-7b --synthetic --require-vlm
+# auto: Mac→MLX、GPU（CUDA / ROCm / XPU）利用可→transformers(GPU)。MLX 既定プロファイルでも GPU ホストでは HF にフォールバック。
+# GPU 判定は pre_peer_checker/accel.py に集約。PRE_PEER_CHECKER_DEVICE=cuda|xpu|mps|cpu で強制、
+# PRE_PEER_CHECKER_GPU_MAX_MEMORY_GB=8 で LLM / VLM の GPU メモリ上限（残りは CPU メモリ。小さい GPU の再現にも使える）。
 # Spark: TORCH_DISABLE_NATIVE_JIT=1 はバックエンドが自動設定（Triton 再ビルド不要）。
 # 明示例: --legend-llm-prefer cuda --llm-profile qwen2.5-7b-hf
 ```

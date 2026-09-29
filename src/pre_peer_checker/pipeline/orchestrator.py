@@ -179,11 +179,11 @@ def _release_model_memory() -> None:
                 pass
     torch = sys.modules.get("torch")
     if torch is not None:
-        for dev in ("cuda", "mps"):
+        for dev in ("cuda", "xpu", "mps"):
             mod = getattr(torch, dev, None)
             empty = getattr(mod, "empty_cache", None)
             try:
-                if callable(empty) and (dev != "cuda" or torch.cuda.is_available()):
+                if callable(empty) and (dev == "mps" or mod.is_available()):
                     empty()
             except Exception:  # noqa: BLE001
                 pass

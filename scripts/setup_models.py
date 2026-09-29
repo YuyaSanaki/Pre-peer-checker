@@ -18,20 +18,32 @@ def _hf_snapshot(label: str, repo_id: str) -> bool:
     return True
 
 
-def _mlx_profiles() -> list[tuple[str, str]]:
+def _llm_profiles() -> list[tuple[str, str]]:
+    """Default LLM / VLM weights for this host: MLX on Apple Silicon, HF on a torch GPU.
+
+    CPU-only hosts skip them (7B inference on CPU is impractically slow).
+    """
+    from pre_peer_checker.accel import gpu_device
+    from pre_peer_checker.llm.backend import MLXBackend
     from pre_peer_checker.llm.registry import (
         effective_llm_profile_id,
         effective_vlm_profile_id,
         get_profile,
     )
 
+    if MLXBackend.available():
+        wanted = {"mlx"}
+    elif gpu_device():
+        wanted = {"transformers", "cuda", "hf"}
+    else:
+        return []
     out: list[tuple[str, str]] = []
     for label, pid in (
         ("Legend LLM", effective_llm_profile_id()),
         ("VLM（パネル地図補助）", effective_vlm_profile_id()),
     ):
         prof = get_profile(pid)
-        if prof is not None and prof.prefer == "mlx" and prof.model_id:
+        if prof is not None and prof.prefer in wanted and prof.model_id:
             out.append((label, prof.model_id))
     return out
 
@@ -63,7 +75,7 @@ def _lightglue() -> bool:
 
 def main() -> int:
     failures: list[str] = []
-    for label, repo in _mlx_profiles():
+    for label, repo in _llm_profiles():
         try:
             _hf_snapshot(label, repo)
         except Exception as exc:  # noqa: BLE001

@@ -200,16 +200,11 @@ def _load_lightglue(features: str, device: str) -> tuple[object, object]:
 
 
 def _lightglue_models(features: str, device: str | None = None) -> tuple[object, object, str]:
-    import torch
-
     if features not in _LIGHTGLUE_CACHE:
         if device is None:
-            if torch.cuda.is_available():
-                device = "cuda"
-            elif getattr(torch.backends, "mps", None) and torch.backends.mps.is_available():
-                device = "mps"
-            else:
-                device = "cpu"
+            from pre_peer_checker.accel import torch_device
+
+            device = torch_device()
         extractor, matcher = _load_lightglue(features, device)
         _LIGHTGLUE_CACHE[features] = (extractor, matcher, device)
     return _LIGHTGLUE_CACHE[features]

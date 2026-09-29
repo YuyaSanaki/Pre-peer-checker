@@ -18,7 +18,7 @@
 
 **Qwen2.5-VL / Qwen3-VL（ベンチ脚本）**: Spark aarch64 では推論未達（OOM / `ConstTensorWrapper` 等）。**本番必須にしない**。Legend の Qwen（**テキスト 7B**）が Spark で動くことと、ベンチの **VL** は別モデル・別コード経路である点に注意（[会話整理](#legend-と-vl-の混同を避ける)）。
 
-**製品配線（2026-09-29）**: `collect_panel_labels_by_figure_detailed` → ベクター空なら `raster_figure_panel_ocr`（Florence layout + Mac Vision / Linux Florence crop）。`figure_panel_labels_meta`・チャンク `[figure_panel_labels]`（要確認注記）。オフ: `PRE_PEER_CHECKER_RASTER_PANEL_OCR=0`。
+**製品配線（2026-09-29）**: `collect_panel_labels_by_figure_detailed` → ベクター空なら `raster_figure_panel_ocr`（Florence layout + Mac Vision / Linux Florence crop）。`figure_panel_labels_meta`・チャンク `[figure_panel_labels]`（要確認注記）。Mac: `install.sh` → `pip install -e ".[vision-mac]"`（`PRE_PEER_CHECKER_SKIP_FIGURE_VISION=1` で省略）。オフ: `PRE_PEER_CHECKER_RASTER_PANEL_OCR=0`。
 
 ---
 

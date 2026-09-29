@@ -40,6 +40,11 @@ def _backend_name() -> str | None:
     return None
 
 
+def apple_vision_available() -> bool:
+    """True when pyobjc Vision can be imported (macOS, install.sh vision-mac extra)."""
+    return _apple_vision_available()
+
+
 def _apple_vision_available() -> bool:
     try:
         import Vision  # noqa: F401

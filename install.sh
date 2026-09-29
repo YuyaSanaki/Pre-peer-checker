@@ -10,6 +10,7 @@
 #   PRE_PEER_CHECKER_PYTHON=/path/to/python3   使う Python を明示（3.11 以上）
 #   PRE_PEER_CHECKER_SKIP_MODELS=1             モデル重みの事前ダウンロードを省略
 #   PRE_PEER_CHECKER_SKIP_OCR=1                OCR（Tesseract）の導入を省略
+#   PRE_PEER_CHECKER_SKIP_FIGURE_VISION=1      Mac の Apple Vision（Figure ラスタ OCR）を省略
 #   PRE_PEER_CHECKER_ACCEL=cuda|rocm|xpu|cpu   Linux の GPU 種別を明示（既定: 自動検出）
 #   PRE_PEER_CHECKER_TORCH_INDEX=URL           PyTorch の取得元 index を明示（新しい CUDA / ROCm 版など）
 #   PRE_PEER_CHECKER_EXTRAS=dev,gui            追加で入れる extras（カンマ区切り）
@@ -377,6 +378,13 @@ install_tesseract() {
 }
 if [[ "${PRE_PEER_CHECKER_SKIP_OCR:-0}" != "1" ]]; then
   install_tesseract
+fi
+
+# ---------------------------------------------------------------------------
+# Figure ラスタ OCR（macOS）: ベクター文字が無い出版 Fig PDF のパネル A/B/C…
+# ---------------------------------------------------------------------------
+if [[ "${OS}" == "Darwin" && "${PRE_PEER_CHECKER_SKIP_FIGURE_VISION:-0}" != "1" ]]; then
+  try_install "出版 Figure ラスタ OCR（Apple Vision）" -e ".[vision-mac]"
 fi
 
 # ---------------------------------------------------------------------------

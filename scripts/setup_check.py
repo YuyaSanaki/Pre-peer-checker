@@ -58,6 +58,10 @@ def main() -> int:
     )
     from pre_peer_checker.llm.vlm_backend import select_vlm_backend
     from pre_peer_checker.parsers.manuscript_text import ocr_available
+    from pre_peer_checker.parsers.raster_figure_panel_ocr import (
+        apple_vision_available,
+        raster_panel_ocr_enabled,
+    )
     from pre_peer_checker.parsers.r_treesitter import treesitter_available
     from pre_peer_checker.usage_profile import current_usage
 
@@ -111,6 +115,18 @@ def main() -> int:
         ("顕微鏡 LIF（readlif）", _has("readlif"), ""),
         ("顕微鏡 CZI（pylibCZIrw）", _has("pylibCZIrw"), ""),
         ("OCR（Tesseract）", ocr_available(), "スキャン画像だけの PDF 原稿ページを読む"),
+        (
+            "Figure ラスタ OCR（Apple Vision）",
+            apple_vision_available(),
+            "出版 Fig PDF のパネル文字（ベクターが空のとき）"
+            if apple_vision_available()
+            else "未導入（Mac: install.sh / pip install -e '.[vision-mac]'）",
+        ),
+        (
+            "Figure ラスタ OCR（有効）",
+            raster_panel_ocr_enabled(),
+            "off: PRE_PEER_CHECKER_RASTER_PANEL_OCR=0",
+        ),
     ]
     def display_width(s: str) -> int:
         return sum(2 if unicodedata.east_asian_width(c) in "WF" else 1 for c in s)

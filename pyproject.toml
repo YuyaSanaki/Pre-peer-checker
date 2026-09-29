@@ -68,6 +68,10 @@ vlm-mlx = [
   "mlx>=0.15",
   "mlx-vlm>=0.1",
 ]
+# 出版 Figure PDF（文字が画像のラスタ）のパネル文字 OCR — macOS Apple Vision
+vision-mac = [
+  "pyobjc-framework-Vision>=10.0",
+]
 # VLM パネル地図補助（Linux GPU: CUDA / ROCm / XPU）
 vlm-cuda = [
   "torch>=2.2",

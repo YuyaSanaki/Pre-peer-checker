@@ -33,13 +33,20 @@ Deciding whether something is inconsistent is not left to AI. AI (LLM / VLM) is 
 
 | Area | Examples |
 | --- | --- |
-| Sample size (n) | n in a Figure Legend does not match the number of raw-data rows |
-| Data mix-ups | The same data is used for different conditions or figures / a file name does not match its content |
-| Statistics | Mean, SD, or p values recomputed from raw data do not match the text / three or more groups without multiple-comparison correction |
-| Image duplication / reuse | The same image appears in different panels of the paper, or in your own past papers (missing source attribution) |
-| Shared controls | The same control is used in several panels without being stated |
+| Sample size (n) | n in a Figure Legend does not match the number of raw-data rows / the data has more rows than the stated n, but no exclusion criteria are given / count-based n (e.g., colonies) does not match |
+| Data mix-ups | The same data is used for different conditions or figures / a file name does not match its content / group names (genotypes, conditions) differ between the text, figures, and analysis settings |
+| Statistics | Mean, SD, or p values recomputed from raw data do not match the text / three or more groups without multiple-comparison correction / paired vs. unpaired test does not match the data structure |
+| Error bars | The Legend says SEM, but the values computed from raw data are SD (or vice versa) |
+| Transcribed numbers | Means or p values in the text do not match those in tables or figures |
+| Image duplication / reuse | The same image appears in different panels of the paper, or in your own past papers (missing source attribution) / rotated, cropped, or rescaled images, or blot lanes, are reused |
+| Magnification / scale | The same image is labeled with different magnifications or scale bars in different panels |
+| Shared controls | The same control is used in several panels without being stated / a subset of a shared control (with some points removed) is presented as an independent experiment |
+| Source data values | Values that should come from independent samples are exactly identical / values from different conditions are exact integer multiples / survival rate × number of animals is not an integer |
+| Consistency with Methods | Ratios or conditions stated in the Methods do not match the values in the figures |
 | Notation / references | "Fig. 1C" in the text does not match the actual panel / missing or duplicate references / a citing sentence contradicts the cited paper |
 | Number formatting | Values derived from ratios or normalization keep excessive digits (e.g., 1/3 → 0.3333) |
+
+The table above lists the main viewpoints only. The full list (detection criteria per `pattern_id`) is in the [detection catalog](docs/DETECTION_AND_MODELS.md) (Japanese).
 
 ## Intended use and requests to users
 

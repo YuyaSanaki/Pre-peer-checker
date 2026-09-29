@@ -234,6 +234,7 @@ _REPORT_TEMPLATE = Template(
     .badge-mismatch { background: #fee2e2; color: #b91c1c; border: 1px solid #fca5a5; }
     .badge-sample { background: #fef3c7; color: #b45309; border: 1px solid #fcd34d; }
     .badge-image { background: #e0e7ff; color: #3730a3; border: 1px solid #a5b4fc; }
+    .badge-precision { background: #ccfbf1; color: #0f766e; border: 1px solid #5eead4; }
     .badge-info { background: #e5e7eb; color: #374151; border: 1px solid #d1d5db; }
     .demote-pill {
       display: inline-block; margin-left: 8px; padding: 2px 8px;

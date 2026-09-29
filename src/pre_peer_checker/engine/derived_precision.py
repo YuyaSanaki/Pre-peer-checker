@@ -224,7 +224,7 @@ def warnings_from_derived_precision(
             )
         out.append(
             WarningItem(
-                tag=WarningTag.REF_INCONSISTENCY,
+                tag=WarningTag.PRECISION,
                 title=title,
                 location=f"{src.name}[{', '.join(f.vector.group_key for f in findings)}]",
                 reason=" ".join(bits),

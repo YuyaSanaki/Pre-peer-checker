@@ -85,5 +85,6 @@
 | Warning [画像重複・再利用（要出典確認）] | 同一論文内別パネル、または過去論文画像と一致。出典確認             | czi / lif / TIFF / Word Legend |
 | Warning [コントロール群共有]       | 複数 Fig パネルで同一 Negative Control が共有      | 生データ・画像 / Word本文               |
 | Warning [表記揺れ・参照不整合]      | 「Fig. 1C」の記述と実際のパネルラベル・Genotype が不一致    | Word本文 / Fig PDFラベル            |
+| Warning [有効桁・数値表示]        | 比・正規化由来の値が有効桁を超える桁数のまま（1/3→0.3333 等）。Methods への明記か丸めを促す | 生データ（グラフ用表） / Word本文 |
 
 

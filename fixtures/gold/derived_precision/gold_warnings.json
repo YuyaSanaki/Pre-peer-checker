@@ -7,7 +7,7 @@
     {
       "id": "G14",
       "pattern_id": "P-DERIVED-VALUE-PRECISION",
-      "expected_tags": ["Warning [表記揺れ・参照不整合]"],
+      "expected_tags": ["Warning [有効桁・数値表示]"],
       "severity": "required",
       "panels": [
         {"figure": "Fig.1", "group": "treated"}

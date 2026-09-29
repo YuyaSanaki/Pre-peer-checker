@@ -18,6 +18,7 @@ class WarningTag(str, Enum):
     IMAGE_REUSE = "Warning [画像重複・再利用（要出典確認）]"
     CONTROL_SHARE = "Warning [コントロール群共有]"
     REF_INCONSISTENCY = "Warning [表記揺れ・参照不整合]"
+    PRECISION = "Warning [有効桁・数値表示]"
 
 
 # HTML レポート用バッジクラス（docs デザイン仕様）
@@ -30,6 +31,7 @@ TAG_BADGE_CLASS: dict[WarningTag, str] = {
     WarningTag.IMAGE_REUSE: "badge-image",
     WarningTag.CONTROL_SHARE: "badge-image",
     WarningTag.REF_INCONSISTENCY: "badge-mismatch",
+    WarningTag.PRECISION: "badge-precision",
 }
 
 

@@ -135,7 +135,13 @@ class _FlorenceOcr:
         task = "<OCR_WITH_REGION>"
         inputs = self.proc(text=task, images=img, return_tensors="pt")
         inputs = {
-            k: v.to(self.device, self.dtype) if hasattr(v, "to") else v
+            k: (
+                v.to(self.device, self.dtype)
+                if v.is_floating_point()
+                else v.to(self.device)
+            )
+            if hasattr(v, "to")
+            else v
             for k, v in inputs.items()
         }
         with self.torch.inference_mode():

@@ -31,6 +31,7 @@ from typing import TYPE_CHECKING, Any
 from pre_peer_checker.catalog.paths import REPO_ROOT
 
 if TYPE_CHECKING:
+    from pre_peer_checker.llm.backend import LocalLLMBackend
     from pre_peer_checker.pipeline.progress import ProgressTracker
 
 DEFAULT_RUNS_DIR = REPO_ROOT / "outputs" / "runs"
@@ -61,6 +62,16 @@ def _iso(dt: datetime) -> str:
 _GENERIC_TITLES = re.compile(
     r"^(microsoft word\s*-|untitled|manuscript|document\d*|main|draft)\b", re.IGNORECASE
 )
+# 補足資料・図表見出し・査読対応など、論文タイトルになり得ない先頭行
+_NON_TITLE_HEADINGS = re.compile(
+    r"^(supplement(al|ary)?\b|(table|figure|fig\.?)\s*s?\d|response to|cover letter"
+    r"|highlights?\b|graphical abstract|abstract\b)",
+    re.IGNORECASE,
+)
+# 本文より後回しにする原稿フォルダ内のファイル名
+_SIDE_DOC_NAMES = re.compile(
+    r"suppl|response|responce|rebuttal|cover.?letter|highlight|etoc|template", re.IGNORECASE
+)
 
 
 def _clean_title(text: str | None) -> str:
@@ -75,7 +86,9 @@ def _usable_title(text: str | None) -> str | None:
     t = _clean_title(text)
     if len(t) < 4 or len(t) > 400:
         return None
-    if _GENERIC_TITLES.match(t) or re.search(r"\.(docx?|pdf|tex)$", t, re.IGNORECASE):
+    if _GENERIC_TITLES.match(t) or _NON_TITLE_HEADINGS.match(t):
+        return None
+    if re.search(r"\.(docx?|pdf|tex)$", t, re.IGNORECASE):
         return None
     return t
 
@@ -145,13 +158,119 @@ _TITLE_READERS = (
 )
 
 
-def guess_paper_title(manuscript_dir: Path | None, fallback: str) -> tuple[str, str]:
-    """原稿からタイトルを推定し ``(title, source)`` を返す。読めなければ *fallback*。"""
+_LLM_MAX_FILES = 4
+_LLM_LINES_PER_FILE = 12
+_LLM_LINE_CHARS = 300
+
+
+def _opening_lines(path: Path) -> list[str]:
+    """LLM に見せる冒頭行（空行除く）。"""
+    suffix = path.suffix.lower()
+    raw: list[str] = []
+    if suffix == ".docx":
+        from docx import Document
+
+        doc = Document(str(path))
+        raw.append(doc.core_properties.title or "")
+        for p in doc.paragraphs:
+            raw.append(p.text)
+            if len(raw) > 4 * _LLM_LINES_PER_FILE:
+                break
+    elif suffix == ".pdf":
+        import fitz
+
+        doc = fitz.open(path)
+        try:
+            raw.append((doc.metadata or {}).get("title") or "")
+            if doc.page_count:
+                raw.extend(doc[0].get_text().splitlines())
+        finally:
+            doc.close()
+    else:
+        raw.extend(path.read_text(encoding="utf-8", errors="ignore")[:20000].splitlines())
+    lines: list[str] = []
+    for text in raw:
+        t = _clean_title(text)
+        if len(t) >= 4 and t not in lines:
+            lines.append(t[:_LLM_LINE_CHARS])
+        if len(lines) >= _LLM_LINES_PER_FILE:
+            break
+    return lines
+
+
+_LLM_TITLE_PROMPT = """\
+Below are the opening lines of the files in the manuscript folder of a research paper.
+Which numbered line is the title of the main research article?
+Do not choose headings of supplementary tables or figures, section headings (Abstract, Introduction),
+author names, affiliations, journal names, running titles, cover letters or responses to reviewers.
+If none of the lines is the article title, answer 0.
+Reply with JSON only, e.g. {{"index": 3}}.
+
+{listing}
+Answer:"""
+
+
+def _llm_pick_title(files: list[Path], llm: LocalLLMBackend) -> tuple[str, str] | None:
+    candidates: list[tuple[str, Path]] = []
+    blocks: list[str] = []
+    for p in files[:_LLM_MAX_FILES]:
+        try:
+            lines = _opening_lines(p)
+        except Exception:  # noqa: BLE001, S112 — 読めないファイルは候補から外すだけ
+            continue
+        if not lines:
+            continue
+        rows = [f"[file] {p.name}"]
+        for line in lines:
+            candidates.append((line, p))
+            rows.append(f"{len(candidates)}. {line}")
+        blocks.append("\n".join(rows))
+    if not candidates:
+        return None
+    answer = llm.generate(_LLM_TITLE_PROMPT.format(listing="\n\n".join(blocks)), max_tokens=16)
+    m = re.search(r'"index"\s*:\s*(\d+)', answer) or re.search(r"\d+", answer)
+    if not m:
+        return None
+    idx = int(m.group(1) if m.lastindex else m.group(0))
+    if not 1 <= idx <= len(candidates):
+        return None
+    line, p = candidates[idx - 1]
+    title = _usable_title(line)
+    return (title, f"llm:{p.name}") if title else None
+
+
+def guess_paper_title(
+    manuscript_dir: Path | None,
+    fallback: str,
+    *,
+    llm: LocalLLMBackend | None = None,
+) -> tuple[str, str]:
+    """原稿からタイトルを推定し ``(title, source)`` を返す。読めなければ *fallback*。
+
+    *llm* があれば原稿ファイルの冒頭行から LLM にタイトル行を選ばせ、
+    答えが無い・使えないときは規則（本文ファイル優先・先頭の見出し）で推定する。
+    """
     if manuscript_dir is not None and manuscript_dir.is_dir():
         files = sorted(
             (p for p in manuscript_dir.rglob("*") if p.is_file() and not _is_skipped(p)),
-            key=lambda p: (len(p.relative_to(manuscript_dir).parts), p.name.lower()),
+            key=lambda p: (
+                bool(_SIDE_DOC_NAMES.search(p.name)),
+                len(p.relative_to(manuscript_dir).parts),
+                p.name.lower(),
+            ),
         )
+        if llm is not None:
+            for suffix, _reader in _TITLE_READERS:
+                group = [p for p in files if p.suffix.lower() == suffix]
+                if not group:
+                    continue
+                try:
+                    picked = _llm_pick_title(group, llm)
+                except Exception:  # noqa: BLE001 — LLM が失敗しても規則で続ける
+                    picked = None
+                if picked:
+                    return picked
+                break
         for suffix, reader in _TITLE_READERS:
             for p in files:
                 if p.suffix.lower() != suffix:
@@ -332,6 +451,7 @@ class RunArchive:
         case_root: Path | None,
         manuscript_dir: Path | None = None,
         title: str | None = None,
+        title_llm: LocalLLMBackend | None = None,
         when: datetime | None = None,
     ) -> RunArchive:
         when = when or _now_local()
@@ -339,7 +459,7 @@ class RunArchive:
             resolved_title, source = title.strip(), "user"
         else:
             fallback = case_root.name if case_root is not None else "untitled"
-            resolved_title, source = guess_paper_title(manuscript_dir, fallback)
+            resolved_title, source = guess_paper_title(manuscript_dir, fallback, llm=title_llm)
         runs_root.mkdir(parents=True, exist_ok=True)
         base = run_folder_name(resolved_title, when)
         run_dir = runs_root / base

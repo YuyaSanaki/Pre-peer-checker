@@ -199,12 +199,35 @@ def _prepare_archive(config: GuiRunConfig, body: RunBody) -> RunArchive:
         )
         config.progress.start(ARCHIVE_STAGE.id, "照合フォルダを作成中")
     case_root = config.inputs[0].parent
-    archive = RunArchive.create(
-        RUNS_DIR,
-        case_root=case_root,
-        manuscript_dir=config.inputs[0],
-        title=body.run_title,
-    )
+    title_llm = None
+    if config.legend_llm and not (body.run_title or "").strip():
+        from pre_peer_checker.llm.backend import select_backend
+
+        if config.progress is not None:
+            config.progress.update(detail="原稿から論文タイトルを LLM で推定中（モデル読込を含む）")
+        try:
+            title_llm = select_backend(
+                config.legend_llm_prefer,
+                model_id=config.legend_llm_model,
+                profile_id=config.legend_llm_profile,
+            )
+        except Exception:  # noqa: BLE001
+            title_llm = None
+    try:
+        archive = RunArchive.create(
+            RUNS_DIR,
+            case_root=case_root,
+            manuscript_dir=config.inputs[0],
+            title=body.run_title,
+            title_llm=title_llm,
+        )
+    finally:
+        if title_llm is not None:
+            from pre_peer_checker.pipeline.orchestrator import _release_model_memory
+
+            # 照合本体は OCR モデルを降ろしてから LLM を読み直すので、ここでは保持しない
+            title_llm = None
+            _release_model_memory()
     if config.progress is not None:
         config.progress.update(detail="照合フォルダを作成しました: " + archive.name)
     archive.snapshot_inputs(config.inputs, progress=config.progress)

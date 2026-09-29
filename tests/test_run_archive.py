@@ -34,6 +34,58 @@ def test_guess_title_from_markdown(tmp_path: Path) -> None:
     assert guess_paper_title(tmp_path / "missing", "case") == ("case", "case_root_name")
 
 
+_MAIN_TITLE = "Hyperinsulinemia drives epithelial tumorigenesis by abrogating cell competition"
+
+
+def _manuscript_with_supplement(tmp_path: Path) -> Path:
+    from docx import Document
+
+    ms = tmp_path / "manuscript"
+    ms.mkdir()
+    supp = Document()
+    supp.add_paragraph("Supplemental Table 1")
+    supp.add_paragraph("Fly genotypes used in each figure panel")
+    supp.save(str(ms / "Sanaki et al.Supplimental Info2ndver4Final.docx"))
+    main = Document()
+    main.add_paragraph(_MAIN_TITLE)
+    main.add_paragraph("A. Author, B. Author, C. Author")
+    main.save(str(ms / "Sanaki et al.text2ndver7.docx"))
+    return ms
+
+
+def test_guess_title_prefers_main_text_over_supplement(tmp_path: Path) -> None:
+    ms = _manuscript_with_supplement(tmp_path)
+    assert guess_paper_title(ms, "case") == (
+        _MAIN_TITLE,
+        "docx:Sanaki et al.text2ndver7.docx",
+    )
+
+
+def test_guess_title_with_llm_picks_numbered_line(tmp_path: Path) -> None:
+    from pre_peer_checker.llm.backend import CallableBackend
+
+    ms = _manuscript_with_supplement(tmp_path)
+    prompts: list[str] = []
+
+    def answer(prompt: str) -> str:
+        prompts.append(prompt)
+        line = next(ln for ln in prompt.splitlines() if ln.endswith(_MAIN_TITLE))
+        return f'{{"index": {line.split(".", 1)[0]}}}'
+
+    title, source = guess_paper_title(ms, "case", llm=CallableBackend(answer))
+    assert (title, source) == (_MAIN_TITLE, "llm:Sanaki et al.text2ndver7.docx")
+    assert "Supplemental Table 1" in prompts[0]
+
+
+def test_guess_title_llm_bad_answer_falls_back_to_rules(tmp_path: Path) -> None:
+    from pre_peer_checker.llm.backend import CallableBackend
+
+    ms = _manuscript_with_supplement(tmp_path)
+    for reply in ('{"index": 0}', '{"index": 999}', "no idea"):
+        title, source = guess_paper_title(ms, "case", llm=CallableBackend(lambda _p, r=reply: r))
+        assert (title, source) == (_MAIN_TITLE, "docx:Sanaki et al.text2ndver7.docx")
+
+
 def test_archive_layout_and_same_minute_runs(tmp_path: Path) -> None:
     case = tmp_path / "case"
     (case / "manuscript").mkdir(parents=True)

@@ -10,6 +10,9 @@ test -f "$OUT/gt.json" || "$PY" scripts/dev_figure_ocr_bench.py prepare --profil
 "$PY" scripts/dev_figure_ocr_bench.py subset --profile quick
 
 # Vision は macOS のみ。レイアウトは Florence（CPU/MPS）でパネル crop。
+if [[ "$(uname -s)" == Darwin ]]; then
+  export BENCH_DEVICE="${BENCH_DEVICE:-cpu}"
+fi
 export BENCH_VLM_MAX_SIDE="${BENCH_VLM_MAX_SIDE:-1280}"
 ENGINES="${ENGINES:-vision}"
 LAYOUT="${LAYOUT:-panels}"

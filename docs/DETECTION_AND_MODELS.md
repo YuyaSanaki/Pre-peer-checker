@@ -371,7 +371,7 @@ Bik et al. Category I≈A1、II≈A2、III≈A3 に対応づける。F 系は **
 | キー | 用途 | 優先 |
 |------|------|------|
 | `citation_flags` / 出典有無 | 画像再利用抑制 | 既存・必須 |
-| `panel_map`（VLM） | パネル接地 | 既存（`--vlm-assist`・ベクター分割が空のときのみ） |
+| `panel_map`（VLM） | パネル接地 | 既存（`--vlm-assist`・ベクター分割が空のときのみ）。ラスタ図中 OCR の将来強化（Qwen3-VL）は [handoff/figure-ocr-raster.md](handoff/figure-ocr-raster.md) |
 | `error_bar_type` | G4 SEM/SD | **スキーマ＋rules＋突合エンジン初期**（`errorbar_sem_sd`） |
 | `stat_test_name` / 比較構造 | G5 多重比較 | P1 |
 | `numeric_claims[]`（mean/p/n） | G6 転記 | P1 |
@@ -596,6 +596,7 @@ primary private benchmark 相当の fixture（匿名化コピー可）:
 - 2026-09-25: **オフライン受入を要件から削除**（完全ローカル・API $0 は維持）。メモリ監視は将来。
 - 2026-09-25: **読む JSON 合成ゴールド CI** — `legend_json_synthetic_matrix` + `test_legend_json_gold` / `dev_legend_json_gold_eval.py`。
 - 2026-09-25: **Mac 受入** — `dev_vlm_panel_map_verify --prefer mlx --synthetic --require-vlm` → A/B・`n_vlm=2`。
+- 2026-09-29: **ラスタ Figure OCR 引き継ぎ** — 現状 Mac Vision / Linux Florence（quick ~82% figPanel）。Qwen3-VL は OCR 精度向上の将来オプション（Pegasus H100 ベンチ → 製品 `vlm_backend` 経路）。[handoff/figure-ocr-raster.md](handoff/figure-ocr-raster.md)。
 - 2026-09-25: **VLM パネル地図補助** — ベクター分割が空のときのみ mlx-vlm / transformers-VL（`--vlm-assist`）。`scripts/dev_vlm_panel_map_verify.py`。
 - 2026-09-25: **6A JSON mode** — `llm/json_mode.py`（Outlines MLX/transformers → free+coerce）。Mac 検証: `scripts/dev_legend_json_mode_verify.py --prefer mlx --require-outlines`。
 - 2026-09-25: **pattern_id 1:1 合成 CI**（`pattern_synthetic_matrix.json` + `test_pattern_id_matrix`）。G9/G10 初期エンジン（`source_values`）+ `stats_recalc` 合成。

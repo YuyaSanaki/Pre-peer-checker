@@ -10,6 +10,7 @@ from pathlib import Path
 import numpy as np
 
 from pre_peer_checker.imaging.duplicate_scan import ImagePairMatch, scan_image_duplicates_auto
+from pre_peer_checker.imaging.lightglue_match import inversion_note
 from pre_peer_checker.imaging.panel_units import (
     PanelUnit,
     make_panel_verifier,
@@ -18,7 +19,7 @@ from pre_peer_checker.imaging.panel_units import (
     panel_position,
     panel_positions,
     prepare_panel_sources,
-    rank_vectors,
+    rank_similarity,
 )
 from pre_peer_checker.imaging.partial_match import partial_containment_score
 from pre_peer_checker.warnings import WarningItem, WarningTag
@@ -62,9 +63,9 @@ def _panel_candidates(
     n_q, n_c = len(q_units), len(c_units)
     if n_q * n_c <= max_pairs:
         return [(i, j, None) for i in range(n_q) for j in range(n_c)], "all_pairs"
-    q_vec = rank_vectors([u.path for u in q_units], prefer_dino=prefer_dino)
-    c_vec = rank_vectors([u.path for u in c_units], prefer_dino=prefer_dino)
-    sims = q_vec @ c_vec.T
+    sims = rank_similarity(
+        [u.path for u in q_units], [u.path for u in c_units], prefer_dino=prefer_dino
+    )
     k_q = min(n_c, max(min_top_k, max_pairs // max(n_q, 1)))
     k_c = min(n_q, max(2, max_pairs // max(4 * n_c, 1)))
     chosen: set[tuple[int, int]] = set()
@@ -207,6 +208,7 @@ def scan_against_corpus(
                     reason=(
                         f"類似度 {m.cosine_similarity:.4f}（method={m.method}）。"
                         "Legend に reproduced/adapted from 等の出典表記が見つかりません。"
+                        + inversion_note(m.precise_inverted)
                     ),
                     sources=[str(sa), str(sb)],
                     metadata={
@@ -215,6 +217,7 @@ def scan_against_corpus(
                         "method": m.method,
                         "corpus_match": True,
                         "precise_verified": getattr(m, "precise_verified", None),
+                        "inverted": bool(m.precise_inverted),
                     },
                 )
             )
@@ -357,9 +360,11 @@ def _scan_panel_pairs(
             {"panel_a": p[0].box, "panel_b": p[1].box,
              "label_a": panel_position(p[0], positions),
              "label_b": panel_position(p[1], positions),
-             "matches": p[2].num_matches, "inliers": p[2].inliers}
+             "matches": p[2].num_matches, "inliers": p[2].inliers,
+             "inverted": bool(getattr(p[2], "inverted", False))}
             for p in panels
         ]
+        inverted = any(pm["inverted"] for pm in panel_matches)
         listing = "／".join(
             f"{k}A {pm['label_a']} ↔ {k}B {pm['label_b']}（{pm['matches']} 点）"
             for k, pm in enumerate(panel_matches[:6], start=1)
@@ -396,6 +401,7 @@ def _scan_panel_pairs(
                     + f"。method={vr.method}。一致したパネル組 {len(panels)}: {listing}。"
                     "図のレイアウトや画質が違っても同じ写真の可能性があります。"
                     "Legend に reproduced/adapted from 等の出典表記が見つかりません。"
+                    + inversion_note(inverted)
                 ),
                 sources=[str(qu.source), str(cu.source)],
                 metadata={
@@ -404,6 +410,7 @@ def _scan_panel_pairs(
                     "precise_matches": vr.num_matches,
                     "precise_inliers": vr.inliers,
                     "corpus_match": True,
+                    "inverted": inverted,
                     "panel": True,
                     "panel_a": qu.box,
                     "panel_b": cu.box,

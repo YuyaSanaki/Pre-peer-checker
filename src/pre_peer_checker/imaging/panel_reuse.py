@@ -15,6 +15,7 @@ from pathlib import Path
 
 import numpy as np
 
+from pre_peer_checker.imaging.lightglue_match import inversion_note
 from pre_peer_checker.imaging.panel_units import (
     PanelPositions,
     PanelUnit,
@@ -25,7 +26,7 @@ from pre_peer_checker.imaging.panel_units import (
     panel_positions,
     panel_reading_order,
     prepare_panel_sources,
-    rank_vectors,
+    rank_similarity,
 )
 from pre_peer_checker.warnings import WarningItem, WarningTag
 
@@ -58,8 +59,7 @@ def _self_candidates(
     ]
     if len(allowed) <= max_pairs:
         return [(i, j, None) for i, j in allowed], "all_pairs"
-    vec = rank_vectors([u.path for u in units], prefer_dino=prefer_dino)
-    sims = vec @ vec.T
+    sims = rank_similarity([u.path for u in units], prefer_dino=prefer_dino)
     allowed_set = set(allowed)
     k = max(min_top_k, max_pairs // max(n, 1))
     chosen: set[tuple[int, int]] = set()
@@ -231,9 +231,11 @@ def _warning_for(
             "label_b": panel_position(m[1], positions),
             "matches": m[2].num_matches,
             "inliers": m[2].inliers,
+            "inverted": bool(getattr(m[2], "inverted", False)),
         }
         for m in matches
     ]
+    inverted = any(pm["inverted"] for pm in panel_matches)
     listing = "／".join(
         f"{k}A {pm['label_a']} ↔ {k}B {pm['label_b']}（{pm['matches']} 点）"
         for k, pm in enumerate(panel_matches[:6], start=1)
@@ -255,6 +257,7 @@ def _warning_for(
             + f"。method={vr.method}。一致したパネル組 {len(matches)}: {listing}。"
             "別条件・別実験として提示したパネルが同じ写真になっていないか確認してください。"
             "全体像と拡大像のように意図的に同じ写真を再掲している場合もあります。"
+            + inversion_note(inverted)
         ),
         sources=[key[0]] if same_file else [str(ua.source), str(ub.source)],
         metadata={
@@ -263,6 +266,7 @@ def _warning_for(
             "precise_matches": vr.num_matches,
             "precise_inliers": vr.inliers,
             "internal_reuse": True,
+            "inverted": inverted,
             "same_file": same_file,
             "panel": True,
             "panel_a": ua.box,

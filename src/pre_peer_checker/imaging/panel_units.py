@@ -107,6 +107,28 @@ def rank_vectors(paths: list[Path], *, prefer_dino: bool) -> np.ndarray:
         return _fallback()
 
 
+def rank_similarity(
+    paths_a: list[Path], paths_b: list[Path] | None = None, *, prefer_dino: bool
+) -> np.ndarray:
+    """Shortlist scores a×b (a×a when ``paths_b`` is None), max over normal and
+    ``b`` intensity-inverted, so an inverted reuse is not dropped before verification."""
+    from pre_peer_checker.imaging.lightglue_match import inverted_copy
+
+    same = paths_b is None
+    b = paths_a if same else paths_b
+    extra = [] if same else list(b)
+    # One call so every row comes from the same descriptor (DINO or fallback).
+    vec = rank_vectors(
+        list(paths_a) + extra + [inverted_copy(p) for p in b], prefer_dino=prefer_dino
+    )
+    n_a, n_b = len(paths_a), len(b)
+    va = vec[:n_a]
+    vb = va if same else vec[n_a : n_a + n_b]
+    vb_inv = vec[len(vec) - n_b :]
+    sims = np.maximum(va @ vb.T, va @ vb_inv.T)
+    return np.maximum(sims, sims.T) if same else sims
+
+
 def match_rank(a: PanelUnit, b: PanelUnit, vr: Any) -> tuple[int, float]:
     """Sort key for competing matches on one source pair, best last.
 
@@ -220,6 +242,7 @@ def make_panel_verifier(
         active_lightglue_features,
         lightglue_available,
         opencv_available,
+        with_inversion,
     )
 
     cache = None
@@ -232,13 +255,16 @@ def make_panel_verifier(
         )
     use_orb = opencv_available()
 
-    def _fallback(a: Path, b: Path):
+    def _fallback_once(a: Path, b: Path):
         if use_orb:
             vr = _verify_orb(a, b, min_inliers=30)
             # ORB's default 0.25 inlier ratio is far too loose over thousands of pairs
             vr.verified = vr.verified and vr.score >= 0.5
             return vr
         return _verify_ncc(a, b)
+
+    def _fallback(a: Path, b: Path):
+        return with_inversion(_fallback_once, a, b)
 
     def _verify(a: Path, b: Path):
         if cache is None:

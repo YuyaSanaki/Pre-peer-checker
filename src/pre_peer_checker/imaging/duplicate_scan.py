@@ -21,6 +21,9 @@ class ImagePairMatch:
     precise_score: float | None = None
     precise_method: str | None = None
     precise_verified: bool | None = None
+    precise_inverted: bool | None = None
+    # Coarse score came from comparing against the inverted image.
+    coarse_inverted: bool = False
 
 
 def _load_gray_vector(path: Path, size: int = 64) -> np.ndarray:
@@ -54,12 +57,16 @@ def scan_image_duplicates(
     *,
     threshold: float = 0.98,
 ) -> list[ImagePairMatch]:
-    """軽量フォールバック: グレースケール + average-hash のコサイン類似度."""
+    """軽量フォールバック: グレースケール + average-hash のコサイン類似度.
+
+    平均を引いたベクトルなので明暗反転した複製は約 -1 になる。反転流用も拾うため絶対値を使う。
+    """
     resolved = [Path(p) for p in paths]
     vectors = {p: _combined_fallback_vector(p) for p in resolved}
     matches: list[ImagePairMatch] = []
     for a, b in combinations(resolved, 2):
-        sim = float(np.dot(vectors[a], vectors[b]))
+        dot = float(np.dot(vectors[a], vectors[b]))
+        sim = abs(dot)
         matches.append(
             ImagePairMatch(
                 path_a=a,
@@ -67,6 +74,7 @@ def scan_image_duplicates(
                 cosine_similarity=sim,
                 likely_duplicate=sim >= threshold,
                 method="gray64+ahash16",
+                coarse_inverted=dot < 0,
             )
         )
     return matches
@@ -154,11 +162,19 @@ class DinoDuplicateScanner:
         return out
 
     def scan(self, paths: list[Path | str], *, threshold: float = 0.95) -> list[ImagePairMatch]:
+        from pre_peer_checker.imaging.lightglue_match import inverted_copy
+
         resolved = [Path(p) for p in paths]
-        matrix = np.stack(self.embed_many(resolved))
+        embeds = self.embed_many(resolved + [inverted_copy(p) for p in resolved])
+        matrix = np.stack(embeds[: len(resolved)])
+        inverted = np.stack(embeds[len(resolved) :])
         # Embeddings are L2-normalised, so the gram matrix is the cosine similarity
-        # for every pair at once.
-        sims = matrix @ matrix.T
+        # for every pair at once. DINOv2 scores an inverted copy only ~0.75–0.86,
+        # below the candidate floor, so also compare against the inverted images.
+        cross = matrix @ inverted.T
+        normal = matrix @ matrix.T
+        flipped = np.maximum(cross, cross.T)
+        sims = np.maximum(normal, flipped)
         method = f"dinov2:{self.model_name}"
         return [
             ImagePairMatch(
@@ -167,6 +183,7 @@ class DinoDuplicateScanner:
                 cosine_similarity=float(sims[i, j]),
                 likely_duplicate=bool(sims[i, j] >= threshold),
                 method=method,
+                coarse_inverted=bool(flipped[i, j] > normal[i, j]),
             )
             for i, j in combinations(range(len(resolved)), 2)
         ]

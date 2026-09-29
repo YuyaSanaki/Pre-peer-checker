@@ -72,6 +72,7 @@ from pre_peer_checker.engine.stats_residue_match import (
 from pre_peer_checker.imaging.blot_lane import scan_blot_lane_reuse
 from pre_peer_checker.imaging.corpus_scan import collect_corpus_images, scan_against_corpus
 from pre_peer_checker.imaging.duplicate_scan import scan_image_duplicates_auto
+from pre_peer_checker.imaging.lightglue_match import inversion_note
 from pre_peer_checker.imaging.panel_reuse import scan_internal_panel_reuse
 from pre_peer_checker.imaging.microscopy_scan import scan_microscopy_duplicates
 from pre_peer_checker.io_bundle import FileKind, InputBundle, collect_inputs, is_r_history_name
@@ -1334,12 +1335,14 @@ def run_verification(
                         reason=(
                             f"類似度 {m.cosine_similarity:.4f}（method={m.method}）。"
                             "別パネル間でのプロット／画像取り違えの可能性があります。"
+                            + inversion_note(m.precise_inverted)
                         ),
                         sources=[str(m.path_a), str(m.path_b)],
                         metadata={
                             "pattern_id": "P-DATA-SWAP-CROSS-CONDITION",
                             "similarity": m.cosine_similarity,
                             "method": m.method,
+                            "inverted": bool(m.precise_inverted),
                         },
                     )
                 )

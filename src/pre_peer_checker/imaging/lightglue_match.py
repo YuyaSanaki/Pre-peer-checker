@@ -4,15 +4,23 @@
       特徴点抽出器は利用区分で切替（academic: SuperPoint / commercial: ALIKED）
 次点: OpenCV ORB + RANSAC ホモグラフィ
 常時: マルチスケール正規化相互相関（依存なし）
+
+どの照合器でも片方を明暗反転した版とも比べ、反転版の方がよく一致すれば
+``inverted=True``（反転して流用）とする。反転への強さは照合器ごとに違うため
+（SuperPoint はほぼ不変、ALIKED はまちまち、ORB / NCC は一致しない）、偶然に任せない。
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+import atexit
+import shutil
+import tempfile
+from collections.abc import Callable
+from dataclasses import dataclass, replace
 from pathlib import Path
 
 import numpy as np
-from PIL import Image
+from PIL import Image, ImageOps
 
 
 @dataclass
@@ -23,6 +31,70 @@ class PreciseMatchResult:
     method: str
     detail: str = ""
     inliers: int | None = None
+    inverted: bool = False
+
+
+INVERTED_METHOD_SUFFIX = "+inverted"
+
+_INVERTED_DIR: Path | None = None
+_INVERTED_COPIES: dict[tuple[str, int, int], Path] = {}
+
+
+def inverted_copy(path: Path | str) -> Path:
+    """明暗反転した PNG（プロセス内キャッシュ・終了時に削除）."""
+    global _INVERTED_DIR
+    src = Path(path).resolve()
+    st = src.stat()
+    key = (str(src), st.st_mtime_ns, st.st_size)
+    hit = _INVERTED_COPIES.get(key)
+    if hit is not None and hit.exists():
+        return hit
+    if _INVERTED_DIR is None:
+        _INVERTED_DIR = Path(tempfile.mkdtemp(prefix="mc_inverted_"))
+        atexit.register(shutil.rmtree, _INVERTED_DIR, ignore_errors=True)
+    img = Image.open(src)
+    if img.mode not in ("L", "RGB"):
+        img = img.convert("RGB")
+    out = _INVERTED_DIR / f"{len(_INVERTED_COPIES)}_{src.stem}.png"
+    ImageOps.invert(img).save(out)
+    _INVERTED_COPIES[key] = out
+    return out
+
+
+def pick_orientation(
+    normal: PreciseMatchResult, inverted: PreciseMatchResult | None
+) -> PreciseMatchResult:
+    """通常比較と反転比較のうち、よく一致した方を返す（反転側は ``inverted=True``）."""
+    if inverted is None or not inverted.verified:
+        return normal
+    if normal.verified and (normal.num_matches, normal.score) >= (
+        inverted.num_matches,
+        inverted.score,
+    ):
+        return normal
+    return replace(inverted, inverted=True, method=inverted.method + INVERTED_METHOD_SUFFIX)
+
+
+def with_inversion(
+    verify: Callable[[Path, Path], PreciseMatchResult],
+    path_a: Path,
+    path_b: Path,
+    *,
+    verify_inverted: Callable[[Path, Path], PreciseMatchResult] | None = None,
+) -> PreciseMatchResult:
+    """``verify(a, b)`` と ``verify_inverted(a, 反転 b)``（既定は ``verify``）の良い方."""
+    normal = verify(path_a, path_b)
+    try:
+        flipped = (verify_inverted or verify)(path_a, inverted_copy(path_b))
+    except Exception:  # noqa: BLE001
+        flipped = None
+    return pick_orientation(normal, flipped)
+
+
+def inversion_note(inverted: bool | None) -> str:
+    if not inverted:
+        return ""
+    return "片方の明暗（白黒）を反転すると一致します。反転して流用していないか確認してください。"
 
 
 def lightglue_available() -> bool:
@@ -179,6 +251,14 @@ PANEL_MIN_INLIERS_BY_FEATURES: dict[str, int] = {
 }
 PANEL_MIN_INLIER_RATIO = 0.85
 
+# The inverted pass sees more unrelated pairs (the coarse stage also compares against
+# inverted images), so LightGlue must also agree on one homography there.
+# 2026-09-29, 14 figure images (CUDA, 1024 kpts), a vs inverted(b):
+#   true inverted copy (JPEG q70): superpoint >= 671 matches, aliked >= 824, ratio >= 0.998
+#   unrelated (182 pairs): raw gate alone passes 15 (superpoint) / 9 (aliked);
+#                          inlier ratio <= 0.714 / 0.397 → none pass at 0.85
+INVERTED_MIN_INLIER_RATIO = PANEL_MIN_INLIER_RATIO
+
 
 def active_lightglue_features() -> str:
     from pre_peer_checker.usage_profile import lightglue_features
@@ -217,7 +297,10 @@ def _verify_lightglue(
     features: str | None = None,
     min_matches: int | None = None,
     device: str | None = None,
+    min_inlier_ratio: float = 0.0,
 ) -> PreciseMatchResult:
+    """``min_inlier_ratio`` > 0: also require ``min_matches`` homography inliers at that
+    ratio (raw gate only when OpenCV is missing)."""
     import torch
     from lightglue.utils import load_image, rbd
 
@@ -233,14 +316,28 @@ def _verify_lightglue(
         feats1 = extractor.extract(img1)
         matches01 = matcher({"image0": feats0, "image1": feats1})
         feats0, feats1, matches01 = [rbd(x) for x in (feats0, feats1, matches01)]
-        n = int(matches01["matches"].shape[0])
+        idx = matches01["matches"]
+        n = int(idx.shape[0])
     verified = n >= min_matches
+    inliers = None
+    detail = f"device={device}; min_matches={min_matches}"
+    if min_inlier_ratio > 0 and verified:
+        size1 = feats1["image_size"].detach().cpu().numpy()
+        inliers = homography_inliers(
+            feats0["keypoints"][idx[:, 0]].detach().cpu().numpy(),
+            feats1["keypoints"][idx[:, 1]].detach().cpu().numpy(),
+            dst_size=(float(size1[0]), float(size1[1])),
+        )
+        if inliers is not None:
+            verified = inliers >= min_matches and inliers >= min_inlier_ratio * n
+        detail = f"{detail}; inliers={inliers}"
     return PreciseMatchResult(
         verified=verified,
         num_matches=n,
         score=float(n),
         method=f"lightglue+{features}",
-        detail=f"device={device}; min_matches={min_matches}",
+        detail=detail,
+        inliers=inliers,
     )
 
 
@@ -285,6 +382,16 @@ class LightGlueFeatureCache:
         return feats
 
     def match(self, path_a: Path | str, path_b: Path | str) -> PreciseMatchResult:
+        return with_inversion(
+            self._match_once,
+            Path(path_a),
+            Path(path_b),
+            verify_inverted=lambda a, b: self._match_once(a, b, inverted=True),
+        )
+
+    def _match_once(
+        self, path_a: Path, path_b: Path, *, inverted: bool = False
+    ) -> PreciseMatchResult:
         import torch
 
         _extractor, matcher, device = _lightglue_models(self.features)
@@ -299,16 +406,17 @@ class LightGlueFeatureCache:
             k1 = f1["keypoints"][0][idx[:, 1]].detach().cpu().numpy()
             size1 = f1["image_size"][0].detach().cpu().numpy()
             inliers = homography_inliers(k0, k1, dst_size=(float(size1[0]), float(size1[1])))
-        if self.min_inliers is None:
+        min_inliers = self.min_inliers
+        min_ratio = self.min_inlier_ratio
+        if inverted:
+            min_inliers = self.min_matches if min_inliers is None else min_inliers
+            min_ratio = max(min_ratio, INVERTED_MIN_INLIER_RATIO)
+        if min_inliers is None or n < self.min_matches:
             verified = n >= self.min_matches
         elif inliers is None:
             verified = n >= default_min_matches(self.features)
         else:
-            verified = (
-                n >= self.min_matches
-                and inliers >= self.min_inliers
-                and inliers >= self.min_inlier_ratio * n
-            )
+            verified = inliers >= min_inliers and inliers >= min_ratio * n
         return PreciseMatchResult(
             verified=verified,
             num_matches=n,
@@ -355,18 +463,58 @@ def verify_image_pair(
     require_lightglue: bool = False,
     min_matches: int | None = None,
     features: str | None = None,
+    strict_geometry: bool = False,
 ) -> PreciseMatchResult:
     """Re-verify a candidate duplicate pair with the best available matcher.
 
     ``require_lightglue=True``: do not silently fall back to ORB/NCC when LightGlue
     is unavailable or fails (returns verified=False with method marker).
     ``min_matches=None`` / ``features=None``: calibrated default for the usage profile.
+    Also compares against the intensity-inverted ``path_b`` (``inverted=True`` when that wins).
+    ``strict_geometry=True``: the homography gate of the inverted pass also applies to the
+    normal pass (for pairs shortlisted only through their inverted similarity).
     """
-    a, b = Path(path_a), Path(path_b)
+    normal_ratio = INVERTED_MIN_INLIER_RATIO if strict_geometry else 0.0
+
+    def _once(a: Path, b: Path, inlier_ratio: float = normal_ratio) -> PreciseMatchResult:
+        return _verify_pair_once(
+            a,
+            b,
+            prefer_lightglue=prefer_lightglue,
+            require_lightglue=require_lightglue,
+            min_matches=min_matches,
+            features=features,
+            min_inlier_ratio=inlier_ratio,
+        )
+
+    return with_inversion(
+        _once,
+        Path(path_a),
+        Path(path_b),
+        verify_inverted=lambda a, b: _once(a, b, INVERTED_MIN_INLIER_RATIO),
+    )
+
+
+def _verify_pair_once(
+    a: Path,
+    b: Path,
+    *,
+    prefer_lightglue: bool,
+    require_lightglue: bool,
+    min_matches: int | None,
+    features: str | None,
+    min_inlier_ratio: float = 0.0,
+) -> PreciseMatchResult:
     fallback_note = ""
     if prefer_lightglue and lightglue_available():
         try:
-            return _verify_lightglue(a, b, features=features, min_matches=min_matches)
+            return _verify_lightglue(
+                a,
+                b,
+                features=features,
+                min_matches=min_matches,
+                min_inlier_ratio=min_inlier_ratio,
+            )
         except Exception as exc:  # noqa: BLE001
             if require_lightglue:
                 return PreciseMatchResult(
@@ -423,11 +571,13 @@ def confirm_candidate_matches(
             prefer_lightglue=prefer_lightglue,
             require_lightglue=require_lightglue,
             min_matches=min_matches,
+            strict_geometry=bool(getattr(m, "coarse_inverted", False)),
         )
         m.precise_matches = precise.num_matches
         m.precise_score = precise.score
         m.precise_method = precise.method
         m.precise_verified = precise.verified
+        m.precise_inverted = precise.inverted
         m.likely_duplicate = bool(precise.verified)
         m.method = f"{m.method}+{precise.method}"
     return candidates

@@ -10,6 +10,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from pre_peer_checker.imaging.duplicate_scan import scan_image_duplicates_auto
+from pre_peer_checker.imaging.lightglue_match import inversion_note
 from pre_peer_checker.imaging.microscopy import export_frames_as_png, try_load_frames
 from pre_peer_checker.warnings import WarningItem, WarningTag
 
@@ -203,6 +204,7 @@ def scan_microscopy_duplicates(
                     reason=(
                         f"類似度 {m.cosine_similarity:.4f}（method={m.method}）。"
                         "同一投入セット内での画像再利用・取り違えの可能性があります。"
+                        + inversion_note(m.precise_inverted)
                         + corpus_note
                     ),
                     sources=[str(origin_a.source), str(origin_b.source)],
@@ -213,6 +215,7 @@ def scan_microscopy_duplicates(
                         "same_set_only": True,
                         "frame_a": origin_a.frame_label,
                         "frame_b": origin_b.frame_label,
+                        "inverted": bool(m.precise_inverted),
                     },
                 )
             )

@@ -68,7 +68,9 @@ from pre_peer_checker.parsers.manuscript_text import (
     select_manuscript_pdfs,
 )
 from pre_peer_checker.parsers.cited_paper_ingest import ensure_pdfs_ingested
-from pre_peer_checker.parsers.figure_panel_labels import collect_panel_labels_by_figure
+from pre_peer_checker.parsers.figure_panel_labels import (
+    collect_panel_labels_by_figure_detailed,
+)
 from pre_peer_checker.engine.stats_residue_match import (
     match_residue_to_tables,
     warnings_from_residue_stats,
@@ -872,8 +874,18 @@ def run_verification(
         if is_publication_figure_pdf(p)
     ]
     tracker.update(detail=f"Figure PDF のパネルラベルを読み取り中（{len(fig_pdfs)} 件）")
-    labels_by_figure = collect_panel_labels_by_figure(fig_pdfs)
+    labels_by_figure, panel_label_meta = collect_panel_labels_by_figure_detailed(fig_pdfs)
     result.artifacts["figure_panel_labels"] = labels_by_figure
+    result.artifacts["figure_panel_labels_meta"] = {
+        k: {
+            "source": v.source,
+            "needs_review": v.needs_review,
+            "ocr_engine": v.ocr_engine,
+            "pdf": v.pdf,
+            "labels": v.labels,
+        }
+        for k, v in panel_label_meta.items()
+    }
     result.warnings.extend(
         warnings_from_ref_labels(claim_texts, labels_by_figure)
     )

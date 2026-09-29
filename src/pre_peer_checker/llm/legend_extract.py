@@ -471,12 +471,11 @@ def extract_legends_json_from_docx(
     if figure_pdfs and chunks:
         from pre_peer_checker.parsers.figure_panel_labels import (
             attach_panel_labels_to_chunks,
-            collect_panel_labels_by_figure,
+            collect_panel_labels_by_figure_detailed,
         )
 
-        attach_panel_labels_to_chunks(
-            chunks, collect_panel_labels_by_figure(list(figure_pdfs))
-        )
+        by_fig, meta = collect_panel_labels_by_figure_detailed(list(figure_pdfs))
+        attach_panel_labels_to_chunks(chunks, by_fig, meta_by_figure=meta)
     if not chunks:
         # Fallback: legend blocks only
         out: list[LegendFigureJSON] = []

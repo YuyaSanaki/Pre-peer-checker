@@ -18,7 +18,7 @@
 
 **Qwen2.5-VL / Qwen3-VL（ベンチ脚本）**: Spark aarch64 では推論未達（OOM / `ConstTensorWrapper` 等）。**本番必須にしない**。Legend の Qwen（**テキスト 7B**）が Spark で動くことと、ベンチの **VL** は別モデル・別コード経路である点に注意（[会話整理](#legend-と-vl-の混同を避ける)）。
 
-**取り込み未実装**: ベンチ結果は `scripts/dev_figure_ocr_bench.py` のみ。製品の `figure_panel_labels` / チャンク `[figure_panel_labels]` への配線は **別 PR**。
+**製品配線（2026-09-29）**: `collect_panel_labels_by_figure_detailed` → ベクター空なら `raster_figure_panel_ocr`（Florence layout + Mac Vision / Linux Florence crop）。`figure_panel_labels_meta`・チャンク `[figure_panel_labels]`（要確認注記）。オフ: `PRE_PEER_CHECKER_RASTER_PANEL_OCR=0`。
 
 ---
 
@@ -62,7 +62,7 @@ rsync -avz spark-host:~/20260922Pre-peer-checker/tmp/figure_ocr_bench/ tmp/figur
    - 出力は **needs review** 扱い（VLM 幻覚リスク）。Warning 確定は決定論のまま。
 
 4. **製品への配線**  
-   - ラスタ Figure PDF: ベクター `_panel_labels` が空 → 現状は VLM **パネル地図** のみ。将来は **panels layout cache**（Florence）→ **Qwen3-VL OCR on crop**（または Vision on Mac）を `collect_panel_labels_by_figure` / チャンク添付に統合。  
+   - ラスタ Figure PDF: ベクター空 → **Florence layout + Vision/Florence crop**（実装済）。Qwen3-VL はベンチで上回った場合のみ OCR バックエンド差し替え候補。  
    - `llm/model_registry.yaml` に **Apache-2.0** の Qwen3-VL プロファイルを追加（配布既定は 7B テキスト/VLM 本線をいきなり差し替えない）。
 
 5. **やらないこと**  

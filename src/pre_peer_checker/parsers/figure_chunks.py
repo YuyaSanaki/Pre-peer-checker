@@ -50,14 +50,20 @@ class FigureChunk:
     methods: list[str] = field(default_factory=list)
     methods_includes_shared: bool = False
     panel_labels_from_figure: list[str] = field(default_factory=list)
+    panel_labels_needs_review: bool = False
 
     def prompt_body(self, *, max_chars: int = 6000) -> str:
         """Assemble labeled sections for an LLM prompt."""
         parts = [f"[figure_id] {self.figure_id}"]
         if self.panel_labels_from_figure:
             labels = ", ".join(self.panel_labels_from_figure)
+            hint = (
+                " (raster OCR — verify letters on the figure artwork)"
+                if self.panel_labels_needs_review
+                else ""
+            )
             parts.append(
-                f"[figure_panel_labels]\nPanels detected on figure PDF/image: {labels}"
+                f"[figure_panel_labels]\nPanels detected on figure PDF/image{hint}: {labels}"
             )
         parts.append(f"[legend]\n{self.legend.strip() or '(none)'}")
         results = "\n\n".join(p.strip() for p in self.results if p.strip())

@@ -50,7 +50,7 @@ def test_hybrid_with_callable_backend():
             }
         )
 
-    text = "Figure 1. n=11 (F). No citation here."
+    text = "Figure 1. n=11 (F). WT controls, n=12. No citation here."
     # rules alone: n=11, no citation
     rules = extract_legend_json_hybrid(text, figure_hint="Figure 1")
     assert rules.extractor == "rules"
@@ -64,6 +64,39 @@ def test_hybrid_with_callable_backend():
     assert hybrid.citation.mentioned
     # Rules lock: explicit rule n=11 (F) survives; LLM may add another row.
     assert any(p.n == 11 and p.panel == "F" and not p.groups for p in hybrid.panels)
+
+
+def test_hybrid_drops_ungrounded_and_replicate_llm_rows():
+    text = (
+        "Figure 2. a Calcium traces. b IHC images. 7 independent experiments "
+        "showed similar staining patterns. c Quantification. N = 71 ROIs."
+    )
+
+    def fake(prompt: str) -> str:
+        return json.dumps(
+            {
+                "figure": "Figure 2",
+                "panels": [
+                    {"panel": "C", "n": 71, "groups": [], "evidence_span": "N = 71 ROIs"},
+                    {"panel": "A", "n": 1, "groups": ["Control"], "evidence_span": "N = 1"},
+                    {
+                        "panel": "B",
+                        "n": 7,
+                        "groups": [],
+                        "evidence_span": "7 independent experiments showed similar staining patterns",
+                    },
+                ],
+                "extractor": "llm",
+            }
+        )
+
+    hybrid = extract_legend_json_hybrid(
+        text, figure_hint="Figure 2", llm_generate=fake, prefer_llm=True
+    )
+    got = {(p.panel, p.n) for p in hybrid.panels}
+    assert ("C", 71) in got
+    assert ("A", 1) not in got
+    assert ("B", 7) not in got
 
 
 def test_verifier_with_stub_backend():

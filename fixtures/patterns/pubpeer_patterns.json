@@ -655,6 +655,32 @@
       }
     },
     {
+      "id": "P-DERIVED-VALUE-PRECISION",
+      "status": "implemented",
+      "phase": "6",
+      "priority": "P2",
+      "source_kinds": [
+        "curated_pubpeer"
+      ],
+      "warning_tags": [
+        "Warning [表記揺れ・参照不整合]"
+      ],
+      "abstract_rule": "ソース表の値が小さい分母の分数を循環小数のまま切った形（1/3→0.3333 等）や、測定精度を超える桁の計算値（qPCR ソフト出力の正規化値等）で並び、「有効桁数を超えている」と指摘されうる。本文に比・正規化の記載があれば降格し、なければ Methods への明記または表示桁の丸めを促す。",
+      "inputs": [
+        "source_tables",
+        "legend_methods"
+      ],
+      "not_sufficient": [
+        "比・正規化値であること自体は問題ではない（科学的には無害なことが多い）",
+        "Methods に比・正規化・ΔΔCt の算出が明記されている"
+      ],
+      "synthetic_fixture_hint": "群の値を k/3・k/7 等の循環小数 4 桁表示で並べ、Methods に正規化の記載なし",
+      "taxonomy": [
+        "F2"
+      ],
+      "enabled": true
+    },
+    {
       "id": "P-SURVIVAL-COUNT-NONINTEGER",
       "status": "implemented",
       "phase": "5",

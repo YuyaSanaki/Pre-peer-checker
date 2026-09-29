@@ -77,6 +77,12 @@ _PATTERN_SPEC: dict[str, dict[str, Any]] = {
         "linking_checks": ["cross_table"],
         "need_any_ran": ["tables"],
     },
+    "P-DERIVED-VALUE-PRECISION": {
+        "primary": LAYER_MATCH,
+        "parser_checks": ["tables"],
+        "linking_checks": [],
+        "need_any_ran": ["tables"],
+    },
     "P-STAT-METHOD-INCONSISTENT": {
         "primary": LAYER_MATCH,
         "parser_checks": ["tables", "word_legend", "scripts"],

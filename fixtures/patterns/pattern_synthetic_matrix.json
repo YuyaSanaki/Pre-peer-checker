@@ -89,6 +89,13 @@
       "gold_item_id": "G10"
     },
     {
+      "pattern_id": "P-DERIVED-VALUE-PRECISION",
+      "ci_required": true,
+      "harness": "gold_eval",
+      "case_id": "derived_precision",
+      "gold_item_id": "G14"
+    },
+    {
       "pattern_id": "P-IMAGE-PARTIAL-REUSE",
       "ci_required": true,
       "harness": "gold_eval",

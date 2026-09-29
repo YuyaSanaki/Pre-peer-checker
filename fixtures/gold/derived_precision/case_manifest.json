@@ -1,0 +1,15 @@
+{
+  "schema_version": "1.0",
+  "case_id": "derived_precision",
+  "role": "synthetic_regression",
+  "description": "Group values are small-denominator ratios shown as truncated repeating decimals (1/3 -> 0.3333) with no ratio disclosure (P-DERIVED-VALUE-PRECISION).",
+  "root_relative": "fixtures/synthetic/derived_precision",
+  "docker_root": "/app/fixtures/synthetic/derived_precision",
+  "canonical_paths": {
+    "panel": "quant_panel.csv"
+  },
+  "ignore_globs": [],
+  "eval_command": {
+    "gold": "python -m pre_peer_checker.eval.gold_eval --case derived_precision --run --input fixtures/synthetic/derived_precision"
+  }
+}

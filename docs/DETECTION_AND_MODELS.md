@@ -35,6 +35,7 @@ PubPeer コメント・手元 PDF・個人経験（例: 自論文への指摘）
 | 出典なしの画像パネル／コーパス再利用 | `P-IMAGE-REUSE-UNCITED` |
 | 共有コントロール未開示・端点欠落 subset | `P-SHARED-CONTROL-UNDISCLOSED`, `P-VECTOR-SUBSET-UNDISCLOSED` |
 | ソース表の同一値過出現；整数倍・定数比・小数部指紋 | `P-SOURCE-DUPLICATE-VALUES`, `P-SOURCE-RATIO-ARTIFACT` |
+| 比・正規化由来の値が有効桁を超える桁数（1/3→0.3333 等） | `P-DERIVED-VALUE-PRECISION` |
 | 生存率×固定 N が非整数個体数 | `P-SURVIVAL-COUNT-NONINTEGER` |
 | Methods 主張 ↔ 図・表メタの矛盾 | `P-METHODS-CLAIM-MISMATCH` |
 | 記載 n より多いソース行で除外基準なし；統計再計算不一致 | `P-EXCLUSION-UNDECLARED`, `P-STATS-RECALC-MISMATCH` |
@@ -328,6 +329,15 @@ Bik et al. Category I≈A1、II≈A2、III≈A3 に対応づける。F 系は **
 - **not_sufficient**: ΔΔCt 等で **単発**の 2 倍が出るだけ（Methods の計算式と整合し、頻度が低い場合）。
 - **合成 fixture**: `fixtures/synthetic/source_ratio` + gold `source_ratio`（G10）。
 - **sources**: check_reference, curated_pubpeer
+
+#### G14. 比・正規化値の過剰桁 — P2 — `P-DERIVED-VALUE-PRECISION` — **実装済（初期）**
+
+- **典型**: 1/3 を 0.3333 のまま載せる、qPCR ソフトの正規化値を 0.873452 のまま載せる → 「有効桁数ではない」と指摘される。科学的には無害なことが多いので、指摘を未然に防ぐための Warning。
+- **比べる**: 群の非整数値の過半が「分母の小さい p/q（2・5 以外の素因数を含む）を 4 桁以上で打ち切り／丸めた値」、または 8 割以上が小数 5 桁以上・有効 6 桁以上（`engine/derived_precision.py`）。偶然一致率は小数桁数から分母上限を決めて抑える。Excel の加算誤差（…00001）は短い小数に戻してから判定。
+- **読む**: 本文に比・正規化・ΔΔCt の記載があるか（文面と降格の切替のみ）。記載なし → Methods への明記か丸めを促す Warning、記載あり → 丸めのみ促す降格・情報。
+- **not_sufficient**: 比・正規化値であること自体。
+- **合成 fixture**: `fixtures/synthetic/derived_precision` + gold `derived_precision`（G14）。
+- **sources**: curated_pubpeer
 
 #### G11. 生存曲線の非整数羽数 — P1 — `P-SURVIVAL-COUNT-NONINTEGER` — **実装済（初期）**
 

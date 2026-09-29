@@ -283,6 +283,27 @@ def test_merge_keeps_rule_n_when_llm_has_other_n_same_panel():
     assert any(p.panel == "I" and p.n == 14 for p in merged.panels)
 
 
+def test_merge_drops_llm_paraphrased_group_on_rule_owned_panel_n():
+    from pre_peer_checker.llm.legend_extract import _merge_llm_over_rules
+    from pre_peer_checker.llm.legend_schema import LegendFigureJSON, LegendPanelJSON
+
+    rules = LegendFigureJSON(
+        figure="Figure 1",
+        panels=[LegendPanelJSON(panel="G", n=3, groups=["RNA-seq"], evidence_span="(RNA-seq, n = 3)")],
+        extractor="rules",
+    )
+    llm = LegendFigureJSON(
+        figure="Figure 1",
+        panels=[
+            LegendPanelJSON(panel="G", n=3, groups=["transcriptional features of atrophy"]),
+            LegendPanelJSON(panel="G", n=3, groups=["RNA-seq"]),
+        ],
+        extractor="llm",
+    )
+    merged = _merge_llm_over_rules(rules, llm, llm_primary=True)
+    assert {(p.panel, tuple(p.groups), p.n) for p in merged.panels} == {("G", ("RNA-seq",), 3)}
+
+
 def test_cross_table_exact_match_synthetic(tmp_path: Path):
     a = tmp_path / "fig1c_alphaexp.csv"
     b = tmp_path / "fig1h_betaexp.csv"

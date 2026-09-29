@@ -46,7 +46,7 @@ CASE_GOLD = {
 }
 CASE_KEEP = {
     "paper_01": {"1", "2", "3", "4", "5"},
-    "paper_02": {"1", "2"},
+    "paper_02": {"1", "2", "3", "4", "5", "6", "7"},
 }
 
 
@@ -185,23 +185,32 @@ def run_case(
     warnings_path.write_text(
         json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8"
     )
-    print(
-        f"{case}: recall={sc['recall']:.3f} ({sc['n_hit']}/{sc['n_items']}) "
-        f"forbid_fp={sc['forbid_panel_fp']} -> {warnings_path}",
-        flush=True,
-    )
+    print(f"{ev.format_score(case, sc)} -> {warnings_path}", flush=True)
     return {
         "case": case,
         "warnings": str(warnings_path),
         "backend": None if rules_only else str(backend_info),
         "n_captions": len(pairs),
         "by_style": by_style,
-        **{k: sc[k] for k in ("n_items", "n_hit", "recall", "forbid_panel_fp")},
+        **{
+            k: sc[k]
+            for k in (
+                "n_items",
+                "n_hit",
+                "recall",
+                "n_pred",
+                "n_pred_hit",
+                "precision",
+                "f1",
+                "forbid_panel_fp",
+            )
+        },
         "misses": [
             {"id": d["id"], "gold": d["gold"], "difficulty": d.get("difficulty")}
             for d in sc["items"]
             if not d["matched"]
         ],
+        "false_positives": sc["false_positives"],
     }
 
 

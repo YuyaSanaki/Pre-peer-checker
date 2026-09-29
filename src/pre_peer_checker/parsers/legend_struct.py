@@ -302,7 +302,8 @@ def _published_section_spans(
         text,
     ):
         pre = text[max(0, m.start() - 12) : m.start()]
-        if re.search(r"(?:n\s*=\s*)?\d+\s*$", pre, re.I):
+        # `n = 10 (D, E)` / `15 (day 3)` lists — but not gene names like `ATF4 (A and B)`
+        if re.search(r"(?<![A-Za-z])\d+\s*$", pre):
             continue
         panels = _expand_panel_token(m.group(1))
         if not panels:
@@ -316,7 +317,14 @@ def _published_section_spans(
         after = text[m.end() : m.end() + 3]
         if re.match(r"\s*[–—\-]", after or ""):
             continue  # stats refs like (D)–(F);
-        if panels and (re.match(r"\s*[A-Z]", after or "") or after == ""):
+        sentence_start = m.start() == 0 or bool(
+            re.search(r"[.;]\s*$", text[max(0, m.start() - 3) : m.start()])
+        )
+        if panels and (
+            re.match(r"\s*[A-Z]", after or "")
+            or after == ""
+            or (sentence_start and re.match(r"\s+[0-9]", after or ""))
+        ):
             opens.append((m.start(), panels))
     if nature_bare:
         for m in re.finditer(r"(?:^|[.\s;])([a-z])(?:,([a-z]))?(?=\s+\S)", text):
@@ -427,33 +435,119 @@ def _parse_published_pdf_styles(figure: str, text: str) -> list[PanelN]:
                 _add_pn(found, figure=figure, panel=p, n=int(m.group(1)), context=ctx)
 
         # (4) postfix (n = N) — Cell / Elsevier style
-        for m in re.finditer(
-            r"(?:(\b(?:clinical\s+)?patients?\b|\bmice\b)\s+)?"
-            r"\((?:([^(),]{1,30}?),\s*)?n\s*=\s*(\d+)\)",
-            chunk,
-            re.I,
-        ):
-            n = int(m.group(3))
-            prefix = (m.group(1) or "").strip()
-            cond = (m.group(2) or "").strip()
-            group = ""
-            if (
-                cond
-                and not _UNIT_WORD_RE.match(cond)
-                and not re.match(r"^(upper|lower|left|right|see)\b", cond, re.I)
-            ):
-                group = cond
-            elif re.search(r"patients?", prefix, re.I):
-                group = "patients"
-            elif re.search(r"\bmice\b", prefix, re.I):
-                group = "mice"
-            ctx = m.group(0)[:120]
-            for p in section_panels:
-                _add_pn(
-                    found, figure=figure, panel=p, n=n, context=ctx, group=group
-                )
+        for panel, n, ctx, group in _postfix_n_assignments(chunk, section_panels):
+            _add_pn(found, figure=figure, panel=panel, n=n, context=ctx, group=group)
 
     return found
+
+
+_POSTFIX_N_RE = re.compile(
+    r"(?:(\b(?:clinical\s+)?patients?\b|\bmice\b)\s+)?"
+    r"\((?:([^(),]{1,30}?),\s*)?n\s*=\s*(\d+)"
+    r"(?:\s*,\s*([A-Z](?:\s*(?:,|and|[-–—])\s*[A-Z])*))?\)",
+    re.I,
+)
+_INLINE_PANEL_REF_RE = re.compile(
+    r"\(([A-Z](?:\s*(?:,|and|[-–—])\s*[A-Z])*)\)"
+)
+_SCHEMATIC_RE = re.compile(r"^\(\s*[A-Z]\s*\)\s*(?:Schematic|Scheme)\b", re.I)
+
+
+def _inline_refs(text: str, section_panels: list[str]) -> list[tuple[int, int, list[str]]]:
+    """In-sentence panel refs like ``weight (J)`` that name panels of this section."""
+    allowed = set(section_panels)
+    out: list[tuple[int, int, list[str]]] = []
+    for m in _INLINE_PANEL_REF_RE.finditer(text):
+        panels = [p for p in _expand_panel_token(m.group(1)) if p in allowed]
+        if panels:
+            out.append((m.start(), m.end(), panels))
+    return out
+
+
+def _postfix_n_assignments(
+    chunk: str, section_panels: list[str]
+) -> list[tuple[str, int, str, str]]:
+    """Bind each ``(n = N)`` in a section to the panel(s) it describes.
+
+    A section header ``(J–L)`` names a block; per-panel refs inside it
+    (``weight (J) (n = 3), histology (K) (n = 6)``) take precedence over the
+    header. Only when a multi-panel block has no inline refs is the n shared.
+    """
+    hits = list(_POSTFIX_N_RE.finditer(chunk))
+    if not hits:
+        return []
+    if len(section_panels) == 1 and _SCHEMATIC_RE.match(chunk):
+        return []
+
+    header = re.match(r"\s*\([^)]*\)", chunk)
+    body_start = header.end() if header else 0
+    multi = len(section_panels) > 1
+    refs = _inline_refs(chunk[body_start:], section_panels) if multi else []
+    refs = [(s + body_start, e + body_start, p) for s, e, p in refs]
+
+    labelled = []
+    for m in hits:
+        prefix = (m.group(1) or "").strip()
+        cond = (m.group(2) or "").strip()
+        group = ""
+        if (
+            cond
+            and not _UNIT_WORD_RE.match(cond)
+            and not re.match(r"^(upper|lower|left|right|see)\b", cond, re.I)
+        ):
+            group = cond
+        elif re.search(r"patients?", prefix, re.I):
+            group = "patients"
+        elif re.search(r"\bmice\b", prefix, re.I):
+            group = "mice"
+        labelled.append((m, group, bool(prefix) and not cond))
+    # "mice (n = 5)" is a group label only when contrasted with another cohort
+    cohort_labels = {g for _, g, from_prefix in labelled if from_prefix and g}
+    if len(cohort_labels) < 2:
+        labelled = [
+            (m, "" if from_prefix else g, from_prefix) for m, g, from_prefix in labelled
+        ]
+
+    # (G and H) … (RNA-seq, n = 3) and … (ATAC-seq, n = 3): one labelled n per panel, in order
+    groups = [g for _, g, _ in labelled]
+    paired = (
+        multi
+        and not refs
+        and len(labelled) == len(section_panels)
+        and all(groups)
+        and len(set(groups)) == len(groups)
+    )
+
+    out: list[tuple[str, int, str, str]] = []
+    prev_end = body_start
+    last_ref_panels: list[str] = []
+    for idx, (m, group, _) in enumerate(labelled):
+        n = int(m.group(3))
+        ctx = m.group(0)[:120]
+        if m.group(4):
+            targets = _expand_panel_token(m.group(4))
+        elif paired:
+            targets = [section_panels[idx]]
+        elif refs:
+            before = [r for r in refs if prev_end <= r[0] and r[1] <= m.start()]
+            adjacent = [r for r in before if not chunk[r[1] : m.start()].strip()]
+            if adjacent:
+                targets = adjacent[-1][2]
+            elif before:
+                targets = [p for r in before for p in r[2]]
+            else:
+                # trailing "Statistical analysis … (n = 4)" after per-panel clauses
+                targets = last_ref_panels or section_panels
+        else:
+            targets = section_panels
+        if refs:
+            seen = [r for r in refs if r[1] <= m.start()]
+            if seen:
+                last_ref_panels = seen[-1][2]
+        for p in targets:
+            out.append((p, n, ctx, group))
+        prev_end = m.end()
+    return out
 
 
 def parse_panel_ns(figure: str, text: str) -> list[PanelN]:

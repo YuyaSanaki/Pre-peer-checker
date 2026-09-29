@@ -149,18 +149,19 @@ def _drop_dose_on_wrong_panels(panels: list[LegendPanelJSON]) -> list[LegendPane
 
 def _drop_llm_n_stolen_from_rules(
     llm_panels: list[LegendPanelJSON],
-    rule_empty_pn: set[tuple[str, int]],
+    rule_pn: set[tuple[str, int]],
 ) -> list[LegendPanelJSON]:
     """Drop LLM rows that reassign an n already owned by rules on another panel.
 
     Typo / section-letter cases: rules L=140, M=88 (empty group); LLM invents
     K=140 or P=140/(k) — those steal the n and must not survive the merge.
+    Day/dose lists owned by rules (B,C day 3 = 15) are protected the same way.
     Shared n on multiple rule panels (D,E,G,H=10) still allows those owners.
     """
-    if not rule_empty_pn:
+    if not rule_pn:
         return llm_panels
     n_to_owners: dict[int, set[str]] = {}
-    for panel, n in rule_empty_pn:
+    for panel, n in rule_pn:
         n_to_owners.setdefault(n, set()).add(panel)
     out: list[LegendPanelJSON] = []
     for p in llm_panels:
@@ -172,6 +173,75 @@ def _drop_llm_n_stolen_from_rules(
             continue
         out.append(p)
     return out
+
+
+def _drop_llm_group_conflicts(
+    llm_panels: list[LegendPanelJSON],
+    rule_panels: list[LegendPanelJSON],
+) -> list[LegendPanelJSON]:
+    """Rules own grouped (panel, n): G=3 (RNA-seq) blocks LLM G=3 (<paraphrase>)."""
+    rule_groups: dict[tuple[str, int], set[str]] = {}
+    for rp in rule_panels:
+        if rp.n is None or not rp.groups:
+            continue
+        key = (rp.panel.upper(), int(rp.n))
+        rule_groups.setdefault(key, set()).add(str(rp.groups[0]).strip().lower())
+    if not rule_groups:
+        return llm_panels
+    out: list[LegendPanelJSON] = []
+    for p in llm_panels:
+        if p.n is not None and p.groups:
+            owned = rule_groups.get((p.panel.upper(), int(p.n)))
+            if owned and str(p.groups[0]).strip().lower() not in owned:
+                continue
+        out.append(p)
+    return out
+
+
+def _norm_for_grounding(text: str) -> str:
+    t = (text or "").replace("\u00ad", "").replace("ﬁ", "fi").replace("ﬂ", "fl")
+    t = t.replace("–", "-").replace("—", "-").replace("−", "-")
+    t = re.sub(r"-\s*\n\s*", "", t)
+    return re.sub(r"\s+", " ", t).strip().lower()
+
+
+def _llm_row_is_grounded(p: LegendPanelJSON, source_norm: str) -> bool:
+    """LLM evidence must quote the source and contain the n it claims."""
+    if p.n is None:
+        return True
+    ev = _norm_for_grounding(p.evidence_span or p.notes or "")
+    n_tok = rf"(?<!\d)(?<!\d\.){int(p.n)}(?!\d)(?!\.\d)"
+    if not ev:
+        return bool(re.search(n_tok, source_norm))
+    if not re.search(n_tok, ev):
+        return False
+    frags = [f.strip(" ,;:.()") for f in re.split(r"\.\.\.|…", ev)]
+    frags = [f for f in frags if len(f) >= 4]
+    return all(f in source_norm for f in frags) if frags else True
+
+
+def _is_replicate_statement(p: LegendPanelJSON) -> bool:
+    """`3 independent experiments showed similar patterns` is not a sample size."""
+    if p.n is None:
+        return False
+    ev = p.evidence_span or p.notes or ""
+    n = int(p.n)
+    if re.search(rf"\b[Nn]\s*=\s*{n}\b", ev):
+        return False
+    return bool(re.search(rf"\b{n}\s+(?:\w+\s+)?independent\s+experiments?\b", ev, re.I))
+
+
+def _drop_ungrounded_llm_rows(
+    llm_panels: list[LegendPanelJSON], source_text: str | None
+) -> list[LegendPanelJSON]:
+    if not source_text:
+        return llm_panels
+    src = _norm_for_grounding(source_text)
+    return [
+        p
+        for p in llm_panels
+        if _llm_row_is_grounded(p, src) and not _is_replicate_statement(p)
+    ]
 
 
 def _paneln_to_legend_json(pn: PanelN) -> LegendPanelJSON:
@@ -201,9 +271,11 @@ def _merge_llm_over_rules(
     parsed: LegendFigureJSON,
     *,
     llm_primary: bool = True,
+    source_text: str | None = None,
 ) -> LegendFigureJSON:
     """Merge LLM + rules. Rules own parenthesis class (panel-letter → empty group).
 
+    - Drop LLM rows whose evidence is not in ``source_text`` or is a replicate count.
     - Drop K←(H,I,J) section misattribution and dose-on-A mistakes.
     - If rules assign panel+n with empty group, strip LLM-invented groups on that key.
     - Always keep rule rows the LLM omitted (shared n, last list element, published styles).
@@ -228,11 +300,16 @@ def _merge_llm_over_rules(
         for rp in base.panels
         if rp.n is not None and not (rp.groups)
     }
+    rule_pn = {(rp.panel.upper(), int(rp.n)) for rp in base.panels if rp.n is not None}
+
+    if parsed.panels:
+        parsed.panels = _drop_ungrounded_llm_rows(parsed.panels, source_text)
 
     if llm_primary and parsed.panels:
         kept = [p for p in parsed.panels if not _is_misattributed_section_panel(p)]
         kept = _drop_dose_on_wrong_panels(kept)
-        kept = _drop_llm_n_stolen_from_rules(kept, rule_empty_pn)
+        kept = _drop_llm_n_stolen_from_rules(kept, rule_pn)
+        kept = _drop_llm_group_conflicts(kept, base.panels)
         by_key: dict[tuple[str, str, int | None], LegendPanelJSON] = {}
         overlaid = False
         for p in kept:
@@ -366,7 +443,10 @@ def extract_check_items_from_chunk(
         return base
     if parsed is None:
         return base
-    return _merge_llm_over_rules(base, parsed, llm_primary=llm_primary)
+    source = "\n".join([chunk.legend or "", *chunk.results, *chunk.methods])
+    return _merge_llm_over_rules(
+        base, parsed, llm_primary=llm_primary, source_text=source
+    )
 
 
 def extract_legends_json_from_docx(

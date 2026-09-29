@@ -45,6 +45,7 @@ from pre_peer_checker.engine.source_values import (
     warnings_from_source_ratio_artifacts,
 )
 from pre_peer_checker.engine.numeric_crossref import warnings_from_numeric_crossref
+from pre_peer_checker.engine.derived_precision import warnings_from_derived_precision
 from pre_peer_checker.engine.methods_claim import warnings_from_methods_claims
 from pre_peer_checker.engine.errorbar_sem_sd import warnings_from_errorbar_sem_sd
 from pre_peer_checker.engine.multiplicity import warnings_from_multiplicity_gap
@@ -803,6 +804,7 @@ def run_verification(
     # --- P-SOURCE-DUPLICATE-VALUES / P-SOURCE-RATIO-ARTIFACT（同一表内指紋） ---
     result.warnings.extend(warnings_from_source_duplicates(plot_vectors, min_n=4))
     result.warnings.extend(warnings_from_source_ratio_artifacts(plot_vectors, min_n=4))
+    result.warnings.extend(warnings_from_derived_precision(plot_vectors, claim_texts))
 
     # --- P-NUMERIC-CROSSREF-MISMATCH / P-METHODS-CLAIM-MISMATCH ---
     tracker.update(detail="本文中の数値・統計記載とデータを照合中")

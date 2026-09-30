@@ -535,6 +535,10 @@ def match_legend_n_to_vectors(
             continue
         if best.n == pn.n:
             continue
+        from pre_peer_checker.data.source_data_blocks import is_source_data_workbook
+
+        if is_source_data_workbook(best.source):
+            continue  # P-SOURCE-DATA-LEGEND-N reports these with the block location
         dedupe = (pn.figure, pn.panel, pn.n)
         if dedupe in seen:
             continue

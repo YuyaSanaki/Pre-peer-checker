@@ -344,6 +344,35 @@ def _image_ref(b: SourceDataBlock) -> str | None:
     return next(iter(letters)) if len(letters) == 1 else None
 
 
+def match_source_block_for_panel(
+    pn: PanelN,
+    blocks: list[SourceDataBlock],
+) -> tuple[SourceDataBlock | None, bool]:
+    """(block for this legend panel/group, whether Source Data covers the figure)."""
+    ref = _pn_figure(pn)
+    if ref is None:
+        return None, False
+    fig_blocks = [
+        b
+        for b in blocks
+        if b.figure is not None
+        and b.figure.number == ref.number
+        and b.figure.extended == ref.extended
+    ]
+    if not fig_blocks:
+        return None, False
+    panel_blocks = [b for b in fig_blocks if b.figure.panel == ref.panel] or [
+        b for b in fig_blocks if not b.figure.panel
+    ]
+    if not panel_blocks:
+        return None, True
+    group = (pn.group or "").strip().lower()
+    cands = [b for b in panel_blocks if _image_ref(b) == group] if group else panel_blocks
+    if len(cands) > 1:
+        cands = [b for b in cands if b.n == pn.n]
+    return (cands[0] if len(cands) == 1 else None), True
+
+
 def warnings_from_source_data_panels(
     blocks: list[SourceDataBlock],
     panel_ns: list[PanelN],

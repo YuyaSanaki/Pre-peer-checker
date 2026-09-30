@@ -11,6 +11,7 @@ from pre_peer_checker.data.group_vectors import extract_group_vectors
 from pre_peer_checker.data.source_data_blocks import parse_source_data_blocks
 from pre_peer_checker.data.stats_recalc import analyze_table_file
 from pre_peer_checker.engine.n_and_names import is_plot_quant_table
+from pre_peer_checker.engine.n_matrix import build_n_matrix
 from pre_peer_checker.engine.source_data_checks import (
     warnings_from_source_data_panels,
     warnings_from_source_data_reuse,
@@ -117,6 +118,29 @@ def test_source_data_feeds_group_vectors_and_plot_tables(tmp_path: Path):
     assert vecs["Fig. 3e | scrib+RNAi vs wild-type (Fig. 3c)"].n == len(RNAI)
     stats = analyze_table_file(a)
     assert stats.anova is None and not stats.pairwise
+
+
+def test_n_matrix_links_source_data_as_raw_and_plot(tmp_path: Path):
+    _, a, b = _blocks(tmp_path)
+    vecs = extract_group_vectors(a) + extract_group_vectors(b)
+    panel_ns = [
+        PanelN(panel="P", n=30, figure="Figure 4", context="n (n = 30)", group="n"),
+        PanelN(panel="H", n=7, figure="Figure 4", context="g (n = 7)", group="g"),
+        PanelN(panel="E", n=10, figure="Figure 3", context="b (n = 10)", group="b"),
+        PanelN(panel="B", n=5, figure="Extended Data Figure 1", context="n = 5"),
+    ]
+    rows = {
+        (r.figure, r.panel, r.group): r
+        for r in build_n_matrix(panel_ns, vecs, table_paths=[a, b])
+    }
+    fig4n = rows[("Figure 4", "P", "n")]
+    assert fig4n.data_link_status == "linked" and fig4n.plot_link_status == "linked"
+    assert fig4n.data.n == 8 and fig4n.mismatch
+    fig3b = rows[("Figure 3", "E", "b")]
+    assert fig3b.data.n == 10 and not fig3b.mismatch
+    assert rows[("Figure 4", "H", "g")].data_link_status == "unlinked"
+    ed = rows[("Extended Data Figure 1", "B", "")]
+    assert ed.input_gap and "Source Data" in (ed.data.detail or "")
 
 
 def test_plain_excel_is_not_source_data(tmp_path: Path):

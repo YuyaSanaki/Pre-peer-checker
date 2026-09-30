@@ -655,7 +655,107 @@ def _tier3_via_normalized_keys(
     )
 
 
+def _source_data_link(pn: PanelN, vectors: list[GroupVector]) -> EntityLink | None:
+    """Link via Source Data block headings (Fig. 4h / (Fig. 4b)); None if no such workbook."""
+    from pre_peer_checker.data.source_data_blocks import (
+        is_source_data_workbook,
+        parse_source_data_blocks,
+    )
+    from pre_peer_checker.engine.source_data_checks import match_source_block_for_panel
+
+    sd_vectors = [v for v in vectors if is_source_data_workbook(v.source)]
+    if not sd_vectors:
+        return None
+    blocks = []
+    for path in dict.fromkeys(v.source for v in sd_vectors):
+        blocks.extend(parse_source_data_blocks(path))
+    block, covered = match_source_block_for_panel(pn, blocks)
+    if block is None:
+        if covered:
+            group = f" ({pn.group})" if pn.group else ""
+            return EntityLink(
+                status=LinkStatus.UNLINKED,
+                tier=LinkTier.NONE,
+                reason=f"Source Data に{group}を指すブロックなし（見出しのパネル記号を確認）",
+            )
+        return EntityLink(
+            status=LinkStatus.DATA_MISSING,
+            tier=LinkTier.NONE,
+            reason=f"Source Data に {pn.figure} のブロックなし",
+        )
+    vec = next(
+        (
+            v
+            for v in sd_vectors
+            if v.source.resolve() == block.path and v.group_key == block.label
+        ),
+        None,
+    )
+    if vec is None:
+        return None
+    return EntityLink(
+        status=LinkStatus.LINKED,
+        tier=LinkTier.TIER1,
+        vector=vec,
+        score=100,
+        reason=f"Source Data 見出し · {block.label}",
+        fingerprint=fingerprint_from_vector(vec),
+    )
+
+
+def _without_source_data(
+    vectors: list[GroupVector], table_paths: list[Path] | None
+) -> tuple[list[GroupVector], list[Path] | None]:
+    from pre_peer_checker.data.source_data_blocks import is_source_data_workbook
+
+    vs = [v for v in vectors if not is_source_data_workbook(v.source)]
+    ps = (
+        [p for p in table_paths if not is_source_data_workbook(p)]
+        if table_paths is not None
+        else None
+    )
+    return vs, ps
+
+
 def link_raw_for_panel(
+    pn: PanelN,
+    vectors: list[GroupVector],
+    *,
+    table_paths: list[Path] | None = None,
+    **kwargs,
+) -> EntityLink:
+    """Best experimental table for a legend panel; Source Data blocks count as raw data."""
+    sd = _source_data_link(pn, vectors)
+    if sd is not None and sd.status == LinkStatus.LINKED:
+        return sd
+    if sd is not None:
+        vectors, table_paths = _without_source_data(vectors, table_paths)
+    link = _link_raw_generic(pn, vectors, table_paths=table_paths, **kwargs)
+    if sd is not None and link.status != LinkStatus.LINKED:
+        return sd
+    return link
+
+
+def link_plot_for_panel(
+    pn: PanelN,
+    vectors: list[GroupVector],
+    *,
+    table_paths: list[Path] | None = None,
+    **kwargs,
+) -> EntityLink:
+    """Best plot table for a legend panel; Source Data blocks are the plotted values."""
+    sd = _source_data_link(pn, vectors)
+    if sd is not None and sd.status == LinkStatus.LINKED:
+        return sd
+    if sd is not None:
+        vectors, table_paths = _without_source_data(vectors, table_paths)
+    link = _link_plot_generic(pn, vectors, table_paths=table_paths, **kwargs)
+    if sd is not None and link.status != LinkStatus.LINKED:
+        return sd
+    return link
+
+
+def _link_raw_generic(
     pn: PanelN,
     vectors: list[GroupVector],
     *,
@@ -765,7 +865,7 @@ def link_raw_for_panel(
     return linked
 
 
-def link_plot_for_panel(
+def _link_plot_generic(
     pn: PanelN,
     vectors: list[GroupVector],
     *,

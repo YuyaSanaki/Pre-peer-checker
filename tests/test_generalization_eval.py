@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import shutil
+import sys
 from pathlib import Path
 
 import pytest
@@ -94,6 +95,42 @@ def test_discover_skips_template_and_filters_split(roots: Path) -> None:
         _cases(roots, case_ids=["nope"])
 
 
+def test_gold_paths_reuse_gold_kept_elsewhere(roots: Path) -> None:
+    shared = roots / "shared" / "panel_extract_gold.json"
+    shared.parent.mkdir(parents=True)
+    shutil.move(roots / "gold" / "dev_a" / "panel_extract_gold.json", shared)
+    manifest_path = roots / "gold" / "dev_a" / "case_manifest.json"
+    manifest = json.loads(manifest_path.read_text())
+    manifest["gold_paths"] = {"legend": "../../shared/panel_extract_gold.json"}
+    manifest_path.write_text(json.dumps(manifest))
+
+    (case,) = _cases(roots, case_ids=["dev_a"])
+    assert case.gold_path("legend") == shared.resolve()
+    assert case.gold_path("panel_ocr").name == "panel_labels_gold.json"
+    assert [c.case_id for c in gz.cases_with_gold(_cases(roots), "legend")] == ["dev_a", "ho_a", "ho_b"]
+
+
+def test_caption_split_handles_journal_header_styles() -> None:
+    from pre_peer_checker.parsers.legend_struct import extract_figure_captions_from_pdf_text
+
+    plos = "Body cites Fig 1B here.\nFig 1. Title one. (A) n = 3.\nBody.\nFig 2. Title two. (B) n = 4.\n"
+    assert [f for f, _ in extract_figure_captions_from_pdf_text(plos)] == ["Figure 1", "Figure 2"]
+
+    frontiers = "FIGURE 1\nCaption one n = 5.\nFIGURE 2\nCaption two.\nFIGURE 2 (Continued)\nmore\n"
+    pairs = extract_figure_captions_from_pdf_text(frontiers)
+    assert [f for f, _ in pairs] == ["Figure 1", "Figure 2"]
+    assert "(Continued)" in pairs[1][1]
+
+    # In-text "Figure 2." must not shadow the line-start "Fig.\u00a0N." headers.
+    sci_rep = (
+        "as shown in Figure 2. Next.\n"
+        + "".join(f"Fig.\u00a0{i}. Caption {i}.\n" for i in range(1, 5))
+    )
+    assert [f for f, _ in extract_figure_captions_from_pdf_text(sci_rep)] == [
+        f"Figure {i}" for i in range(1, 5)
+    ]
+
+
 def test_rules_only_reports_splits_and_redacts_holdout(roots: Path) -> None:
     report = gz.run_generalization("legend", ["rules_only"], _cases(roots), bootstrap_iters=50)
     res = report["results"]["rules_only"]
@@ -109,6 +146,37 @@ def test_rules_only_reports_splits_and_redacts_holdout(roots: Path) -> None:
     assert report["cases"]["ho_a"]["gold_freeze"] == "frozen"
     manifest = json.loads((roots / "gold" / "ho_a" / "case_manifest.json").read_text())
     assert manifest["frozen"]["legend_sha256"]
+
+
+def test_exhaustive_precision_scores_figures_without_gold_n(roots: Path) -> None:
+    gold_path = roots / "gold" / "ho_a" / "panel_extract_gold.json"
+    gold = json.loads(gold_path.read_text())
+    gold["items"] = [it for it in gold["items"] if it["figure"] == "Figure 4"] + [
+        {"id": "F4-K-range", "figure": "Figure 4", "panel": "K", "group": "", "n": None,
+         "review_status": "dropped"},
+    ]
+    gold_path.write_text(json.dumps(gold))
+    (case,) = _cases(roots, case_ids=["ho_a"])
+    preds = [
+        {"figure": "Figure 4", "panel": "H", "group": "", "n": 11},
+        {"figure": "Figure 4", "panel": "K", "group": "", "n": 28},
+        {"figure": "Figure 2", "panel": "A", "group": "", "n": 4},
+        {"figure": "Figure 5", "panel": "A", "group": "", "n": 7},
+    ]
+    sc = gz.score_legend_case(case, preds)
+    assert (sc["n_pred_hit"], sc["n_pred"]) == (1, 2)
+    assert sc["false_positives"] == [{"figure": "Figure 2", "panel": "A", "group": "", "n": 4}]
+
+
+def test_range_n_matches_only_the_same_range() -> None:
+    from pre_peer_checker.eval.panel_extract_score import score_one
+
+    gold = {"items": [{"id": "r", "figure": "Figure 3", "panel": "H", "group": "", "n": None,
+                       "n_range": [28, 32]}]}
+    base = {"figure": "Figure 3", "panel": "H", "group": ""}
+    assert score_one(gold, [{**base, "n": 28}])["n_hit"] == 0
+    sc = score_one(gold, [{**base, "n": None, "n_range": [28, 32]}])
+    assert (sc["n_hit"], sc["n_pred_hit"], sc["n_pred"]) == (1, 1, 1)
 
 
 def test_frozen_gold_edit_is_refused_unless_revised(roots: Path) -> None:
@@ -171,6 +239,61 @@ def test_guard_ablation_isolates_grounding(roots: Path) -> None:
     assert ho["current-minus-grounding"]["precision"] < 1.0
     # Without rule_fill the rules' Figure 2 rows (LLM returned nothing there) are gone.
     assert ho["current-minus-rule_fill"]["recall"] < ho["current"]["recall"]
+
+
+def test_legend_source_product_scores_legends_the_product_cannot_locate(
+    roots: Path, monkeypatch
+) -> None:
+    from pre_peer_checker.parsers import legend_struct
+    from pre_peer_checker.parsers.legend_struct import StructuredLegend
+
+    inp = roots / "input" / "dev_a"
+    (inp / "legend_excerpt.txt").unlink()
+    (inp / "paper.pdf").write_bytes(b"%PDF-stub")
+    monkeypatch.setattr(
+        legend_struct,
+        "extract_structured_legends",
+        lambda _p: [StructuredLegend(figure="Figure 2", text=FIG2)],
+    )
+    monkeypatch.setattr(
+        legend_struct, "extract_figure_captions_from_pdf", lambda _p, keep=None: [("Figure 2", FIG2), ("Figure 4", FIG4)]
+    )
+    cases = _cases(roots, case_ids=["dev_a"])
+
+    product = gz.run_generalization("legend", ["rules_only"], cases, bootstrap_iters=0)
+    dev = product["results"]["rules_only"]["splits"]["dev"]
+    assert product["legend_source"] == "product"
+    assert (dev["figures_found"], dev["figures_expected"]) == (1, 2)
+    assert dev["n_hit"] == 2  # Figure 4's three n are lost with its legend
+
+    raw = gz.run_generalization("legend", ["rules_only"], cases, bootstrap_iters=0, legend_source="raw")
+    dev = raw["results"]["rules_only"]["splits"]["dev"]
+    assert (dev["figures_found"], dev["n_hit"]) == (2, 5)
+
+
+def test_gate_fails_when_fewer_legends_are_located() -> None:
+    def summary(found: int, source: str = "product") -> dict:
+        agg = {"n_items": 5, "recall": 1.0, "precision": None, "figures_expected": 2, "figures_found": found}
+        return {"config": "current", "cases": {"a": "dev"}, "splits": {"dev": agg}, "legend_source": source}
+
+    base = {"summary": summary(2)}
+    assert gz.gate_check(summary(2), base)["passed"]
+    assert not gz.gate_check(summary(1), base)["passed"]
+    assert not gz.gate_check(summary(2, "raw"), base)["passed"]
+
+
+def test_auto_config_skips_llm_when_rules_read_every_n(roots: Path) -> None:
+    calls: list[str] = []
+
+    def counting_llm(prompt: str) -> str:
+        calls.append(prompt)
+        return _stub_llm(prompt)
+
+    report = gz.run_generalization(
+        "legend", ["auto"], _cases(roots, split="holdout"), llm_factory=lambda: counting_llm
+    )
+    assert calls == []
+    assert report["results"]["auto"]["splits"]["holdout"]["recall"] == pytest.approx(1.0)
 
 
 def test_llm_configs_need_backend(roots: Path) -> None:
@@ -282,8 +405,6 @@ def test_rule_ledger_configs_exist() -> None:
 
 
 def test_holdout_prepare_writes_blind_templates(tmp_path: Path, monkeypatch) -> None:
-    import importlib.util
-
     import pymupdf
 
     if shutil.which("pdftotext") is None:
@@ -308,13 +429,7 @@ def test_holdout_prepare_writes_blind_templates(tmp_path: Path, monkeypatch) -> 
     page.insert_text((50, 560), "Figure 1. (A) Quantification. n=4 (A).")
     doc.save(inp / "paper.pdf")
 
-    spec = importlib.util.spec_from_file_location(
-        "prep", Path(__file__).resolve().parents[1] / "scripts" / "dev_holdout_prepare.py"
-    )
-    prep = importlib.util.module_from_spec(spec)
-    assert spec.loader is not None
-    spec.loader.exec_module(prep)
-    assert prep.main(["--case", "paper_99", "--new"]) == 0
+    assert _load_prepare().main(["--case", "paper_99", "--new"]) == 0
 
     case = gz.load_case(gold_root / "paper_99")
     assert case is not None and case.split == "holdout"
@@ -326,6 +441,115 @@ def test_holdout_prepare_writes_blind_templates(tmp_path: Path, monkeypatch) -> 
     assert labels_gold["figures"] == [{"figure": "Figure 1", "case": "", "panels": []}]
 
 
+def _load_prepare():
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location(
+        "prep", Path(__file__).resolve().parents[1] / "scripts" / "dev_holdout_prepare.py"
+    )
+    prep = importlib.util.module_from_spec(spec)
+    assert spec.loader is not None
+    sys.modules[spec.name] = prep  # dataclasses resolve their module through sys.modules
+    spec.loader.exec_module(prep)
+    return prep
+
+
+def _figure_page(doc, *, caption: str | None, image: bool) -> None:
+    import pymupdf
+
+    page = doc.new_page()
+    if image:
+        pix = pymupdf.Pixmap(pymupdf.csRGB, pymupdf.IRect(0, 0, 40, 40), False)
+        pix.clear_with(200)
+        page.insert_image(pymupdf.Rect(60, 80, 540, 600), pixmap=pix)
+        page.insert_text((50, 70), "A")
+    if caption:
+        page.insert_text((50, 700 if image else 100), caption)
+
+
+def test_figure_pages_follow_caption_to_preceding_artwork_page(tmp_path: Path) -> None:
+    import pymupdf
+
+    doc = pymupdf.open()
+    _figure_page(doc, caption=None, image=False)
+    _figure_page(doc, caption=None, image=True)  # figure 1 artwork only
+    _figure_page(doc, caption="Fig 1. Caption on the next page.", image=False)
+    _figure_page(doc, caption="Fig 2. Caption with its figure.", image=True)
+    pdf = tmp_path / "paper.pdf"
+    doc.save(pdf)
+
+    pages = _load_prepare()._figure_pages(pdf, {"1", "2"}, {})
+    assert {k: i for k, (i, _clip) in pages.items()} == {"1": 1, "2": 3}
+    clip = pages["2"][1]
+    assert clip.y0 < 70 and clip.y1 < 690  # panel letter above the image kept, caption left out
+
+
+def test_figure_page_pin_agreeing_with_detection_keeps_detected_crop(tmp_path: Path) -> None:
+    import pymupdf
+
+    doc = pymupdf.open()
+    _figure_page(doc, caption="Fig 1. Caption with its figure.", image=True)
+    _figure_page(doc, caption=None, image=True)
+    pdf = tmp_path / "paper.pdf"
+    doc.save(pdf)
+
+    prep = _load_prepare()
+    detected = prep._figure_pages(pdf, {"1"}, {})["1"]
+    assert prep._figure_pages(pdf, {"1"}, {"1": 1})["1"] == detected
+    moved = prep._figure_pages(pdf, {"1"}, {"1": 2})["1"]
+    assert moved[0] == 1
+
+
+def test_prepare_dev_slot_keeps_excerpt_and_legend_gold(tmp_path: Path, monkeypatch) -> None:
+    import pymupdf
+
+    gold_root = tmp_path / "gold"
+    monkeypatch.setattr(gz, "GOLD_ROOT", gold_root)
+    monkeypatch.setattr(gz, "INPUT_ROOT", tmp_path / "input")
+    _write(
+        gold_root / "dev_x" / "case_manifest.json",
+        {"case_id": "dev_x", "split": "dev", "figures_in_scope": ["1"]},
+    )
+    legend_gold = gold_root / "dev_x" / "panel_extract_gold.json"
+    _write(legend_gold, {"coverage": "hard_span", "items": [{"id": "kept"}]})
+    inp = tmp_path / "input" / "dev_x"
+    inp.mkdir(parents=True)
+    (inp / "legend_excerpt.txt").write_text("curated\n", encoding="utf-8")
+    doc = pymupdf.open()
+    _figure_page(doc, caption="Fig 1. Caption. n = 4 (A).", image=True)
+    _figure_page(doc, caption="Fig 2. Out of scope.", image=True)
+    doc.save(inp / "paper.pdf")
+
+    assert _load_prepare().main(["--case", "dev_x"]) == 0
+    case = gz.load_case(gold_root / "dev_x")
+    assert case is not None and case.split == "dev" and case.figures_in_scope == {"1"}
+    assert (inp / "legend_excerpt.txt").read_text(encoding="utf-8") == "curated\n"
+    assert json.loads(legend_gold.read_text())["items"] == [{"id": "kept"}]
+    labels = json.loads(case.gold_path("panel_ocr").read_text())
+    assert labels["figures"] == [{"figure": "Figure 1", "case": "", "panels": []}]
+    assert sorted(p.name for p in (inp / "figures").iterdir()) == ["Fig1.pdf"]
+
+
+def test_prepare_new_dev_slot_gets_hard_span_legend_template(tmp_path: Path, monkeypatch) -> None:
+    import pymupdf
+
+    gold_root = tmp_path / "gold"
+    shutil.copytree(gz.GOLD_ROOT / "_template", gold_root / "_template")
+    monkeypatch.setattr(gz, "GOLD_ROOT", gold_root)
+    monkeypatch.setattr(gz, "INPUT_ROOT", tmp_path / "input")
+    inp = tmp_path / "input" / "paper_98"
+    inp.mkdir(parents=True)
+    doc = pymupdf.open()
+    _figure_page(doc, caption="Figure 1 | Caption. n = 4 (A).", image=True)
+    doc.save(inp / "paper.pdf")
+
+    assert _load_prepare().main(["--case", "paper_98", "--new", "--split", "dev"]) == 0
+    case = gz.load_case(gold_root / "paper_98")
+    assert case is not None and case.split == "dev"
+    legend = json.loads(case.gold_path("legend").read_text())
+    assert legend["coverage"] == "hard_span" and legend["items"] == []
+
+
 def _real_holdout_cases() -> list[gz.Case]:
     try:
         return [c for c in gz.discover_cases(split="holdout") if c.load_gold("legend") or c.load_gold("panel_ocr")]
@@ -335,12 +559,18 @@ def _real_holdout_cases() -> list[gz.Case]:
 
 @pytest.mark.skipif(not _real_holdout_cases(), reason="no local holdout gold")
 def test_real_holdout_gold_is_confirmed_and_frozen_intact() -> None:
-    """Read-only: local holdout gold follows the policy and matches its freeze."""
+    """Read-only: frozen local holdout gold follows the policy and matches its freeze.
+
+    Unfrozen gold that is not confirmed yet is still being curated and is skipped.
+    """
     for case in _real_holdout_cases():
         for task in gz.TASKS:
-            if not case.gold_path(task).is_file():
+            gold = case.load_gold(task)
+            if gold is None:
+                continue
+            frozen = (case.manifest.get("frozen") or {}).get(gz._FROZEN_KEYS[task])
+            if not frozen and (gold.get("review") or {}).get("status") != "confirmed":
                 continue
             gz.check_holdout_gold(case, task)
-            frozen = (case.manifest.get("frozen") or {}).get(gz._FROZEN_KEYS[task])
             if frozen:
                 assert gz.sha256_file(case.gold_path(task)) == frozen, case.case_id

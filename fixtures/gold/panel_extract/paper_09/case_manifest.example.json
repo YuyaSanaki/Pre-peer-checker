@@ -1,0 +1,29 @@
+{
+  "schema_version": "1.1",
+  "case_id": "paper_09",
+  "role": "panel_extract_thin_case",
+  "description": "Thin extract-only case: legend source under input/panel_extract/<case_id>/. No experimental data required.",
+  "split": "dev",
+  "style_tags": {
+    "panel_case": "upper",
+    "n_style": "n=",
+    "source": "published_pdf"
+  },
+  "figures_in_scope": [
+    "1",
+    "2",
+    "3"
+  ],
+  "figure_pages": {},
+  "frozen": null,
+  "burned_at": null,
+  "gold_revisions": [],
+  "inputs": [
+    {
+      "path": "input/panel_extract/paper_09/",
+      "note": "Place published PDF and/or manuscript docx and optional legend_excerpt.txt here (gitignored)."
+    }
+  ],
+  "panel_extract_gold": "fixtures/gold/panel_extract/paper_09/panel_extract_gold.json",
+  "panel_labels_gold": "fixtures/gold/panel_extract/paper_09/panel_labels_gold.json"
+}

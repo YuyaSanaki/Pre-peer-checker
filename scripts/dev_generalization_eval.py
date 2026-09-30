@@ -47,7 +47,7 @@ def main(argv: list[str] | None = None) -> int:
         "--configs",
         default="default",
         help="Comma list or keywords default / ablation / all "
-        "(legend: rules_only, llm_minimal, prompt_minimal, current, current-minus-<guard>; "
+        "(legend: rules_only, llm_minimal, prompt_minimal, current, auto, current-minus-<guard>; "
         f"panel_ocr: {', '.join(gz.OCR_CONFIGS)})",
     )
     ap.add_argument("--prefer", default="auto", help="LLM backend: auto | mlx | cuda")
@@ -61,6 +61,12 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--rebaseline", action="store_true", help="Accept this run as the new baseline")
     ap.add_argument("--update-ledger", action="store_true", help="Write holdout contributions to rule_ledger.json")
     ap.add_argument("--bootstrap", type=int, default=1000)
+    ap.add_argument(
+        "--legend-source",
+        choices=gz.LEGEND_SOURCES,
+        default="product",
+        help="product: locate legends like a verification run (default); raw: eval-only pdftotext -raw splitter",
+    )
     ap.add_argument("-o", "--output", type=Path, default=None)
     args = ap.parse_args(argv)
 
@@ -91,6 +97,7 @@ def main(argv: list[str] | None = None) -> int:
             reveal=args.reveal,
             revise_reason=args.revise_gold,
             bootstrap_iters=args.bootstrap,
+            legend_source=args.legend_source,
         )
     except (gz.GoldPolicyError, gz.GoldFrozenError, RuntimeError, ValueError) as exc:
         print(f"error: {exc}", file=sys.stderr)

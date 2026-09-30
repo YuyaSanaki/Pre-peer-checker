@@ -31,8 +31,12 @@ _HEADING_RE = re.compile(
     re.IGNORECASE,
 )
 _REF_HEAD_RE = re.compile(r"^(?:references?|bibliography|references\s+and\s+notes)\s*$", re.I)
+# ``Figure 1.`` / ``FIGURE 1:`` / ``Fig. 1 |`` / ``Figure 1 Title`` (title starts upper-case).
+# ``Figure 1—figure supplement 1`` (eLife sub-item) and ``Figure 2 shows`` stay body text.
 _LEGEND_HEAD_RE = re.compile(
-    r"^(?:Figure|Fig\.?|Supplementary\s+Figure|Extended\s+Data\s+Fig(?:ure|\.)?)\s*S?\d+\s*[.:|]"
+    r"^(?:Figure|Fig\.?|Supplementa(?:ry|l)\s+Fig(?:ure|\.)?|Extended\s+Data\s+Fig(?:ure|\.)?|"
+    r"Appendix\s+Fig(?:ure|\.)?)\s*S?\d+(?:\s*[.:|]|\s+(?-i:[A-Z]))",
+    re.IGNORECASE,
 )
 _PANEL_OPEN_RE = re.compile(r"^\([A-Z]\d?(?:\s*(?:[-–,]|and)\s*[A-Z]\d?)*\)")
 _BRACKET_CITE_RE = re.compile(r"\[\d{1,3}(?:\s*[,–\-]\s*\d{1,3})*\]")
@@ -375,11 +379,84 @@ def pdf_text(path: Path | str) -> PdfText:
     return _pdf_text_cached(str(p.resolve()), st.st_mtime, st.st_size)
 
 
+_W = "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}"
+_MC_FALLBACK = "{http://schemas.openxmlformats.org/markup-compatibility/2006}Fallback"
+# Deleted / moved-away revisions, property blocks (tab stops), and text boxes (read separately).
+_W_SKIP = {f"{_W}{t}" for t in ("del", "moveFrom", "pPr", "rPr", "txbxContent")} | {_MC_FALLBACK}
+
+
+def _w_text(el, out: list[str]) -> None:
+    """Visible text of a run container, including field results and tracked insertions.
+
+    python-docx ``Paragraph.text`` drops runs inside ``w:fldSimple`` (Word's
+    Insert Caption numbering: ``Figure 1``), ``w:ins``, ``w:sdt`` and ``w:smartTag``.
+    """
+    for ch in el:
+        tag = ch.tag
+        if tag in _W_SKIP:
+            continue
+        if tag == f"{_W}t":
+            out.append(ch.text or "")
+        elif tag == f"{_W}tab":
+            out.append("\t")
+        elif tag in (f"{_W}br", f"{_W}cr"):
+            out.append("\n")
+        elif tag == f"{_W}noBreakHyphen":
+            out.append("-")
+        else:
+            _w_text(ch, out)
+
+
+def _w_textboxes(el, out: list) -> None:
+    for ch in el:
+        if ch.tag == _MC_FALLBACK:
+            continue
+        if ch.tag == f"{_W}txbxContent":
+            out.append(ch)
+        else:
+            _w_textboxes(ch, out)
+
+
+def _w_blocks(container, out: list[str]) -> None:
+    """Paragraphs in reading order: body, table cells, content controls, text boxes."""
+    for ch in container:
+        tag = ch.tag
+        if tag == f"{_W}p":
+            parts: list[str] = []
+            _w_text(ch, parts)
+            text = "".join(parts).strip()
+            if text:
+                out.append(text)
+            boxes: list = []
+            _w_textboxes(ch, boxes)
+            for box in boxes:
+                _w_blocks(box, out)
+        elif tag == f"{_W}tbl":
+            for tr in _w_children(ch, "tr"):
+                for tc in _w_children(tr, "tc"):
+                    _w_blocks(tc, out)
+        elif tag in _W_WRAPPERS:
+            _w_blocks(ch, out)
+
+
+_W_WRAPPERS = {f"{_W}{t}" for t in ("sdt", "sdtContent", "customXml", "ins")}
+
+
+def _w_children(el, name: str):
+    """Direct ``w:<name>`` children, looking through content-control wrappers."""
+    for ch in el:
+        if ch.tag == f"{_W}{name}":
+            yield ch
+        elif ch.tag in _W_WRAPPERS:
+            yield from _w_children(ch, name)
+
+
 def docx_paragraphs(path: Path | str) -> list[str]:
     from docx import Document
 
-    doc = Document(str(path))
-    return [p.text.strip() for p in doc.paragraphs if p.text and p.text.strip()]
+    out: list[str] = []
+    _w_blocks(Document(str(path)).element.body, out)
+    return out
 
 
 def manuscript_paragraphs(path: Path | str) -> list[str]:

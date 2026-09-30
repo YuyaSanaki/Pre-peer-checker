@@ -1,0 +1,38 @@
+{
+  "schema_version": "1.0",
+  "case_id": "paper_09",
+  "role": "legend_panel_extract_gold",
+  "description": "32B (or other teacher) raw extraction draft — human must confirm into panel_extract_gold.json.",
+  "notes": [
+    "Not for eval. Copy to panel_extract_draft.json (gitignored).",
+    "Keep model_raw when fixing so diffs are reviewable.",
+    "After human pass, promote confirmed items to panel_extract_gold.json."
+  ],
+  "source": {
+    "kind": "published_pdf",
+    "local_path": "input/panel_extract/paper_09/",
+    "has_experimental_data": false
+  },
+  "review": {
+    "status": "draft",
+    "teacher_model": "qwen2.5-32b-hf",
+    "reviewed_by": "",
+    "reviewed_at": "",
+    "target_hard_spans": "10-20"
+  },
+  "items": [
+    {
+      "id": "PE-F1-A",
+      "figure": "Figure 1",
+      "panel": "A",
+      "group": "",
+      "n": null,
+      "difficulty": "other",
+      "review_status": "pending",
+      "n_scope": "unknown",
+      "evidence_span": "",
+      "model_raw": "{\"panel\":\"A\",\"group\":\"\",\"n\":null}",
+      "human_note": "Fill from teacher model output."
+    }
+  ]
+}

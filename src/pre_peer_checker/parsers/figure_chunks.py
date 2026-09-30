@@ -3,12 +3,15 @@
 from __future__ import annotations
 
 import re
+from collections.abc import Iterable
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
 from pre_peer_checker.parsers.legend_struct import (
     StructuredLegend,
     extract_structured_legends_from_paragraphs,
+    legend_figure_name,
+    match_legend_head,
 )
 from pre_peer_checker.parsers.manuscript_text import manuscript_paragraphs
 
@@ -27,16 +30,13 @@ _SECTION_RE = re.compile(
 )
 
 _FIG_MENTION_RE = re.compile(
-    r"(?:(?:Extended\s+Data\s+)?Figs?\.?|(?:Extended\s+Data\s+)?Figures?|Supplementary\s+Figures?)\s*"
+    r"(?:(?:Supplementa(?:ry|l)|Appendix)\s+Fig(?:ure)?s?\.?|"
+    r"(?:Extended\s+Data\s+)?Figs?\.?|(?:Extended\s+Data\s+)?Figures?)\s*"
     r"(S?\d+)(?:\s*[–\-]\s*(S?\d+))?(?:\s*[,/]\s*(S?\d+))*"
     r"(?:\s*[A-Za-z]\d*[’']?)?",
     re.IGNORECASE,
 )
 
-_LEGEND_HEAD_RE = re.compile(
-    r"^(Extended\s+Data\s+Fig(?:ure|\.)?|Figure|Fig\.?|Supplementary Figure|Table)\s*(S?\d+)",
-    re.IGNORECASE,
-)
 _ED_KEY_RE = re.compile(r"extended[\s_-]*data\D{0,12}?(\d+)|(?<![A-Za-z])ED[\s_-]?(\d+)", re.I)
 
 
@@ -93,18 +93,28 @@ def normalize_figure_id(kind: str, num: str) -> str:
 
 
 def figure_num_key(figure_id: str) -> str:
-    """'1' / 'S2' / 'ED3' (Extended Data keeps its own numbering)."""
+    """'1' / 'S2' / 'ED3' / 'T1' (Extended Data, supplementary and tables keep their own numbering)."""
     m = _ED_KEY_RE.search(figure_id or "")
     if m:
         return f"ED{m.group(1) or m.group(2)}"
     m = re.search(r"(S?\d+)", figure_id, re.I)
-    return m.group(1).upper() if m else figure_id.upper()
+    if not m:
+        return figure_id.upper()
+    key = m.group(1).upper()
+    head = figure_id[: m.start()].strip().lower()
+    if head.startswith("table"):
+        return f"T{key}"
+    if head.startswith(("supplement", "appendix")) and not key.startswith("S"):
+        return f"S{key}"
+    return key
 
 
 def figure_label(key: str) -> str:
     """Display name for a figure key: 'ED3' → 'Extended Data Figure 3', '2' → 'Figure 2'."""
     if key.upper().startswith("ED"):
         return f"Extended Data Figure {key[2:]}"
+    if key.upper().startswith("T"):
+        return f"Table {key[1:]}"
     return f"Figure {key}"
 
 
@@ -155,6 +165,8 @@ def _expand_fig_nums(match: re.Match[str]) -> set[str]:
         nums.add(m.group(1).upper())
     if match.group(0).lower().startswith("extended"):
         return {f"ED{n}" for n in nums if not n.startswith("S")}
+    if match.group(0).lower().startswith(("supplement", "appendix")):
+        return {n if n.startswith("S") else f"S{n}" for n in nums}
     return nums
 
 
@@ -170,7 +182,7 @@ def _tag_paragraphs(paragraphs: list[str]) -> list[tuple[str, str]]:
     section = "body"
     tagged: list[tuple[str, str]] = []
     for p in paragraphs:
-        if _LEGEND_HEAD_RE.match(p):
+        if match_legend_head(p):
             tagged.append(("legend_block", p))
             continue
         sec = _classify_section(p)
@@ -220,15 +232,15 @@ def build_figure_chunks_from_paragraphs(
             if sec != "legend_block":
                 i += 1
                 continue
-            m = _LEGEND_HEAD_RE.match(text)
+            m = match_legend_head(text)
             if not m:
                 i += 1
                 continue
-            fig_id = normalize_figure_id(m.group(1), m.group(2))
+            fig_id = legend_figure_name(m.group(1), m.group(2))
             parts = [text]
             j = i + 1
             while j < len(tagged) and tagged[j][0] != "legend_block":
-                if _LEGEND_HEAD_RE.match(tagged[j][1]):
+                if match_legend_head(tagged[j][1]):
                     break
                 if tagged[j][0] in {"legends", "legend_block", "body"} or j == i + 1:
                     parts.append(tagged[j][1])
@@ -248,7 +260,7 @@ def build_figure_chunks_from_paragraphs(
             t
             for s, t in tagged
             if s in {"body", "introduction", "discussion", "abstract"}
-            and not _LEGEND_HEAD_RE.match(t)
+            and not match_legend_head(t)
         ]
 
     shared_methods = _shared_methods_paras(methods_paras)
@@ -267,14 +279,10 @@ def build_figure_chunks_from_paragraphs(
         if len(paras) >= 2:
             fig_nums.add(num)
 
-    def _fig_sort_key(num: str) -> tuple:
-        digits = re.sub(r"\D", "", num) or "0"
-        return (num.startswith("ED"), num.startswith("S"), int(digits), num)
-
     chunks: list[FigureChunk] = []
     for num in sorted(fig_nums, key=_fig_sort_key):
         leg = legend_by_num.get(num)
-        figure_id = leg.figure if leg else f"Figure {num}"
+        figure_id = leg.figure if leg else figure_label(num)
         methods = list(methods_mention.get(num, []))
         includes_shared = False
         if shared_methods:
@@ -296,6 +304,57 @@ def build_figure_chunks_from_paragraphs(
             )
         )
     return chunks
+
+
+def _fig_sort_key(num: str) -> tuple:
+    digits = re.sub(r"\D", "", num) or "0"
+    return (num.startswith("T"), num.startswith("ED"), num.startswith("S"), int(digits), num)
+
+
+def _series(key: str) -> str:
+    return re.sub(r"\d+$", "", key)
+
+
+def legend_coverage(
+    paragraphs: list[str],
+    legends: list[StructuredLegend],
+    figure_file_keys: Iterable[str] = (),
+) -> dict:
+    """Figures the manuscript refers to vs figures whose legend was found.
+
+    Expected figures come from body-text mentions (``Fig. 3``) and the supplied
+    figure files. Mentions past the known figures (``Fig. 9`` of a cited paper)
+    count only while the numbering stays contiguous from 1. Extended Data and
+    supplementary series are expected only when their legends or files are here,
+    since those legends often live in a separate document.
+    """
+    found = {figure_num_key(leg.figure) for leg in legends if (leg.text or "").strip()}
+    found = {k for k in found if not k.startswith("T")}
+    files = {k for k in figure_file_keys if k and k != "*"}
+    mentioned: set[str] = set()
+    for sec, text in _tag_paragraphs(paragraphs):
+        if sec in {"legend_block", "legends"}:
+            continue
+        mentioned |= figure_nums_in_text(text)
+
+    expected: set[str] = set()
+    for series in ("", "S", "ED"):
+        known = {k for k in found | files if _series(k) == series}
+        if series and not known:
+            continue
+        said = {k for k in mentioned if _series(k) == series}
+        nums = {int(k[len(series) :]) for k in said | known if k[len(series) :].isdigit()}
+        run = 0
+        while run + 1 in nums:
+            run += 1
+        limit = max([run, *(int(k[len(series) :]) for k in known)])
+        expected |= {k for k in said | known if int(k[len(series) :]) <= limit}
+    missing = expected - found
+    return {
+        "expected": sorted(expected, key=_fig_sort_key),
+        "found": sorted(found, key=_fig_sort_key),
+        "missing": sorted(missing, key=_fig_sort_key),
+    }
 
 
 def build_figure_chunks_from_docx(path: Path | str) -> list[FigureChunk]:

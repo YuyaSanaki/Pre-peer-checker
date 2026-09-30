@@ -65,11 +65,18 @@
 
 ### 判断ルール（キュレーションで確定したもの）
 
-- **代表画像でも legend が n を明示していれば付ける**（`(B) Representative images … (n = 5)` や `b,c … N = …` の共有表記は両パネルに展開）。模式図に付いた n は誤記として扱い、意図したパネルに移す。
-- ブロット単独のパネルは、legend がそのパネル自身の n を書いていてレーン数と合うなら付ける。n が隣の定量パネルを指しているなら付けない。
+- **gold は legend に書かれたとおり**に取る。図を見て値やパネルを直さない（ツールが読めるのは legend だけなので、読めない正解は作らない）。
+- **代表画像でも legend が n を明示していれば付ける**（`(B) Representative images … (n = 5)` や `b,c … N = …` の共有表記は両パネルに展開）。
+- **模式図に付いた n も legend が付けたパネルに置く**（隣の定量パネルへ移さない）。
+- ブロット単独のパネルも、legend がそのパネル自身の n として書いていれば付ける。
 - 画像と定量が同じパネル内にある（例: ゲル＋右側の統計）場合は、**統計の n** を採る。
-- legend の n が明らかに別パネルのもの（例: 模式図やブロットに付いているが、本来は隣の定量パネル）なら、意図したパネルに移し `legend_typo` に記録する。
-- 図の点の数と legend の n が食い違い、図側が正しいと判断したら、図側の値を採り `legend_typo` に記録する。
+- 図の点の数と legend の n が食い違っても **legend の値**を採り、`human_note` に食い違いを書く。
+- **語で書かれた数**（`three independent experiments` / `three mice for each genotype`）も、そのパネルの標本数なら n として採る。
+- **`X cells from Y mice` は X だけ**を採る（Y は item にしない）。
+- 範囲表記（`n = 28–32`）は範囲のまま採る: `"n": null, "n_range": [28, 32]`。採点は予測が同じ範囲を出したときだけ一致（端の 1 値だけでは不一致）。ただし **`respectively` 付きの範囲は群別に分割**する（`n = 119–134 …, respectively` → 1 群目 119、2 群目 134）。
+- legend の n が 1 つで複数群に共通なら、**group 空の 1 行**（`n_scope: per_group`）。legend が群ごとに書いていれば群別の行。
+- `Each treatment consisted of 50 flies … repeated three times` のように個体数と反復回数が併記されたら、**個体数（50）だけ**を採る。
+- 見出し `(C–E)` の範囲内に置かれた独立文の n（`Data are representative of two independent experiments.`）は、**範囲の全パネル**に付ける。パネル節の直後に付いた `(K) (n = 5)` はそのパネルだけ。
 
 キャプションは **`pdftotext -raw`（段の順）** で切る。layout 抽出の左右混線は使わない。
 
@@ -94,7 +101,7 @@
 
 ## holdout（汎化評価）
 
-dev（paper_01 / paper_02 / private_benchmark）はルール作りに使った論文なので、そこでの満点は汎化を示さない。**未見論文 = holdout** を別に持ち、変更の採否をそこで確かめる。
+dev（paper_01 / paper_02 / paper_09 / private_benchmark）はルール作りに使った論文なので、そこでの満点は汎化を示さない。**未見論文 = holdout** を別に持ち、変更の採否をそこで確かめる。
 
 | | dev | holdout |
 |--|-----|---------|
@@ -116,12 +123,17 @@ dev（paper_01 / paper_02 / private_benchmark）はルール作りに使った�
 5. **パネル文字 gold**（`panel_labels_gold.json`）: `review/FigN.png` を見て、図に**印字されている**パネル文字を列挙（legend の記述ではなく図面）。
 6. 両方の `review.status` を `confirmed` にする。
 7. `python scripts/dev_generalization_eval.py --task legend` / `--task panel_ocr`。初回の採点で gold の sha256 が manifest の `frozen` に記録される。
+   - Legend は既定で**製品と同じ経路**（原稿段落 → Legend 見出し）で凡例を探す（`--legend-source product`）。凡例が見つからない Figure の n は全部取りこぼしになり、`legends=見つかった数/対象数` にも出る。`--legend-source raw`（評価専用の `pdftotext -raw` 切り出し）と比べると、「探す」と「読む」のどちらで落ちたかを分けられる。
+   - `auto` 設定は製品の既定（規則で読めなかった n がある Figure だけ LLM）。
+   - Extended Data の item は `"figure": "Extended Data Figure 3"`、補足図は `"Supplementary Figure S2"` と書く（採点は Figure 名の完全一致）。
+   - `coverage: exhaustive` の precision は `figures_in_scope` の全 Figure で数える（legend に n が無い Figure で出した n も余分行）。`dropped` / 未確認の item に当たる予測は正誤どちらにも数えない（`n: null` の dropped はそのパネルの任意の n）。
    - 凍結後に gold を直すと停止する。ツール出力と無関係な訂正（読み違い・typo）に限り `--revise-gold "理由"` で通す（`gold_revisions` に残る）。
 8. holdout の個別の誤りを見たいときは `--reveal paper_NN`。表示と同時にそのケースは dev へ移る。
 
 ### 変更を入れるとき
 
-- dev の失敗だけを見て直す → `--configs current --gate`。dev が悪化せず、holdout の recall 低下が許容幅（1 件または 2 ポイント）以内、precision 非悪化なら PASS で基準を更新（`outputs/generalization/history.jsonl`）。
+- dev の失敗だけを見て直す → `--configs current --gate`。dev が悪化せず、holdout の recall 低下が許容幅（1 件または 2 ポイント）以内、precision と凡例の検出数が非悪化なら PASS で基準を更新（`outputs/generalization/history.jsonl`）。
+- 特定の論文で失敗した改修（その論文は dev）は、holdout の検出数と recall が落ちないことで「その論文専用ではない」ことを確かめる。
 - ガード・プロンプト規則の効き目は `--configs all --update-ledger` で [`../rule_ledger.json`](../rule_ledger.json) に書く。`suggestion` が `remove` / `narrow` の規則は dev で条件を絞るか外す。`decision` 欄は人が決める。
 
 ## ケース先頭の `review` オブジェクト

@@ -89,6 +89,34 @@ def build_run_coverage(
             "docx なし（本文を読める原稿 PDF もなし）",
         )
 
+    legend_cov = [c for c in artifacts.get("legend_coverage") or [] if isinstance(c, dict)]
+    legend_missing_msg = ""
+    if legend_cov:
+        from pre_peer_checker.parsers.figure_chunks import figure_label
+
+        best = max(legend_cov, key=lambda c: len(c.get("found") or []))
+        n_expected = len(best.get("expected") or [])
+        n_found = len(set(best.get("found") or []) & set(best.get("expected") or []))
+        missing = list(best.get("missing") or [])
+        if missing:
+            names = ", ".join(figure_label(k) for k in missing[:8])
+            more = f" ほか{len(missing) - 8}件" if len(missing) > 8 else ""
+            detail = (
+                f"本文・図ファイルから想定した {n_expected} Figure のうち {n_found} 件で Legend を検出。"
+                f"見つからない: {names}{more}"
+                "（Legend 見出しの書式を読めなかったか、Legend が原稿に無い可能性。"
+                "この Figure の n 照合は行われていません）"
+            )
+            add("legend_found", "Legend の検出状況", "skipped" if not n_found else "ran", detail)
+            legend_missing_msg = detail
+        elif n_expected:
+            add(
+                "legend_found",
+                "Legend の検出状況",
+                "ran",
+                f"本文・図ファイルから想定した {n_expected} Figure すべてで Legend を検出",
+            )
+
     if n_tables:
         detail = f"表ファイル {n_tables} 件 · 群ベクトル {len(group_vectors)} 件"
         if table_errors:
@@ -408,6 +436,8 @@ def build_run_coverage(
         "docx_used_for_legend": docx_used,
         "extracted_zips": list(extracted),
         "legend_llm_status": llm_status if isinstance(llm_status, dict) else None,
+        "legend_coverage": legend_cov,
+        "legend_missing": legend_missing_msg or None,
         "n_matrix": n_matrix if isinstance(n_matrix, list) else [],
         "figure_chunks": artifacts.get("figure_chunks") or [],
         "figure_preview_sources": list(preview_sources) if isinstance(preview_sources, list) else [],

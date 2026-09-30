@@ -39,6 +39,33 @@ def test_comma_openers_and_postfix_n_with_units() -> None:
     assert {("D", "", 12), ("E", "", 12), ("F", "", 12)} <= rows
 
 
+def test_bare_and_labelled_n_bind_to_their_sentence_panels() -> None:
+    text = (
+        "(A,B) Images of a control disc (A) and a treated disc (B). "
+        "(C) Quantification of area. Control, n=8; treated, n=21. "
+        "(D) Quantification of intensity. n=13. **P<0.01. "
+        "(E) Length of WT (n = 67 cells from 14 mice; grey) and KO (n = 68 cells from 9 mice) axons. "
+        "(F) Width and (G) depth of WT (n = 26 cells from 7 mice) and KO (n = 24 cells from 4 mice). "
+        "(H) Schematic of the assay. Circularity (I) and solidity (J) of WT (n = 76 images) and "
+        "KO (n = 79 images) nuclei. "
+        "(K) Counts in the areas positive in (A) or (B) of WT (n = 7) and KO (n = 9). "
+        "(L) Tubule length (P = 0.02, n = 28–32 cells)."
+    )
+    rows = {(r.panel, r.group, r.n) for r in parse_panel_ns("Figure 1", text)}
+    assert {("C", "Control", 8), ("C", "treated", 21), ("D", "", 13)} <= rows
+    assert {("E", "WT", 67), ("E", "KO", 68)} <= rows
+    assert {(p, g, n) for p in "FG" for g, n in (("WT", 26), ("KO", 24))} <= rows
+    assert {(p, g, n) for p in "IJ" for g, n in (("WT", 76), ("KO", 79))} <= rows
+    assert {("K", "WT", 7), ("K", "KO", 9)} <= rows
+    assert not {r for r in rows if r[0] in "ABHL"}
+
+
+def test_n_with_its_own_panel_list_is_not_spread_to_the_section() -> None:
+    text = "(H–J) Morphology (H) (n = 6), intensity (I) (n = 3), and protein levels (J)."
+    rows = {(r.panel, r.n) for r in parse_panel_ns("Figure 2", text)}
+    assert rows == {("H", 6), ("I", 3)}
+
+
 def test_extended_data_keys() -> None:
     assert figure_num_key("Extended Data Fig. 3") == "ED3"
     assert figure_num_key("Extended Data Figure 10") == "ED10"

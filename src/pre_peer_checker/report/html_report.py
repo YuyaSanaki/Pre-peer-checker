@@ -457,6 +457,11 @@ _REPORT_TEMPLATE = Template(
       <strong>Legend LLM:</strong> {{ coverage.legend_llm_status.message }}
     </div>
     {% endif %}
+    {% if coverage.legend_missing %}
+    <div class="llm-box warn">
+      <strong>Legend 未検出:</strong> {{ coverage.legend_missing }}
+    </div>
+    {% endif %}
     {% if coverage.file_counts %}
     <p><strong>読込ファイル:</strong>
       {% for k, v in coverage.file_counts.items() %}{{ k }}={{ v }}{% if not loop.last %}, {% endif %}{% endfor %}

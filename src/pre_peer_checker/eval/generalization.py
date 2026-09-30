@@ -97,7 +97,9 @@ class Case:
         return {str(f).upper() for f in figs} if figs else None
 
     def gold_path(self, task: str) -> Path:
-        return self.gold_dir / _GOLD_FILES[task]
+        """``gold_paths[task]`` (relative to the slot) lets a slot reuse gold kept elsewhere."""
+        rel = (self.manifest.get("gold_paths") or {}).get(task)
+        return (self.gold_dir / rel).resolve() if rel else self.gold_dir / _GOLD_FILES[task]
 
     def load_gold(self, task: str) -> dict[str, Any] | None:
         p = self.gold_path(task)
@@ -263,9 +265,11 @@ class LegendConfig:
     use_llm: bool
     prompt: str = "full"
     guards: frozenset[str] = ALL_GUARDS
+    only_if_unread: bool = False
 
 
-LEGEND_BASE_CONFIGS = ("rules_only", "llm_minimal", "prompt_minimal", "current")
+# ``auto`` is the product default: the LLM reads only figures whose stated n the rules missed.
+LEGEND_BASE_CONFIGS = ("rules_only", "llm_minimal", "prompt_minimal", "current", "auto")
 _MINUS = "current-minus-"
 
 
@@ -282,6 +286,8 @@ def legend_config(name: str) -> LegendConfig:
         return LegendConfig(name, use_llm=True, prompt="minimal")
     if name == "current":
         return LegendConfig(name, use_llm=True)
+    if name == "auto":
+        return LegendConfig(name, use_llm=True, only_if_unread=True)
     if name.startswith(_MINUS):
         g = name[len(_MINUS):]
         if g not in ALL_GUARDS:
@@ -290,33 +296,46 @@ def legend_config(name: str) -> LegendConfig:
     raise ValueError(f"unknown legend config {name!r}")
 
 
-def legend_captions(case: Case) -> list[tuple[str, str]]:
-    """(``Figure N``, caption text) for figures in scope."""
+LEGEND_SOURCES = ("product", "raw")
+
+
+def legend_captions(case: Case, source: str = "product") -> list[tuple[str, str]]:
+    """(figure label, caption text) for figures in scope.
+
+    ``product`` locates legends the way a verification run does (manuscript paragraphs ->
+    legend heads), so a paper whose legends the product cannot find scores zero. ``raw``
+    is the eval-only ``pdftotext -raw`` splitter, kept to separate locating from reading.
+    """
+    from pre_peer_checker.parsers.figure_chunks import figure_label
     from pre_peer_checker.parsers.legend_struct import (
         extract_figure_captions_from_pdf,
         extract_figure_captions_from_pdf_text,
         extract_structured_legends,
     )
 
+    if source not in LEGEND_SOURCES:
+        raise ValueError(f"unknown legend source {source!r}; known: {LEGEND_SOURCES}")
     scope = case.figures_in_scope
     src = case.legend_source()
     if src is None:
         return []
     kind, path = src
-    if kind == "pdf":
-        pairs = extract_figure_captions_from_pdf(path, keep=scope)
-    elif kind == "excerpt":
+    if kind == "excerpt":
         pairs = extract_figure_captions_from_pdf_text(
             path.read_text(encoding="utf-8", errors="replace"), keep=scope
         )
+    elif kind == "pdf" and source == "raw":
+        pairs = extract_figure_captions_from_pdf(path, keep=scope)
     else:
-        pairs = [(leg.figure, leg.text) for leg in extract_structured_legends(path)]
+        pairs = [(leg.figure, leg.text) for leg in extract_structured_legends(path) if leg.text.strip()]
     out: list[tuple[str, str]] = []
+    seen: set[str] = set()
     for fig, text in pairs:
         key = figure_key(fig)
-        if scope and key not in scope:
+        if (scope and key not in scope) or key in seen:
             continue
-        out.append((f"Figure {key}", text))
+        seen.add(key)
+        out.append((figure_label(key), text))
     return out
 
 
@@ -324,13 +343,16 @@ def legend_predictions(
     case: Case,
     cfg: LegendConfig,
     llm_generate: Callable[[str], str] | None = None,
+    *,
+    captions: list[tuple[str, str]] | None = None,
+    source: str = "product",
 ) -> list[dict[str, Any]]:
     from pre_peer_checker.llm.legend_extract import extract_check_items_from_chunk
     from pre_peer_checker.parsers.figure_chunks import FigureChunk
     from pre_peer_checker.parsers.legend_struct import parse_panel_ns
 
     rows: list[dict[str, Any]] = []
-    for fig, text in legend_captions(case):
+    for fig, text in captions if captions is not None else legend_captions(case, source):
         if not cfg.use_llm:
             for pn in parse_panel_ns(fig, text):
                 rows.append(_legend_row(fig, pn.panel, pn.group or "", pn.n))
@@ -345,6 +367,7 @@ def legend_predictions(
             legend_only_prompt=True,
             guards=cfg.guards,
             prompt_variant=cfg.prompt,
+            only_if_unread=cfg.only_if_unread,
         )
         for p in item.panels:
             if p.n is None:
@@ -357,13 +380,29 @@ def _legend_row(fig: str, panel: str, group: str, n: Any) -> dict[str, Any]:
     return {"figure": fig, "panel": str(panel).upper(), "group": str(group or ""), "n": int(n)}
 
 
+def legend_location(case: Case, captions: list[tuple[str, str]]) -> dict[str, Any]:
+    """Figures in scope whose legend was located (``figures_in_scope`` unset: gold figures)."""
+    expected = case.figures_in_scope
+    if expected is None:
+        gold = case.load_gold("legend") or {}
+        expected = {figure_key(str(it.get("figure") or "")) for it in gold.get("items") or []}
+    found = {figure_key(fig) for fig, text in captions if text.strip()}
+    return {"figures_expected": len(expected), "figures_found": len(expected & found)}
+
+
 def score_legend_case(case: Case, preds: list[dict[str, Any]]) -> dict[str, Any]:
+    from pre_peer_checker.parsers.figure_chunks import figure_label
+
     gold = case.load_gold("legend") or {}
-    items = [
-        it for it in (gold.get("items") or []) if it.get("review_status", "confirmed") == "confirmed"
-    ]
-    sc = score_one({**gold, "items": items}, preds)
-    sc["exhaustive"] = gold.get("coverage") == "exhaustive"
+    items, neutral = [], []
+    for it in gold.get("items") or []:
+        (items if it.get("review_status", "confirmed") == "confirmed" else neutral).append(it)
+    exhaustive = gold.get("coverage") == "exhaustive"
+    scope = case.figures_in_scope
+    # exhaustive gold: a figure with no n in its legend still counts every predicted n as wrong
+    figures = {figure_label(k) for k in scope} if exhaustive and scope else None
+    sc = score_one({**gold, "items": items}, preds, figures=figures, neutral=neutral)
+    sc["exhaustive"] = exhaustive
     if not sc["exhaustive"]:
         # hard-span gold omits easy n, so unmatched predictions are not errors.
         sc["precision"] = None
@@ -568,6 +607,10 @@ def _aggregate(scores: list[dict[str, Any]]) -> dict[str, Any]:
     }
     if any("forbid_panel_fp" in s for s in scores):
         out["forbid_panel_fp"] = sum(int(s.get("forbid_panel_fp") or 0) for s in scores)
+    if any("figures_expected" in s for s in scores):
+        exp = sum(int(s.get("figures_expected") or 0) for s in scores)
+        got = sum(int(s.get("figures_found") or 0) for s in scores)
+        out.update(figures_expected=exp, figures_found=got, legend_found_rate=(got / exp) if exp else None)
     return out
 
 
@@ -598,6 +641,8 @@ _REDACT_KEEP = (
     "exhaustive",
     "forbid_panel_fp",
     "n_extra",
+    "figures_expected",
+    "figures_found",
 )
 
 
@@ -693,6 +738,7 @@ def run_generalization(
     revise_reason: str | None = None,
     bootstrap_iters: int = 1000,
     seed: int = 0,
+    legend_source: str = "product",
 ) -> dict[str, Any]:
     if task not in TASKS:
         raise ValueError(f"unknown task {task!r}")
@@ -711,13 +757,17 @@ def run_generalization(
                 "LLM configs requested but no MLX/transformers backend; use --configs rules_only"
             )
 
+    captions = (
+        {c.case_id: legend_captions(c, legend_source) for c in cases} if task == "legend" else {}
+    )
     per_config: dict[str, dict[str, dict[str, Any]]] = {}
     for name in configs:
         per_case: dict[str, dict[str, Any]] = {}
         for c in cases:
             if task == "legend":
-                preds = legend_predictions(c, legend_config(name), gen)
-                per_case[c.case_id] = score_legend_case(c, preds)
+                caps = captions[c.case_id]
+                preds = legend_predictions(c, legend_config(name), gen, captions=caps)
+                per_case[c.case_id] = {**score_legend_case(c, preds), **legend_location(c, caps)}
             else:
                 per_case[c.case_id] = score_ocr_case(c, ocr_predictions(c, name, collect_fn))
         per_config[name] = per_case
@@ -732,6 +782,8 @@ def run_generalization(
         bootstrap_iters=bootstrap_iters,
         seed=seed,
     )
+    if task == "legend":
+        report["legend_source"] = legend_source
     for rid in sorted(reveal_set):
         burn_case(by_id[rid], f"errors revealed in {task} eval {report['created_at']}")
     return report
@@ -746,10 +798,15 @@ def format_report(report: dict[str, Any]) -> str:
         for s, agg in res["splits"].items():
             ci = agg.get("recall_ci95")
             ci_s = f" ci95=[{ci[0]:.3f},{ci[1]:.3f}]" if ci else ""
+            found_s = (
+                f" legends={agg['figures_found']}/{agg['figures_expected']}"
+                if "figures_expected" in agg
+                else ""
+            )
             lines.append(
                 f"  {name:32} {s:7} recall={f(agg['recall'])} ({agg['n_hit']}/{agg['n_items']}) "
                 f"precision={f(agg['precision'])} ({agg['n_pred_hit']}/{agg['n_pred']}) "
-                f"cases={agg['n_cases']}{ci_s}"
+                f"cases={agg['n_cases']}{found_s}{ci_s}"
             )
         gap = res.get("gap_recall_dev_minus_holdout")
         if gap is not None:
@@ -767,11 +824,14 @@ def gate_summary(report: dict[str, Any], config: str) -> dict[str, Any]:
     splits = {
         s: {k: v for k, v in agg.items() if k != "recall_ci95"} for s, agg in res["splits"].items()
     }
-    return {
+    out = {
         "config": config,
         "cases": {cid: meta["split"] for cid, meta in report["cases"].items()},
         "splits": splits,
     }
+    if report.get("legend_source"):
+        out["legend_source"] = report["legend_source"]
+    return out
 
 
 def load_baseline(
@@ -799,7 +859,7 @@ def gate_check(
     """Pass when dev does not regress and holdout stays within tolerance.
 
     Holdout recall may drop by at most max(tol_items / n_items, tol_points);
-    precision (dev and holdout) may not drop.
+    precision (dev and holdout) may not drop, nor may the number of located legends.
     """
     if baseline is None:
         return {"passed": True, "reasons": ["no accepted baseline yet; this run becomes the baseline"]}
@@ -808,6 +868,11 @@ def gate_check(
         return {
             "passed": False,
             "reasons": ["case set or splits changed since the baseline; re-baseline with --rebaseline"],
+        }
+    if current.get("legend_source") != base.get("legend_source"):
+        return {
+            "passed": False,
+            "reasons": ["legend source changed since the baseline; re-baseline with --rebaseline"],
         }
     reasons: list[str] = []
     for s in SPLITS:
@@ -824,6 +889,9 @@ def gate_check(
         p_new, p_old = cur["precision"], old["precision"]
         if p_new is not None and p_old is not None and p_new < p_old - _EPS:
             reasons.append(f"{s} precision {p_old:.3f} -> {p_new:.3f}")
+        f_new, f_old = cur.get("figures_found"), old.get("figures_found")
+        if f_new is not None and f_old is not None and f_new < f_old:
+            reasons.append(f"{s} legends located {f_old} -> {f_new}")
     return {"passed": not reasons, "reasons": reasons}
 
 

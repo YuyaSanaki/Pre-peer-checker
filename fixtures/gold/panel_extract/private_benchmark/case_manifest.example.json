@@ -1,0 +1,26 @@
+{
+  "schema_version": "1.1",
+  "case_id": "private_benchmark",
+  "role": "panel_extract_thin_case",
+  "description": "Generalization-eval slot for the private benchmark (Word manuscript). Legend gold stays in fixtures/gold/private_benchmark/ and is referenced via gold_paths.",
+  "split": "dev",
+  "style_tags": {
+    "panel_case": "upper",
+    "n_style": "n=",
+    "source": "manuscript_docx"
+  },
+  "figures_in_scope": ["1", "2", "3", "4", "5"],
+  "figure_pages": {},
+  "frozen": null,
+  "burned_at": null,
+  "gold_revisions": [],
+  "gold_paths": {
+    "legend": "../../private_benchmark/panel_extract_gold.json"
+  },
+  "inputs": [
+    {
+      "path": "input/panel_extract/private_benchmark/",
+      "note": "Put exactly one manuscript .docx here (a symlink to the final manuscript under input/private_benchmark/ is fine; gitignored)."
+    }
+  ]
+}

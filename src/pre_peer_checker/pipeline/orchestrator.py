@@ -69,6 +69,7 @@ from pre_peer_checker.parsers.manuscript_text import (
 )
 from pre_peer_checker.parsers.cited_paper_ingest import ensure_pdfs_ingested
 from pre_peer_checker.parsers.figure_panel_labels import (
+    _figure_num_from_pdf_name,
     collect_panel_labels_by_figure_detailed,
     is_publication_figure_raster,
     raster_regions_from_meta,
@@ -96,7 +97,12 @@ from pre_peer_checker.llm.legend_extract import (
     normalize_legend_llm_mode,
     summarize_legend_llm_meta,
 )
-from pre_peer_checker.parsers.legend_struct import all_panel_ns, extract_structured_legends
+from pre_peer_checker.parsers.figure_chunks import legend_coverage
+from pre_peer_checker.parsers.legend_struct import (
+    all_panel_ns,
+    extract_structured_legends,
+    extract_structured_legends_from_paragraphs,
+)
 from pre_peer_checker.parsers.pdf_figures import extract_pdf
 from pre_peer_checker.parsers.docx_images import export_docx_images
 from pre_peer_checker.parsers.pdf_images import export_embedded_images
@@ -668,9 +674,12 @@ def run_verification(
 
     panel_ns = []
     docx_arts = []
+    coverage_arts = []
+    fig_file_keys = [k for k in (_figure_num_from_pdf_name(Path(f)) for f in fig_files) if k]
     for p in manuscripts:
         try:
-            legends = extract_structured_legends(p)
+            paragraphs = manuscript_paragraphs(p)
+            legends = extract_structured_legends_from_paragraphs(paragraphs)
         except Exception as exc:  # noqa: BLE001
             msg = str(exc)
             if "Package not found" in msg:
@@ -706,7 +715,11 @@ def run_verification(
                 ],
             }
         )
+        coverage_arts.append(
+            {"path": str(p), **legend_coverage(paragraphs, legends, fig_file_keys)}
+        )
     result.artifacts["docx"] = docx_arts
+    result.artifacts["legend_coverage"] = coverage_arts
 
     # --- Legend / Figチャンク JSON（読む＝LLM 本線；失敗時は規則フォールバック） ---
     legend_jsons = []

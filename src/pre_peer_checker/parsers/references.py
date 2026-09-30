@@ -24,6 +24,12 @@ _SECTION_STOP_RE = re.compile(
     re.I,
 )
 
+# Figure legends / tables placed after the bibliography without their own heading.
+_CAPTION_HEAD_RE = re.compile(
+    r"^(?:(?:Extended\s+Data\s+|Supplementa(?:ry|l)\s+)?(?:Figure|Fig\.?)|Table)\s*S?\d+\s*[.:|]",
+    re.I,
+)
+
 _NUM_ENTRY_RE = re.compile(
     r"^(?:\[(?P<b>\d+)\]|(?P<a>\d+)\.)\s*(?P<body>.+)$",
 )
@@ -147,7 +153,7 @@ def extract_references_section(paragraphs: list[str]) -> list[str]:
             if _REF_HEAD_RE.match(t):
                 started = True
             continue
-        if _SECTION_STOP_RE.match(t):
+        if _SECTION_STOP_RE.match(t) or _CAPTION_HEAD_RE.match(t):
             break
         out.append(t)
     return out
@@ -240,7 +246,7 @@ def extract_in_text_cites(paragraphs: list[str]) -> list[InTextCite]:
             in_refs = True
             continue
         if in_refs:
-            if _SECTION_STOP_RE.match(t):
+            if _SECTION_STOP_RE.match(t) or _CAPTION_HEAD_RE.match(t):
                 in_refs = False
             else:
                 continue

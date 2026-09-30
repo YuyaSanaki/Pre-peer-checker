@@ -1,0 +1,38 @@
+{
+  "schema_version": "1.0",
+  "case_id": "paper_10",
+  "role": "legend_panel_extract_gold",
+  "description": "Hard legend spans for extraction-quality eval (not Warning gold).",
+  "coverage": "exhaustive",
+  "notes": [
+    "Keys are (figure, panel, group). Empty group means panel-level n.",
+    "Copy to panel_extract_gold.json (gitignored). Confirm each item before eval/distill.",
+    "See ../HUMAN_REVIEW.md and ../panel_extract_gold.schema.json"
+  ],
+  "source": {
+    "kind": "published_pdf",
+    "local_path": "input/panel_extract/paper_10/",
+    "has_experimental_data": false
+  },
+  "review": {
+    "status": "draft",
+    "teacher_model": "qwen2.5-32b-hf",
+    "reviewed_by": "",
+    "reviewed_at": "",
+    "target_hard_spans": "10-20"
+  },
+  "items": [
+    {
+      "id": "PE-F1-A",
+      "figure": "Figure 1",
+      "panel": "A",
+      "group": "",
+      "n": null,
+      "difficulty": "other",
+      "review_status": "pending",
+      "n_scope": "unknown",
+      "evidence_span": "",
+      "human_note": "Replace with a real hard span; delete placeholders."
+    }
+  ]
+}

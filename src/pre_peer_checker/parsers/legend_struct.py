@@ -12,9 +12,44 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 _FIG_START_RE = re.compile(
-    r"^(Extended\s+Data\s+Fig(?:ure|\.)?|Figure|Fig\.?|Supplementary Figure|Table)\s*(S?\d+)",
+    r"^(Extended\s+Data\s+Fig(?:ure|\.)?|Supplementa(?:ry|l)\s+Fig(?:ure|\.)?|"
+    r"Appendix\s+Fig(?:ure|\.)?|Figure|Fig\.?|Table)\s*(S?\d+)",
     re.IGNORECASE,
 )
+# After ``Figure 2``: a body sentence (``Figure 2 shows …``) or an eLife sub-item
+# (``Figure 1—figure supplement 1``) / continuation, none of which opens a new legend.
+_NOT_LEGEND_TAIL_RE = re.compile(
+    r"^[A-Za-z]?\s+(?-i:(?:shows?|showed|depicts?|illustrates?|summari[sz]es?|presents?|"
+    r"displays?|demonstrates?|indicates?|reveals?|represents?|is|was|are|were|and|or|also|"
+    r"in|of|for|to|with|from)\b)"
+    r"|^\s*[—–-]\s*(?:figure\s+supplement|source\s+data|video|animation)\b"
+    r"|^\s*\(?\s*continued\b",
+    re.IGNORECASE,
+)
+
+
+_CONTINUED_RE = re.compile(r"^\s*\(?\s*continued\b\s*\)?\s*[.:]?", re.IGNORECASE)
+
+
+def match_legend_head(text: str) -> re.Match[str] | None:
+    """``Figure 2`` / ``Extended Data Fig. 3`` / ``Supplementary Fig. 1`` legend opener, else None."""
+    m = _FIG_START_RE.match(text or "")
+    if m is None or _NOT_LEGEND_TAIL_RE.match(text[m.end() :]):
+        return None
+    return m
+
+
+def legend_figure_name(kind: str, num: str) -> str:
+    """Canonical figure name for a legend head match."""
+    k = kind.lower()
+    n = num.upper()
+    if k.startswith("extended"):
+        return f"Extended Data Figure {n}"
+    if k.startswith("table"):
+        return f"Table {n}"
+    if k.startswith(("supplement", "appendix")):
+        return f"Supplementary Figure {n if n.startswith('S') else 'S' + n}"
+    return f"Figure {n}"
 # Typeset PDFs put zero-width / thin spaces inside ``n =​ 22`` and ``P <​ 0.01``.
 _INVISIBLE_RE = re.compile("[\u200b\u200c\u200d\u2060\ufeff]")
 _THIN_SPACE_RE = re.compile("[\u00a0\u2002-\u200a\u202f]")
@@ -589,6 +624,115 @@ def _postfix_n_assignments(
     return out
 
 
+# ``n = 26`` / ``n=8`` / ``n = 67 cells from 14 mice`` (X only); not ranges ``n = 28–32`` or
+# decimals.
+_N_MENTION_RE = re.compile(r"(?<![A-Za-z])[nN]\s*=\s*(\d+)(?!\d)(?![.,]\d)(?!\s*(?:[–—-]|to)\s*\d)")
+_ANY_PANEL_REF_RE = re.compile(r"\(([A-Z](?:\s*(?:,|and|[-–—])\s*[A-Z])*)\)")
+_SENTENCE_BREAK_RE = re.compile(r"[.;]\s+(?=[A-Z(])")
+# Section header whose letters carry primes: ``(C-F′) TUNEL assay …`` / ``(C′,D′) Orthogonal …``
+_HEADER_WITH_PRIMES_RE = re.compile(r"\(([A-Z][′']*(?:\s*(?:,|and|[-–—])\s*[A-Z][′']*)*)\)\s+[A-Z]")
+_LABEL_STOP_RE = re.compile(
+    r"^(?:and|or|of|from|in|for|with|versus|vs\.?|between|to|the|by|on|at|per|each|both)$", re.I
+)
+
+
+def _group_label_before(pre: str) -> str:
+    """``TRPV1+/+ (n = `` / ``R24, n=`` / ``w1118 , n=`` → the label right before the n."""
+    m = re.search(r"(.*?)\s*\(\s*$", pre) or re.search(r"(.*?)\s*[,:]\s*$", pre)
+    if not m:
+        return ""
+    seg = re.split(r"[;:.()\[\]]|,(?=\s)", m.group(1))[-1].strip()
+    words: list[str] = []
+    for w in reversed(seg.split()):
+        if _LABEL_STOP_RE.match(w):
+            break
+        words.insert(0, w)
+        if len(words) == 4:
+            break
+    label = " ".join(words).strip(" ,")
+    if not label or _UNIT_WORD_RE.match(label) or len(label) > 40 or label.isdigit():
+        return ""
+    return label
+
+
+def _generic_clause_ns(figure: str, text: str, found: list[PanelN]) -> list[PanelN]:
+    """``n =`` the specific styles above missed: bare ``n=13.``, ``R24, n=21``, ``WT (n = 67 cells from 14 mice)``.
+
+    Targets: a panel ref right before ``(n =``; else refs since the previous n of the sentence
+    (``Circularity (F) and solidity (G) … (n = 76)``), plus the section header when it opens the
+    sentence; else the previous n's panels in that sentence; else the section panels. An n
+    already read for this section, or followed by its own panel list (``n=12 (E)``), is left to
+    the styles above. Groups only when one sentence labels two or more n for the same panels.
+    """
+    out: list[PanelN] = []
+    t = _normalize_caption_text(text)
+    if not t:
+        return out
+    read = {(pn.panel, pn.n) for pn in found}
+    nature_bare = bool(_NATURE_BARE_HINT_RE.search(t))
+    spans = _published_section_spans(t, nature_bare=nature_bare)
+    headed = {p for _, _, panels in spans for p in panels} | {
+        p
+        for m in _HEADER_WITH_PRIMES_RE.finditer(t)
+        for p in _expand_panel_token(re.sub(r"[′']", "", m.group(1)))
+    }
+    for start, end, section_panels in spans:
+        if not section_panels:
+            continue
+        chunk = t[start:end]
+        header = re.match(r"\s*\([^)]*\)", chunk)
+        body = header.end() if header else 0
+        breaks = [m.end() for m in _SENTENCE_BREAK_RE.finditer(chunk)]
+
+        def refs_in(a: int, b: int) -> list[tuple[int, int, list[str]]]:
+            # a ref to a panel with its own section elsewhere points at it (``Myc positive (D)``)
+            out_refs = []
+            for r in _ANY_PANEL_REF_RE.finditer(chunk, a, b):
+                ps = [p for p in _expand_panel_token(r.group(1)) if p in section_panels or p not in headed]
+                if ps:
+                    out_refs.append((r.start(), r.end(), ps))
+            return out_refs
+
+        scope = set(section_panels) | {p for *_, ps in refs_in(body, len(chunk)) for p in ps}
+        already = {n for p, n in read if p in scope}
+        rows: list[tuple[int, list[str], int, str, str, bool]] = []
+        prev: dict[int, tuple[int, list[str]]] = {}
+        for m in _N_MENTION_RE.finditer(chunk):
+            n = int(m.group(1))
+            sent_start = max([b for b in breaks if b <= m.start()], default=0)
+            ctx = chunk[max(0, m.start() - 40) : m.end() + 20]
+            if re.match(r"\s*(?:\(\s*[A-Za-z][^)]{0,40}\)|,\s*[A-Z]\b)", chunk[m.end() :]):
+                prev[sent_start] = (m.end(), prev.get(sent_start, (0, section_panels))[1])
+                continue
+            if n in already:
+                # read without its group (``WT (n = 7) and KO (n = 9)``): offer the label only
+                panels = sorted({pn.panel for pn in found if pn.n == n and not pn.group and pn.panel in scope})
+                label = _group_label_before(chunk[sent_start : m.start()])
+                if panels:
+                    rows.append((sent_start, panels, n, ctx, label, True))
+                prev[sent_start] = (m.end(), panels or prev.get(sent_start, (0, section_panels))[1])
+                continue
+            since, last_targets = prev.get(sent_start, (max(sent_start, body), []))
+            refs = refs_in(max(since, body), m.start())
+            if refs and re.fullmatch(r"\s*\(\s*", chunk[refs[-1][1] : m.start()]):
+                targets = refs[-1][2]
+            elif refs:
+                ps = [p for *_, rp in refs for p in rp]
+                targets = list(dict.fromkeys(ps + section_panels if sent_start == 0 else ps))
+            else:
+                targets = last_targets or section_panels
+            prev[sent_start] = (m.end(), targets)
+            label = _group_label_before(chunk[sent_start : m.start()])
+            rows.append((sent_start, targets, n, ctx, label, False))
+        for sent, targets, n, ctx, label, relabel in rows:
+            grouped = len({r[4] for r in rows if r[0] == sent and r[1] == targets and r[4]}) >= 2
+            if relabel and not (grouped and label):
+                continue
+            for p in targets:
+                _add_pn(out, figure=figure, panel=p, n=n, context=ctx, group=label if grouped else "")
+    return out
+
+
 def parse_panel_ns(figure: str, text: str) -> list[PanelN]:
     """Context-aware panel n extraction (rules fallback / offline path)."""
     found: list[PanelN] = []
@@ -713,6 +857,21 @@ def parse_panel_ns(figure: str, text: str) -> list[PanelN]:
             group=pn.group,
         )
 
+    # 6) Any remaining ``n =`` bound by sentence / section position; a labelled row replaces
+    #    the same n read without its group
+    extra = _generic_clause_ns(figure, text, found)
+    labelled = {(pn.panel, pn.n) for pn in extra if pn.group}
+    found = [pn for pn in found if pn.group or (pn.panel, pn.n) not in labelled]
+    for pn in extra:
+        _add_pn(
+            found,
+            figure=pn.figure,
+            panel=pn.panel,
+            n=pn.n,
+            context=pn.context,
+            group=pn.group,
+        )
+
     return found
 
 
@@ -827,18 +986,23 @@ def extract_structured_legends_from_paragraphs(paragraphs: list[str]) -> list[St
     legends: list[StructuredLegend] = []
     i = 0
     while i < len(paragraphs):
-        m = _FIG_START_RE.match(paragraphs[i])
+        m = match_legend_head(paragraphs[i])
         if not m:
             i += 1
             continue
-        if m.group(1).lower().startswith("extended"):
-            figure = f"Extended Data Figure {m.group(2)}"
-        else:
-            figure = f"{m.group(1)} {m.group(2)}".replace("Fig.", "Figure")
+        figure = legend_figure_name(m.group(1), m.group(2))
         parts = [paragraphs[i]]
         j = i + 1
-        while j < len(paragraphs) and not _FIG_START_RE.match(paragraphs[j]):
-            parts.append(paragraphs[j])
+        while j < len(paragraphs):
+            para = paragraphs[j]
+            head = _FIG_START_RE.match(para)
+            if head:
+                cont = _CONTINUED_RE.match(para[head.end() :])
+                if not cont or legend_figure_name(head.group(1), head.group(2)) != figure:
+                    break
+                para = para[head.end() + cont.end() :].strip()
+            if para:
+                parts.append(para)
             j += 1
             if len(parts) > 12:
                 break

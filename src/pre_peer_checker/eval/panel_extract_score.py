@@ -42,36 +42,63 @@ def _group_match(pred: str, gold: str, aliases: list[str] | None) -> bool:
     return False
 
 
+def _n_value(row: dict[str, Any]) -> Any:
+    """``n`` or, for a legend range ``n = 28–32``, the ``(lo, hi)`` of ``n_range``."""
+    rng = row.get("n_range")
+    return (int(rng[0]), int(rng[1])) if rng else row.get("n")
+
+
 def _pred_matches_item(pr: dict[str, Any], it: dict[str, Any]) -> bool:
     return (
         pr["figure"] == str(it.get("figure") or "")
         and pr["panel"] == str(it.get("panel") or "").upper()
-        and pr["n"] == it.get("n")
+        and _n_value(pr) == _n_value(it)
         and _group_match(pr["group"], str(it.get("group") or ""), list(it.get("aliases_group") or []))
     )
 
 
-def score_precision(gold: dict[str, Any], preds: list[dict[str, Any]]) -> dict[str, Any]:
+def _pred_matches_neutral(pr: dict[str, Any], it: dict[str, Any]) -> bool:
+    if _n_value(it) is not None:
+        return _pred_matches_item(pr, it)
+    return (
+        pr["figure"] == str(it.get("figure") or "")
+        and pr["panel"] == str(it.get("panel") or "").upper()
+        and _group_match(pr["group"], str(it.get("group") or ""), list(it.get("aliases_group") or []))
+    )
+
+
+def score_precision(
+    gold: dict[str, Any],
+    preds: list[dict[str, Any]],
+    *,
+    figures: set[str] | None = None,
+    neutral: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
     """Share of distinct predicted (figure, panel, group, n) rows that hit a gold item.
 
-    Only figures present in gold are scored, so supplementary / out-of-scope
-    figures do not count as false positives. Gold must list every legend n in
-    those figures for this to be meaningful.
+    Only ``figures`` are scored (default: figures present in gold items), so
+    supplementary / out-of-scope figures do not count as false positives. Gold must
+    list every legend n in those figures for this to be meaningful. Predictions that
+    match a ``neutral`` item (unreviewed / dropped; ``n`` null = any n on that panel)
+    count neither way.
     """
     items = gold.get("items") or []
-    figures = {str(it.get("figure") or "") for it in items}
+    if figures is None:
+        figures = {str(it.get("figure") or "") for it in items}
     uniq: dict[tuple[str, str, str, Any], dict[str, Any]] = {}
     for pr in preds:
-        if pr.get("n") is None or pr["figure"] not in figures:
+        if _n_value(pr) is None or pr["figure"] not in figures:
             continue
-        uniq.setdefault((pr["figure"], pr["panel"], _norm(pr["group"]), pr["n"]), pr)
+        uniq.setdefault((pr["figure"], pr["panel"], _norm(pr["group"]), _n_value(pr)), pr)
     fps: list[dict[str, Any]] = []
     tp = 0
-    for pr in uniq.values():
+    for key, pr in list(uniq.items()):
         if any(_pred_matches_item(pr, it) for it in items):
             tp += 1
+        elif any(_pred_matches_neutral(pr, it) for it in neutral or []):
+            del uniq[key]
         else:
-            fps.append({k: pr[k] for k in ("figure", "panel", "group", "n")})
+            fps.append({k: pr[k] for k in ("figure", "panel", "group", "n", "n_range") if k in pr})
     total = len(uniq)
     return {
         "n_pred": total,
@@ -81,7 +108,13 @@ def score_precision(gold: dict[str, Any], preds: list[dict[str, Any]]) -> dict[s
     }
 
 
-def score_one(gold: dict[str, Any], preds: list[dict[str, Any]]) -> dict[str, Any]:
+def score_one(
+    gold: dict[str, Any],
+    preds: list[dict[str, Any]],
+    *,
+    figures: set[str] | None = None,
+    neutral: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
     items = gold.get("items") or []
     hit = 0
     details: list[dict[str, Any]] = []
@@ -90,14 +123,14 @@ def score_one(gold: dict[str, Any], preds: list[dict[str, Any]]) -> dict[str, An
         fig = str(it.get("figure") or "")
         panel = str(it.get("panel") or "").upper()
         group = str(it.get("group") or "")
-        n_gold = it.get("n")
+        n_gold = _n_value(it)
         aliases = list(it.get("aliases_group") or [])
         matched = False
         matched_row = None
         for pr in preds:
             if pr["figure"] != fig or pr["panel"] != panel:
                 continue
-            if pr["n"] != n_gold:
+            if _n_value(pr) != n_gold:
                 continue
             if _group_match(pr["group"], group, aliases):
                 matched = True
@@ -111,7 +144,7 @@ def score_one(gold: dict[str, Any], preds: list[dict[str, Any]]) -> dict[str, An
                 if (
                     pr["figure"] == fig
                     and pr["panel"] == str(bad).upper()
-                    and pr["n"] == n_gold
+                    and _n_value(pr) == n_gold
                 ):
                     forbid_fp += 1
         details.append(
@@ -125,7 +158,7 @@ def score_one(gold: dict[str, Any], preds: list[dict[str, Any]]) -> dict[str, An
         )
     total = len(items)
     recall = (hit / total) if total else None
-    prec = score_precision(gold, preds)
+    prec = score_precision(gold, preds, figures=figures, neutral=neutral)
     p = prec["precision"]
     f1 = (2 * p * recall / (p + recall)) if p and recall else None
     return {

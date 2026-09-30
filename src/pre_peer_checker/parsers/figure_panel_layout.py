@@ -4,11 +4,25 @@ from __future__ import annotations
 
 from itertools import pairwise
 
-_TRIM = "()[]{},.;:'\"“”‘’"
+_TRIM = "()[]{},.;:'\"“”‘’`´′″‴"
+# Glyphs whose upper and lower case share a shape: OCR returns either case, so they
+# neither vote on the figure's panel case nor get rejected for the "wrong" case.
+CASELESS_LETTERS = frozenset("cosuvwxz")
+_CASE_TWINS = {"l": "I", "I": "l"}
 
 
 def box_center(b: list[float]) -> tuple[float, float]:
     return (b[0] + b[2]) / 2, (b[1] + b[3]) / 2
+
+
+def _as_panel_case(t: str, case: str) -> str | None:
+    want = str.isupper if case == "upper" else str.islower
+    if want(t):
+        return t
+    if t.lower() in CASELESS_LETTERS:
+        return t.upper() if case == "upper" else t.lower()
+    twin = _CASE_TWINS.get(t)
+    return twin if twin and want(twin) else None
 
 
 def panel_letter_dets(
@@ -17,14 +31,15 @@ def panel_letter_dets(
     case: str = "upper",
 ) -> list[tuple[str, list[float]]]:
     """Single-letter panel labels from OCR detections (largest box wins per letter)."""
-    want = str.isupper if case == "upper" else str.islower
     best: dict[str, list[float]] = {}
     for d in dets:
         for tok in str(d.get("text", "")).split():
             t = tok.strip(_TRIM)
-            if len(t) != 1 or not t.isalpha() or not want(t):
+            if len(t) != 1 or not t.isalpha():
                 continue
-            key = t.upper() if case == "upper" else t.lower()
+            key = _as_panel_case(t, case)
+            if key is None:
+                continue
             box = list(d["box"])
             if key not in best or (box[2] - box[0]) * (box[3] - box[1]) > (
                 best[key][2] - best[key][0]
@@ -38,7 +53,8 @@ def dominant_panel_run(letters, *, max_gap: int = 1) -> set[str]:
 
     Panel letters in a figure run A..N (an occasional letter may be missed), so a
     letter separated from the run by more than ``max_gap`` gaps is axis text or a
-    legend key rather than a panel label.
+    legend key rather than a panel label. A run that starts at A wins over a somewhat
+    longer one elsewhere (stray axis / gene-name letters such as S, T, V).
     """
     ls = sorted(c for c in letters if c.isascii() and c.isalpha() and len(c) == 1)
     if not ls:
@@ -49,7 +65,11 @@ def dominant_panel_run(letters, *, max_gap: int = 1) -> set[str]:
             runs[-1].append(cur)
         else:
             runs.append([cur])
-    return set(max(runs, key=lambda r: (len(r), -ord(r[0]))))
+    longest = max(runs, key=lambda r: (len(r), -ord(r[0])))
+    first = runs[0]
+    if first[0] in "aA" and len(first) >= 2 and 2 * len(first) >= len(longest):
+        return set(first)
+    return set(longest)
 
 
 def _contains(box, x: float, y: float, pad: float = 0.0) -> bool:

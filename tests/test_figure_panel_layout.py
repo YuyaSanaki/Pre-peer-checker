@@ -58,3 +58,29 @@ def test_dominant_run_drops_non_ascii():
 def test_dominant_run_allows_lowercase_and_empty():
     assert dominant_panel_run(set("abcd")) == set("abcd")
     assert dominant_panel_run(set()) == set()
+
+
+def test_dominant_run_prefers_run_from_a_over_stray_letters():
+    """Observed: panels a, b plus 'S', 'T', 'V' from gene names read as one run."""
+    assert dominant_panel_run(set("abstv")) == set("ab")
+    assert dominant_panel_run(set("abmnopqr")) == set("mnopqr")
+
+
+def test_caseless_letters_follow_panel_case():
+    dets = [
+        {"text": "a", "box": [0, 0, 10, 10]},
+        {"text": "b", "box": [50, 0, 60, 10]},
+        {"text": "C", "box": [0, 50, 10, 60]},
+        {"text": "N", "box": [30, 50, 40, 60]},
+        {"text": "I", "box": [60, 50, 62, 60]},
+    ]
+    assert {ch for ch, _ in panel_letter_dets(dets, case="lower")} == {"a", "b", "c", "l"}
+    upper = [{"text": "c", "box": [0, 0, 10, 10]}, {"text": "l", "box": [0, 20, 2, 30]}]
+    assert {ch for ch, _ in panel_letter_dets(upper, case="upper")} == {"C", "I"}
+
+
+def test_caseless_letters_do_not_vote_on_panel_case():
+    from pre_peer_checker.parsers.raster_figure_panel_ocr import _infer_panel_case
+
+    dets = [{"text": t, "box": [0, 0, 1, 1]} for t in ("a", "b", "C", "C", "S", "N")]
+    assert _infer_panel_case(dets) == "lower"

@@ -1,4 +1,4 @@
-"""Raster publication figures: Florence panel layout + Vision (Mac) / Florence crop OCR.
+"""Raster publication figures: Florence panel layout + Vision (Mac) crop / Florence tiled OCR.
 
 Benchmarked on quick profile (4 raster figures, ``scripts/dev_figure_ocr_bench.py``):
 Vision 82.1%, Florence 82.1%, both together 87.2% panel-letter recall. Settings that
@@ -18,9 +18,12 @@ from pathlib import Path
 from typing import Any
 
 from pre_peer_checker.parsers.figure_panel_layout import (
+    CASELESS_LETTERS,
     crops_from_panel_letters,
     panel_letter_dets,
 )
+
+_CASE_AMBIGUOUS = CASELESS_LETTERS | {"l", "i"}
 
 _DPI = int(os.environ.get("PRE_PEER_CHECKER_RASTER_OCR_DPI", "300"))
 _MAX_SIDE = int(os.environ.get("PRE_PEER_CHECKER_RASTER_OCR_MAX_SIDE", "1280"))
@@ -228,7 +231,7 @@ def _infer_panel_case(dets: list[dict]) -> str:
     lower = upper = 0
     for d in dets:
         for tok in str(d.get("text", "")).split():
-            if len(tok) == 1 and tok.isalpha():
+            if len(tok) == 1 and tok.isalpha() and tok.lower() not in _CASE_AMBIGUOUS:
                 if tok.islower():
                     lower += 1
                 elif tok.isupper():
@@ -314,9 +317,15 @@ def raster_panel_analysis_from_rgb(full, *, engines: list[str] | None = None) ->
                 cp = Path(tmp) / f"{ent['panel']}.png"
                 crop.save(cp)
                 dets.extend(vision.ocr_path(cp))
-            if florence is not None:
+            if florence is not None and ent["panel"] != "*":
                 dets.extend(florence.ocr_image(crop))
+    if florence is not None:
+        # Also the whole image in overlapping tiles: each crop starts at its own label,
+        # and Florence drops text sitting on the image border.
+        dets.extend(florence.ocr_image(full))
 
+    if dets:
+        case = _infer_panel_case(dets)
     result.letters = {ch for ch, _ in panel_letter_dets(dets, case=case)}
     return result
 

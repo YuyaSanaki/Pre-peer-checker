@@ -7,31 +7,52 @@ from collections import defaultdict
 
 from pre_peer_checker.warnings import WarningItem, WarningTag
 
+_LETTER = r"(?<![A-Za-z])[A-Za-z](?![A-Za-z])"
+_PANEL_SPAN_RE = re.compile(rf"({_LETTER})(?:\s*[–—-]\s*({_LETTER}))?")
 _REF_RE = re.compile(
-    r"(?:Fig(?:ure)?\.?\s*(?P<fig>\d+)\s*[.\-]?\s*(?P<panel>[A-Za-z])"
-    r"|Figs?\.?\s*(?P<fig2>\d+)\s*\((?P<panels>[A-Za-z,\s]+)\)"
-    r"|図\s*(?P<fig3>\d+)\s*(?P<panel3>[A-Za-z]))",
-    re.I,
+    r"(?:(?P<pre>Extended\s+Data\s+|Supplementa(?:ry|l)\s+)?"
+    r"Fig(?:ure)?s?\.?\s*(?P<fig>S?\d+)"
+    rf"(?:[.\-]?(?P<panel>{_LETTER})(?:\s*[–—-]\s*(?P<panel_end>{_LETTER}))?"
+    rf"|\s*\((?P<panels>{_LETTER}(?:\s*(?:,|and|[–—-])\s*{_LETTER})*)\))"
+    rf"|図\s*(?P<fig3>\d+)\s*(?P<panel3>{_LETTER}))",
+    re.IGNORECASE,
 )
 
 
+def _figure_ref_key(prefix: str | None, num: str) -> str:
+    """'1' / 'S2' / 'ED3' — same keys as ``figure_num_key`` for figure files."""
+    p = (prefix or "").lower()
+    digits = str(int(num.lstrip("Ss")))
+    if p.startswith("extended"):
+        return f"ED{digits}"
+    if p.startswith("supplement") or num[:1] in "Ss":
+        return f"S{digits}"
+    return digits
+
+
+def _letter_span(first: str, last: str | None) -> list[str]:
+    a, b = first.upper(), (last or first).upper()
+    if ord(b) < ord(a) or ord(b) - ord(a) > 25:
+        return [a]
+    return [chr(c) for c in range(ord(a), ord(b) + 1)]
+
+
 def extract_fig_panel_refs(texts: list[str]) -> dict[str, set[str]]:
-    """Map figure number key ('1','2',…) → referenced panel letters."""
+    """Map figure key ('1', 'S2', 'ED3', …) → referenced panel letters."""
     by: dict[str, set[str]] = defaultdict(set)
     for t in texts:
         if not t:
             continue
         for m in _REF_RE.finditer(str(t)):
-            fig = m.group("fig") or m.group("fig2") or m.group("fig3")
-            if not fig:
+            if m.group("fig3"):
+                by[str(int(m.group("fig3")))].add(m.group("panel3").upper())
                 continue
-            panel = m.group("panel") or m.group("panel3")
-            if panel:
-                by[str(int(fig))].add(panel.upper())
+            key = _figure_ref_key(m.group("pre"), m.group("fig"))
+            if m.group("panel"):
+                by[key].update(_letter_span(m.group("panel"), m.group("panel_end")))
                 continue
-            panels = m.group("panels") or ""
-            for p in re.findall(r"[A-Za-z]", panels):
-                by[str(int(fig))].add(p.upper())
+            for first, last in _PANEL_SPAN_RE.findall(m.group("panels") or ""):
+                by[key].update(_letter_span(first, last or None))
     return dict(by)
 
 

@@ -6,6 +6,7 @@ from pathlib import Path
 
 import fitz
 
+from pre_peer_checker.engine.ref_label import extract_fig_panel_refs
 from pre_peer_checker.parsers.article_figures import export_article_figures, find_article_figures
 from pre_peer_checker.parsers.figure_chunks import figure_label, figure_num_key
 from pre_peer_checker.parsers.figure_panel_labels import _figure_num_from_pdf_name
@@ -58,6 +59,22 @@ def test_pdf_captions_include_extended_data_and_stop_at_footer() -> None:
     caps = dict(extract_figure_captions_from_pdf_text(raw))
     assert set(caps) == {"Figure 1", "Extended Data Figure 3"}
     assert caps["Extended Data Figure 3"].endswith("(n = 9).")
+
+
+def test_fig_panel_refs_keep_extended_data_apart_and_skip_words() -> None:
+    text = (
+        "as shown in Figure 2 and Extended Data Fig. 3k; Supplementary Fig. 4h (Fig. 1b). "
+        "Fig. 5 shows Figure 6B-D and Fig. 7 (A, C and E), Fig. S2c."
+    )
+    refs = extract_fig_panel_refs([text])
+    assert refs == {
+        "ED3": {"K"},
+        "S4": {"H"},
+        "1": {"B"},
+        "6": {"B", "C", "D"},
+        "7": {"A", "C", "E"},
+        "S2": {"C"},
+    }
 
 
 def _letter_page_pdf(path: Path) -> Path:

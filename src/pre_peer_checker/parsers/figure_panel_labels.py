@@ -123,12 +123,7 @@ def _merge_provenance(
 def _regions_for_kept_letters(
     path: Path, analysis, kept: set[str]
 ) -> list[dict]:
-    keep = {c.upper() for c in kept}
-    crops = [
-        c
-        for c in (analysis.crops or [])
-        if str(c.get("panel") or "").upper() in keep
-    ]
+    crops = [{"panel": k, "box": b} for k, b in analysis.panel_boxes(kept).items()]
     return region_dicts_from_crops(
         path, crops, float(analysis.width), float(analysis.height)
     )
@@ -184,9 +179,14 @@ def panel_labels_from_pdf_detailed(
         prov.source = "vector" if vector else "none"
         return prov.labels, prov
 
-    from pre_peer_checker.parsers.raster_figure_panel_ocr import raster_panel_letters_from_pdf
+    from pre_peer_checker.parsers.raster_figure_panel_ocr import raster_panel_analyses_from_pdf
 
-    raw, engine = raster_panel_letters_from_pdf(path, max_pages=min(max_pages, 2))
+    pages = raster_panel_analyses_from_pdf(path, max_pages=min(max_pages, 2))
+    raw: set[str] = set()
+    engine = ""
+    for p in pages:
+        raw |= p.analysis.letters
+        engine = p.analysis.engine_label or engine
     ocr = _panel_run(raw)
     prov.dropped = sorted(raw - ocr)
     if not ocr:
@@ -198,6 +198,14 @@ def panel_labels_from_pdf_detailed(
     prov.source = "mixed" if vector else "raster_ocr"
     prov.needs_review = True
     prov.ocr_engine = engine
+    ocr_only = {c.upper() for c in ocr} - {c.upper() for c in vector}
+    for p in pages:
+        crops = [
+            {"panel": k, "box": b} for k, b in p.panel_boxes_on_page(ocr_only).items()
+        ]
+        prov.regions.extend(
+            region_dicts_from_crops(path, crops, *p.page_size, page_index=p.page_index)
+        )
     return prov.labels, prov
 
 

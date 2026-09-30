@@ -217,6 +217,43 @@ def panel_boxes_from_elements(
     return out
 
 
+def panel_boxes_from_photos(
+    labels: dict[str, list[float]],
+    photos: list[list[float]],
+    ink: list[list[float]] | None = None,
+) -> dict[str, list[float]]:
+    """Panel boxes for a raster figure from its whitespace-split photos and ink blobs.
+
+    A photo that two or more labels sit on or just beside could not be split per
+    panel and becomes an opaque area (letter grid inside it). ``ink`` blobs (text
+    lines, plots, diagrams) are elements like vector drawings; the label glyphs
+    themselves are dropped. Letters without any artwork are absent so the caller
+    keeps its own box for them.
+    """
+    if not labels or not (photos or ink):
+        return {}
+    heights = sorted(b[3] - b[1] for b in labels.values())
+    label_h = heights[len(heights) // 2]
+    margin = 1.5 * label_h
+    centers = [box_center(b) for b in labels.values()]
+    elements: list[list[float]] = []
+    opaque: list[list[float]] = []
+    for p in photos:
+        n = sum(
+            p[0] - margin <= cx <= p[2] and p[1] - margin <= cy <= p[3] for cx, cy in centers
+        )
+        (opaque if n >= 2 else elements).append(list(p))
+    pad = 0.5 * label_h
+    for b in ink or []:
+        if any(
+            lb[0] - pad <= b[0] and lb[1] - pad <= b[1] and b[2] <= lb[2] + pad and b[3] <= lb[3] + pad
+            for lb in labels.values()
+        ):
+            continue
+        elements.append(list(b))
+    return panel_boxes_from_elements(labels, elements, opaque)
+
+
 def crops_from_panel_letters(
     width: int,
     height: int,

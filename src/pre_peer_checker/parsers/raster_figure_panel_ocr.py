@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import os
 import platform
+import re
 import sys
 import tempfile
 import threading
@@ -20,10 +21,12 @@ from typing import Any
 from pre_peer_checker.parsers.figure_panel_layout import (
     CASELESS_LETTERS,
     crops_from_panel_letters,
+    panel_boxes_from_photos,
     panel_letter_dets,
 )
 
 _CASE_AMBIGUOUS = CASELESS_LETTERS | {"l", "i"}
+_PRIMED_RE = re.compile(r"^\(?[A-Za-z][\'\"’′″‴`´]+\)?$")
 
 _DPI = int(os.environ.get("PRE_PEER_CHECKER_RASTER_OCR_DPI", "300"))
 _MAX_SIDE = int(os.environ.get("PRE_PEER_CHECKER_RASTER_OCR_MAX_SIDE", "1280"))
@@ -240,18 +243,77 @@ def _infer_panel_case(dets: list[dict]) -> str:
 
 
 def _page_figure_image(page):
-    """PIL RGB of the dominant embedded image, else the whole page."""
+    """PIL RGB of the dominant embedded image (else the whole page), plus its page rect."""
+    import fitz
     from PIL import Image
 
     infos = page.get_image_info()
     rect = page.rect
     area = sum((r["bbox"][2] - r["bbox"][0]) * (r["bbox"][3] - r["bbox"][1]) for r in infos)
+    clip = rect
     if infos and area >= 0.15 * rect.width * rect.height:
         big = max(infos, key=lambda r: (r["bbox"][2] - r["bbox"][0]) * (r["bbox"][3] - r["bbox"][1]))
-        pix = page.get_pixmap(dpi=_DPI, clip=big["bbox"], alpha=False)
-    else:
-        pix = page.get_pixmap(dpi=_DPI, alpha=False)
-    return Image.frombytes("RGB", (pix.width, pix.height), pix.samples)
+        clip = fitz.Rect(big["bbox"]) & rect
+    pix = page.get_pixmap(dpi=_DPI, clip=clip, alpha=False)
+    img = Image.frombytes("RGB", (pix.width, pix.height), pix.samples)
+    return img, (clip.x0, clip.y0, clip.x1, clip.y1)
+
+
+def _token_dets(dets: list[dict]) -> list[dict]:
+    """Split multi-word detections ("a GFP") so each token gets its share of the box."""
+    out: list[dict] = []
+    for d in dets:
+        text = str(d.get("text", ""))
+        toks = text.split()
+        if len(toks) <= 1:
+            out.append(d)
+            continue
+        x0, y0, x1, y1 = d["box"]
+        per = (x1 - x0) / max(len(text), 1)
+        pos = 0
+        for tok in toks:
+            start = text.index(tok, pos)
+            pos = start + len(tok)
+            out.append({"text": tok, "box": [x0 + start * per, y0, x0 + pos * per, y1]})
+    return out
+
+
+def _ink_boxes(full, max_side: int = 800, level: int = 235) -> list[list[float]]:
+    """Bounding boxes of connected non-white ink (text lines, plots, diagrams) in pixels."""
+    import numpy as np
+    from scipy import ndimage
+
+    scale = min(1.0, max_side / max(full.width, full.height, 1))
+    small = full.convert("L")
+    if scale < 1.0:
+        small = small.resize((max(int(full.width * scale), 1), max(int(full.height * scale), 1)))
+    mask = ndimage.binary_dilation(np.asarray(small) < level, iterations=2)
+    labelled, _n = ndimage.label(mask)
+    boxes = []
+    for sl in ndimage.find_objects(labelled):
+        if sl is None:
+            continue
+        ys, xs = sl
+        if xs.stop - xs.start < 4 and ys.stop - ys.start < 4:
+            continue
+        boxes.append([xs.start / scale, ys.start / scale, xs.stop / scale, ys.stop / scale])
+    return boxes
+
+
+def _photo_boxes(full, pad: int = 10) -> list[list[float]]:
+    """Whitespace-split photo panels in image pixels (white pad so edge photos split)."""
+    from PIL import ImageOps
+
+    from pre_peer_checker.imaging.panel_split import split_panels
+
+    padded = ImageOps.expand(full, border=pad, fill="white")
+    boxes = []
+    for b in split_panels(padded):
+        x0, y0 = max(b.left - pad, 0), max(b.top - pad, 0)
+        x1, y1 = min(b.right - pad, full.width), min(b.bottom - pad, full.height)
+        if x1 > x0 and y1 > y0:
+            boxes.append([float(x0), float(y0), float(x1), float(y1)])
+    return boxes
 
 
 def _panel_crops(full, engines: list[str]) -> tuple[list[dict], str]:
@@ -279,10 +341,51 @@ class RasterPanelOcrResult:
     crops: list[dict] = field(default_factory=list)
     width: int = 0
     height: int = 0
+    label_boxes: dict[str, list[float]] = field(default_factory=dict)
+    photo_boxes: list[list[float]] = field(default_factory=list)
+    ink_boxes: list[list[float]] = field(default_factory=list)
 
     @property
     def engine_label(self) -> str:
         return "+".join(self.engines)
+
+    def panel_boxes(self, kept) -> dict[str, list[float]]:
+        """Upper-case panel -> box in image pixels for the kept letters.
+
+        Boxes fit the split photos and ink the letter owns; letters without any
+        keep the letter-grid crop from the layout pass.
+        """
+        keep = {str(c).upper() for c in kept}
+        boxes = {
+            str(c["panel"]).upper(): list(c["box"])
+            for c in self.crops
+            if str(c.get("panel") or "").upper() in keep
+        }
+        labels = {k.upper(): b for k, b in self.label_boxes.items() if k.upper() in keep}
+        boxes.update(panel_boxes_from_photos(labels, self.photo_boxes, self.ink_boxes))
+        return boxes
+
+
+@dataclass
+class PdfPageRasterOcr:
+    """Raster OCR of one PDF page; ``clip`` is the page rect the analysed image covers."""
+
+    page_index: int
+    analysis: RasterPanelOcrResult
+    clip: tuple[float, float, float, float]
+    page_size: tuple[float, float]
+
+    def panel_boxes_on_page(self, kept) -> dict[str, list[float]]:
+        """Kept panel boxes mapped from image pixels to page points."""
+        a = self.analysis
+        if not a.width or not a.height:
+            return {}
+        x0, y0, x1, y1 = self.clip
+        sx, sy = (x1 - x0) / a.width, (y1 - y0) / a.height
+        return {
+            k: [x0 + b[0] * sx, y0 + b[1] * sy, x0 + b[2] * sx, y0 + b[3] * sy]
+            for k, b in a.panel_boxes(kept).items()
+        }
 
 
 def load_figure_rgb(path: Path | str):
@@ -313,12 +416,16 @@ def raster_panel_analysis_from_rgb(full, *, engines: list[str] | None = None) ->
         for ent in crops:
             x0, y0, x1, y1 = (int(v) for v in ent["box"])
             crop = full.crop((x0, y0, x1, y1))
+            crop_dets: list[dict] = []
             if vision is not None:
                 cp = Path(tmp) / f"{ent['panel']}.png"
                 crop.save(cp)
-                dets.extend(vision.ocr_path(cp))
+                crop_dets.extend(vision.ocr_path(cp))
             if florence is not None and ent["panel"] != "*":
-                dets.extend(florence.ocr_image(crop))
+                crop_dets.extend(florence.ocr_image(crop))
+            for d in crop_dets:
+                b = d["box"]
+                dets.append({**d, "box": [b[0] + x0, b[1] + y0, b[2] + x0, b[3] + y0]})
     if florence is not None:
         # Also the whole image in overlapping tiles: each crop starts at its own label,
         # and Florence drops text sitting on the image border.
@@ -327,6 +434,16 @@ def raster_panel_analysis_from_rgb(full, *, engines: list[str] | None = None) ->
     if dets:
         case = _infer_panel_case(dets)
     result.letters = {ch for ch, _ in panel_letter_dets(dets, case=case)}
+    # c' / c'' are sub-panels of c; only the bare letter marks where panel c starts.
+    unprimed = [d for d in _token_dets(dets) if not _PRIMED_RE.match(str(d.get("text", "")))]
+    result.label_boxes = {
+        ch: box for ch, box in panel_letter_dets(unprimed, case=case) if ch in result.letters
+    }
+    try:
+        result.photo_boxes = _photo_boxes(full)
+        result.ink_boxes = _ink_boxes(full)
+    except Exception:
+        result.photo_boxes, result.ink_boxes = [], []
     return result
 
 
@@ -345,34 +462,59 @@ def raster_panel_letters_from_image(path: Path | str) -> tuple[set[str], str]:
     return result.letters, result.engine_label
 
 
-def raster_panel_letters_from_page(page) -> tuple[set[str], list[str]]:
-    """OCR one page. Returns (raw single letters, engines used) — unfiltered."""
+def raster_panel_analysis_from_page(page, page_index: int = 0) -> PdfPageRasterOcr | None:
+    """OCR one PDF page (its dominant image, else the whole page)."""
     engines = ocr_engine_names()
     if not engines:
+        return None
+    img, clip = _page_figure_image(page)
+    return PdfPageRasterOcr(
+        page_index=page_index,
+        analysis=raster_panel_analysis_from_rgb(img, engines=engines),
+        clip=clip,
+        page_size=(float(page.rect.width), float(page.rect.height)),
+    )
+
+
+def raster_panel_letters_from_page(page) -> tuple[set[str], list[str]]:
+    """OCR one page. Returns (raw single letters, engines used) — unfiltered."""
+    res = raster_panel_analysis_from_page(page)
+    if res is None:
         return set(), []
-    result = raster_panel_analysis_from_rgb(_page_figure_image(page), engines=engines)
-    return result.letters, result.engines
+    return res.analysis.letters, res.analysis.engines
+
+
+def raster_panel_analyses_from_pdf(
+    path: Path | str, *, max_pages: int = 2
+) -> list[PdfPageRasterOcr]:
+    """Per-page raster OCR of the first pages of a figure PDF."""
+    import fitz
+
+    try:
+        doc = fitz.open(Path(path))
+    except Exception:
+        return []
+    out: list[PdfPageRasterOcr] = []
+    try:
+        for i, page in enumerate(doc):
+            if i >= max_pages:
+                break
+            res = raster_panel_analysis_from_page(page, page_index=i)
+            if res is not None:
+                out.append(res)
+    finally:
+        doc.close()
+    return out
 
 
 def raster_panel_letters_from_pdf(
     path: Path | str, *, max_pages: int = 2
 ) -> tuple[set[str], str]:
     """Raw panel letters across the first pages. Returns (letters, engine label)."""
-    import fitz
-
+    pages = raster_panel_analyses_from_pdf(path, max_pages=max_pages)
     letters: set[str] = set()
     engines: list[str] = []
-    try:
-        doc = fitz.open(Path(path))
-    except Exception:
-        return set(), ""
-    try:
-        for i, page in enumerate(doc):
-            if i >= max_pages:
-                break
-            page_letters, used = raster_panel_letters_from_page(page)
-            letters |= page_letters
-            engines = used or engines
-    finally:
-        doc.close()
+    for p in pages:
+        letters |= p.analysis.letters
+        engines = p.analysis.engines or engines
     return letters, "+".join(engines)

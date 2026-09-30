@@ -70,6 +70,56 @@ def test_collect_panel_labels_from_png(tmp_path: Path, monkeypatch):
     assert {r["panel"] for r in meta["1"].regions} == {"A", "B"}
 
 
+def test_photo_boxes_split_edge_to_edge_photos():
+    from panel_fixtures import photo
+
+    from pre_peer_checker.parsers.raster_figure_panel_ocr import _photo_boxes
+
+    canvas = Image.new("RGB", (200, 100), "white")
+    canvas.paste(photo(71, size=(90, 100)), (0, 0))
+    canvas.paste(photo(72, size=(90, 100)), (110, 0))
+    boxes = sorted(_photo_boxes(canvas))
+    assert len(boxes) == 2
+    assert boxes[0][0] == 0 and boxes[0][2] <= 100
+    assert boxes[1][0] >= 100 and boxes[1][2] == 200
+
+
+def test_raster_regions_fit_photos_and_keep_grid_for_graph_panels(tmp_path: Path, monkeypatch):
+    """Letters inside or just outside a photo get its box; a photo-less panel keeps its crop."""
+    fig = _blank_png(tmp_path / "Fig4.png", (600, 200))
+
+    def analysis(_path) -> RasterPanelOcrResult:
+        return RasterPanelOcrResult(
+            letters={"A", "B", "C"},
+            engines=["florence"],
+            crops=[
+                {"panel": "A", "box": [0.0, 0.0, 200.0, 200.0]},
+                {"panel": "B", "box": [200.0, 0.0, 400.0, 200.0]},
+                {"panel": "C", "box": [400.0, 0.0, 600.0, 200.0]},
+            ],
+            width=600,
+            height=200,
+            label_boxes={
+                "A": [2.0, 5.0, 14.0, 22.0],
+                "B": [215.0, 35.0, 228.0, 52.0],
+                "C": [405.0, 5.0, 417.0, 22.0],
+            },
+            photo_boxes=[[20.0, 30.0, 190.0, 190.0], [210.0, 30.0, 380.0, 190.0]],
+        )
+
+    monkeypatch.setattr(
+        "pre_peer_checker.parsers.raster_figure_panel_ocr.raster_panel_analysis_from_image",
+        analysis,
+    )
+    _labels, meta = panel_labels_from_raster_image_detailed(fig, raster_fallback=True)
+    boxes = {r["panel"]: (r["x0"], r["y0"], r["x1"], r["y1"]) for r in meta.regions}
+    assert boxes == {
+        "A": (2.0, 5.0, 190.0, 190.0),
+        "B": (210.0, 30.0, 380.0, 190.0),
+        "C": (400.0, 0.0, 600.0, 200.0),
+    }
+
+
 def test_raster_ocr_respects_disabled_flag(tmp_path: Path, monkeypatch):
     fig = _blank_png(tmp_path / "Fig2.png")
 

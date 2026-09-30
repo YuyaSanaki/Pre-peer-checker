@@ -95,6 +95,35 @@ def test_worded_counts_bind_like_n() -> None:
     assert {r for r in rows if r[0] == "G"} == {("G", 2, None)}
 
 
+def test_uppercase_letter_openers_start_sections() -> None:
+    text = (
+        "Fig. 2. Title of the figure. A: Plasma levels in both groups (n = 6). These are "
+        "three independent experiments. B and C: Weight (B) and length (C) of the organ "
+        "(n = 7–9). D, Imaging of the tissue. E, Quantification from D; control, n = 12; "
+        "mutant, n = 15. For B-C: data are mean ± SD."
+    )
+    rows = {(r.panel, r.group, r.n, r.n_max) for r in parse_panel_ns("Figure 2", text)}
+    assert ("A", "", 6, None) in rows
+    assert {("B", "", 7, 9), ("C", "", 7, 9)} <= rows
+    assert {r[2] for r in rows if r[0] == "E"} == {12, 15}
+    assert not {r for r in rows if r[0] == "D"}
+    assert not {r for r in rows if r[2] == 3}
+
+
+def test_lone_uppercase_comma_is_not_a_section() -> None:
+    text = "Figure 5. Overview. A, B and C were compared (n = 4)."
+    assert parse_panel_ns("Figure 5", text) == []
+
+
+def test_capital_n_next_to_lowercase_n_is_the_replicate_level() -> None:
+    text = (
+        "(A) Traces. (B) Half-life per cell (wild type, n = 12 single cells, N = 3 biological "
+        "replicates; mutant, n = 19 single cells, N = 4 biological replicates)."
+    )
+    rows = {(r.panel, r.n) for r in parse_panel_ns("Figure 5", text)}
+    assert rows == {("B", 12), ("B", 19)}
+
+
 def test_extended_data_keys() -> None:
     assert figure_num_key("Extended Data Fig. 3") == "ED3"
     assert figure_num_key("Extended Data Figure 10") == "ED10"

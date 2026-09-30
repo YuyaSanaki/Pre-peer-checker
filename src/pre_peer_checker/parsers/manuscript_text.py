@@ -281,7 +281,13 @@ def _assemble(pages: list[list[_Block]]) -> tuple[list[str], int]:
             last = open_leg[-1]
             follows = last_was_legend and b.page == last.page
             panel_cont = b.page in (last.page, last.page + 1) and _PANEL_OPEN_RE.match(b.text)
-            if follows or panel_cont:
+            # a legend cut mid-sentence at the page end resumes in the next legend-font block
+            unfinished = (
+                b.page in (last.page, last.page + 1)
+                and _smaller(b)
+                and not _SENT_END_RE.search(last.text)
+            )
+            if follows or panel_cont or unfinished:
                 open_leg.append(b)
                 last_was_legend = True
                 continue

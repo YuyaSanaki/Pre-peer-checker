@@ -120,6 +120,14 @@ _COMMA_OPEN_RE = re.compile(
     r"([a-z](?:\s*[–—-]\s*[a-z])?(?:\s*,\s*[a-z](?:\s*[–—-]\s*[a-z])?)*)"
     r",\s+(?=\S)"
 )
+# Uppercase ``A, Box plots …`` / ``D–F: Plasma …`` / ``G and H: …`` / ``For B-D: …`` at sentence start.
+_UPPER_LETTER = r"[A-Z](?![\w′'])"
+_UPPER_OPEN_RE = re.compile(
+    r"(?:^|(?<=[.;] ))(For\s+)?"
+    r"(" + _UPPER_LETTER + r"(?:\s*[–—-]\s*" + _UPPER_LETTER + r")?"
+    r"(?:(?:\s*,\s*|\s+and\s+)" + _UPPER_LETTER + r"(?:\s*[–—-]\s*" + _UPPER_LETTER + r")?)*)"
+    r"\s*[,:]\s+(?=\S)"
+)
 _UNIT_WORD_RE = re.compile(
     r"^(?:dishes?|images?|rois?|sarcomere\s+fi[bp](?:er|re)s?|aggregates?|fi[bp]ers?|"
     r"fields?|cells?|mice|animals?|samples?|replicates?|experiments?|fibers?|fibres?)\b",
@@ -346,6 +354,30 @@ def _normalize_caption_text(text: str) -> str:
     return t
 
 
+def _upper_letter_openers(text: str) -> list[tuple[int, list[str]]]:
+    """``A, …`` / ``D–F: …`` section openers, when the caption is written in that style.
+
+    Two or more openers in alphabetical order, starting at ``A``, mark the style; a later
+    ``For B-D:`` sentence re-opens panels already named. A lone ``A, `` is not enough.
+    """
+    kept: list[tuple[int, list[str]]] = []
+    back: list[tuple[int, list[str]]] = []
+    last = ""
+    for m in _UPPER_OPEN_RE.finditer(text):
+        panels = _expand_panel_token(m.group(2))
+        if not panels:
+            continue
+        if m.group(1):
+            back.append((m.start(), panels))
+        elif (not kept and panels[0] == "A") or (kept and panels[0] > last):
+            kept.append((m.start(), panels))
+            last = panels[-1]
+    if len(kept) < 2:
+        return []
+    named = {p for _, ps in kept for p in ps}
+    return kept + [(s, ps) for s, ps in back if set(ps) <= named]
+
+
 def _published_section_spans(
     text: str, *, nature_bare: bool
 ) -> list[tuple[int, int, list[str]]]:
@@ -353,6 +385,8 @@ def _published_section_spans(
 
     Two or more ``a–d,`` style openers mark a comma-style caption; they replace the
     bare-letter heuristic, which would read ``shown in b (n = 22)`` as a new section.
+    Uppercase ``A, `` / ``A: `` openers replace the ``(A)`` ones, which in that style are
+    in-sentence panel refs.
     """
     opens: list[tuple[int, list[str]]] = []
     comma = [
@@ -361,6 +395,10 @@ def _published_section_spans(
     ]
     if len(comma) >= 2:
         opens.extend((start, panels) for start, panels in comma if panels)
+        nature_bare = False
+    upper = _upper_letter_openers(text)
+    if upper:
+        opens.extend(upper)
         nature_bare = False
     for m in re.finditer(
         r"\("
@@ -371,7 +409,7 @@ def _published_section_spans(
         r"(?:\s+and\s+[A-Za-z]\d?)?"
         r")"
         r"\)",
-        text,
+        "" if upper else text,
     ):
         pre = text[max(0, m.start() - 12) : m.start()]
         # `n = 10 (D, E)` / `15 (day 3)` lists — but not gene names like `ATF4 (A and B)`
@@ -794,8 +832,9 @@ def _clause_mentions(
     """Sample-size mentions of one section: ``(start, end, [(n, n_max, group|None)], kind)``.
 
     ``n = 5`` / range ``n = 28–32`` (``n_max``) / ``n = 119–134 … for X and Y, respectively``
-    (split, one n per group) / worded ``three independent experiments`` (only in sentences
-    without ``n =``; ``30 cells from three mice`` keeps the 30).
+    (split, one n per group) / worded ``three independent experiments`` (only in sections
+    without ``n =``; ``30 cells from three mice`` keeps the 30). A capital ``N =`` next to a
+    lowercase ``n =`` in the same sentence is the replicate level and is skipped.
     """
     def sentence(pos: int) -> tuple[int, int]:
         s = max([b for b in breaks if b <= pos], default=0)
@@ -804,7 +843,12 @@ def _clause_mentions(
 
     out: list[tuple[int, int, list[tuple[int, int | None, str | None]], str]] = []
     n_sentences: set[int] = set()
-    for m in _N_MENTION_RE.finditer(chunk):
+    mentions = list(_N_MENTION_RE.finditer(chunk))
+    lower = {sentence(m.start())[0] for m in mentions if m.group(0)[0] == "n"}
+    for m in mentions:
+        # ``n = 12 cells, N = 3 replicates``: capital N counts the higher level
+        if m.group(0)[0] == "N" and sentence(m.start())[0] in lower:
+            continue
         lo = int(m.group(1))
         n_sentences.add(sentence(m.start())[0])
         if not m.group(2):
@@ -822,9 +866,9 @@ def _clause_mentions(
             out.append((m.start(), m.end(), [(lo, hi, None)], "range"))
     last_worded: dict[int, int] = {}
     for m in _WORDED_N_RE.finditer(chunk):
-        s, _ = sentence(m.start())
-        if s in n_sentences:
+        if n_sentences:
             continue
+        s, _ = sentence(m.start())
         prior = last_worded.get(s)
         last_worded[s] = m.end()
         if prior is not None and re.fullmatch(r"\s*from\s+", chunk[prior : m.start()], re.I):

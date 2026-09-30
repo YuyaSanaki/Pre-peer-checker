@@ -84,6 +84,51 @@ def test_photo_boxes_split_edge_to_edge_photos():
     assert boxes[1][0] >= 100 and boxes[1][2] == 200
 
 
+def test_photo_boxes_keep_a_strip_of_abutting_micrographs():
+    from panel_fixtures import photo
+
+    from pre_peer_checker.parsers.raster_figure_panel_ocr import _photo_boxes
+
+    canvas = Image.new("RGB", (700, 100), "white")
+    for i in range(6):
+        canvas.paste(photo(80 + i, size=(100, 90)), (50 + 100 * i, 5))
+    assert len(_photo_boxes(canvas)) == 1
+
+
+def test_letter_leading_its_line_beats_one_inside_a_title():
+    from pre_peer_checker.parsers.raster_figure_panel_ocr import _label_boxes, _token_dets
+
+    dets = _token_dets(
+        [
+            {"text": "a Bovine muscle c", "box": [0.0, 0.0, 340.0, 40.0]},
+            {"text": "c", "box": [500.0, 300.0, 520.0, 320.0]},
+        ]
+    )
+    boxes = _label_boxes(dets, "lower", {"a", "c"})
+    assert boxes["c"] == [500.0, 300.0, 520.0, 320.0]
+    assert boxes["a"][0] == 0.0
+
+
+def test_page_of_several_bitmaps_is_read_whole(tmp_path: Path):
+    import pymupdf
+    from panel_fixtures import photo
+
+    from pre_peer_checker.parsers.raster_figure_panel_ocr import _page_figure_image
+
+    png = tmp_path / "p.png"
+    photo(90, size=(200, 200)).save(png)
+    doc = pymupdf.open()
+    page = doc.new_page(width=400, height=400)
+    page.insert_image(pymupdf.Rect(0, 0, 300, 300), filename=str(png))
+    page.insert_image(pymupdf.Rect(310, 310, 400, 400), filename=str(png))
+    _img, clip = _page_figure_image(page)
+    assert clip == (0.0, 0.0, 400.0, 400.0)
+    whole = doc.new_page(width=400, height=400)
+    whole.insert_image(pymupdf.Rect(0, 0, 400, 390), filename=str(png), keep_proportion=False)
+    _img, clip = _page_figure_image(whole)
+    assert clip[3] < 400
+
+
 def test_raster_regions_fit_photos_and_keep_grid_for_graph_panels(tmp_path: Path, monkeypatch):
     """Letters inside or just outside a photo get its box; a photo-less panel keeps its crop."""
     fig = _blank_png(tmp_path / "Fig4.png", (600, 200))
@@ -118,6 +163,32 @@ def test_raster_regions_fit_photos_and_keep_grid_for_graph_panels(tmp_path: Path
         "B": (210.0, 30.0, 380.0, 190.0),
         "C": (400.0, 0.0, 600.0, 200.0),
     }
+
+
+def test_missed_letters_in_a_photo_row_are_filled_in_order():
+    from pre_peer_checker.parsers.figure_panel_layout import fill_label_gaps
+
+    photos = [[x, 100.0, x + 90.0, 200.0] for x in (0.0, 100.0, 200.0, 300.0)]
+    labels = {
+        "H": [2.0, 80.0, 14.0, 96.0],
+        "K": [302.0, 80.0, 314.0, 96.0],
+        "I": [520.0, 300.0, 530.0, 316.0],  # axis tick elsewhere
+    }
+    out, filled = fill_label_gaps(labels, photos)
+    assert filled == {"I", "J"}
+    assert out["I"][:2] == [100.0, 100.0]
+    assert out["J"][:2] == [200.0, 100.0]
+
+
+def test_gap_fill_needs_the_photo_count_to_match():
+    """One label over two photos (b-left, b-right) must not shift the next letters."""
+    from pre_peer_checker.parsers.figure_panel_layout import fill_label_gaps
+
+    photos = [[x, 100.0, x + 90.0, 200.0] for x in (0.0, 100.0, 200.0)]
+    labels = {"B": [2.0, 80.0, 14.0, 96.0], "C": [202.0, 80.0, 214.0, 96.0]}
+    out, filled = fill_label_gaps(labels, photos)
+    assert filled == set()
+    assert out == labels
 
 
 def test_raster_ocr_respects_disabled_flag(tmp_path: Path, monkeypatch):

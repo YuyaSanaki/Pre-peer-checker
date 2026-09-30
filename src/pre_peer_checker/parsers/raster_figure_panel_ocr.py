@@ -21,6 +21,8 @@ from typing import Any
 from pre_peer_checker.parsers.figure_panel_layout import (
     CASELESS_LETTERS,
     crops_from_panel_letters,
+    dominant_panel_run,
+    fill_label_gaps,
     panel_boxes_from_photos,
     panel_letter_dets,
 )
@@ -34,13 +36,15 @@ _FLORENCE_ID = "florence-community/Florence-2-large"
 
 _lock = threading.Lock()
 _florence: Any = None
+_vlm: Any = None
 
 
 def unload_raster_ocr_models() -> None:
     """Drop Florence weights so later GPU stages (LightGlue / DINOv2) keep VRAM."""
-    global _florence
+    global _florence, _vlm
     with _lock:
         _florence = None
+        _vlm = None
     import gc
 
     gc.collect()
@@ -243,16 +247,22 @@ def _infer_panel_case(dets: list[dict]) -> str:
 
 
 def _page_figure_image(page):
-    """PIL RGB of the dominant embedded image (else the whole page), plus its page rect."""
+    """PIL RGB of the page, or of its one image when that bitmap is the whole figure.
+
+    Figures assembled from several bitmaps keep panels (and their letters) outside
+    the largest one, so they are read as the whole page.
+    """
     import fitz
     from PIL import Image
 
+    def area(r) -> float:
+        return (r["bbox"][2] - r["bbox"][0]) * (r["bbox"][3] - r["bbox"][1])
+
     infos = page.get_image_info()
     rect = page.rect
-    area = sum((r["bbox"][2] - r["bbox"][0]) * (r["bbox"][3] - r["bbox"][1]) for r in infos)
     clip = rect
-    if infos and area >= 0.15 * rect.width * rect.height:
-        big = max(infos, key=lambda r: (r["bbox"][2] - r["bbox"][0]) * (r["bbox"][3] - r["bbox"][1]))
+    big = max(infos, key=area) if infos else None
+    if big is not None and area(big) >= 0.9 * rect.width * rect.height:
         clip = fitz.Rect(big["bbox"]) & rect
     pix = page.get_pixmap(dpi=_DPI, clip=clip, alpha=False)
     img = Image.frombytes("RGB", (pix.width, pix.height), pix.samples)
@@ -271,11 +281,19 @@ def _token_dets(dets: list[dict]) -> list[dict]:
         x0, y0, x1, y1 = d["box"]
         per = (x1 - x0) / max(len(text), 1)
         pos = 0
-        for tok in toks:
+        for i, tok in enumerate(toks):
             start = text.index(tok, pos)
             pos = start + len(tok)
-            out.append({"text": tok, "box": [x0 + start * per, y0, x0 + pos * per, y1]})
+            box = [x0 + start * per, y0, x0 + pos * per, y1]
+            out.append({"text": tok, "box": box, "lead": i == 0})
     return out
+
+
+def _label_boxes(dets: list[dict], case: str, letters: set[str]) -> dict[str, list[float]]:
+    """Where each panel letter sits; a letter leading its line beats one inside a title."""
+    boxes = dict(panel_letter_dets(dets, case=case))
+    boxes.update(panel_letter_dets([d for d in dets if d.get("lead", True)], case=case))
+    return {ch: b for ch, b in boxes.items() if ch in letters}
 
 
 def _ink_boxes(full, max_side: int = 800, level: int = 235) -> list[list[float]]:
@@ -301,14 +319,18 @@ def _ink_boxes(full, max_side: int = 800, level: int = 235) -> list[list[float]]
 
 
 def _photo_boxes(full, pad: int = 10) -> list[list[float]]:
-    """Whitespace-split photo panels in image pixels (white pad so edge photos split)."""
+    """Whitespace-split photo panels in image pixels (white pad so edge photos split).
+
+    Abutting micrographs (channels, time points) form one long strip; it is kept and
+    later divided at the letters sitting on it.
+    """
     from PIL import ImageOps
 
     from pre_peer_checker.imaging.panel_split import split_panels
 
     padded = ImageOps.expand(full, border=pad, fill="white")
     boxes = []
-    for b in split_panels(padded):
+    for b in split_panels(padded, max_aspect=8.0):
         x0, y0 = max(b.left - pad, 0), max(b.top - pad, 0)
         x1, y1 = min(b.right - pad, full.width), min(b.bottom - pad, full.height)
         if x1 > x0 and y1 > y0:
@@ -344,6 +366,9 @@ class RasterPanelOcrResult:
     label_boxes: dict[str, list[float]] = field(default_factory=dict)
     photo_boxes: list[list[float]] = field(default_factory=list)
     ink_boxes: list[list[float]] = field(default_factory=list)
+    inferred: set[str] = field(default_factory=set)
+    not_labels: set[str] = field(default_factory=set)
+    vlm_answers: dict[str, Any] = field(default_factory=dict)
 
     @property
     def engine_label(self) -> str:
@@ -353,15 +378,21 @@ class RasterPanelOcrResult:
         """Upper-case panel -> box in image pixels for the kept letters.
 
         Boxes fit the split photos and ink the letter owns; letters without any
-        keep the letter-grid crop from the layout pass.
+        keep the letter-grid crop from the layout pass. Letters OCR missed inside a
+        row of photos are filled from the letters around them.
         """
-        keep = {str(c).upper() for c in kept}
+        keep = {str(c).upper() for c in kept} - self.not_labels
         boxes = {
             str(c["panel"]).upper(): list(c["box"])
             for c in self.crops
             if str(c.get("panel") or "").upper() in keep
         }
-        labels = {k.upper(): b for k, b in self.label_boxes.items() if k.upper() in keep}
+        labels = {
+            k.upper(): b
+            for k, b in self.label_boxes.items()
+            if k.upper() in keep or k.upper() in self.inferred
+        }
+        labels, _filled = fill_label_gaps(labels, self.photo_boxes)
         boxes.update(panel_boxes_from_photos(labels, self.photo_boxes, self.ink_boxes))
         return boxes
 
@@ -398,17 +429,9 @@ def load_figure_rgb(path: Path | str):
         return im.convert("RGB")
 
 
-def raster_panel_analysis_from_rgb(full, *, engines: list[str] | None = None) -> RasterPanelOcrResult:
-    """Layout + crop OCR on an already-loaded RGB image."""
-    engines = list(engines) if engines is not None else ocr_engine_names()
-    result = RasterPanelOcrResult(
-        engines=engines, width=int(full.width), height=int(full.height)
-    )
-    if not engines:
-        return result
+def _run_ocr(full, engines: list[str]) -> tuple[list[dict], str, list[dict]]:
+    """Layout crops, their case, and every OCR detection in full-image pixels."""
     crops, case = _panel_crops(full, engines)
-    result.crops = crops
-
     vision = _AppleVisionOcr() if "vision" in engines else None
     florence = _get_florence() if "florence" in engines else None
     dets: list[dict] = []
@@ -430,21 +453,90 @@ def raster_panel_analysis_from_rgb(full, *, engines: list[str] | None = None) ->
         # Also the whole image in overlapping tiles: each crop starts at its own label,
         # and Florence drops text sitting on the image border.
         dets.extend(florence.ocr_image(full))
+    return crops, case, dets
+
+
+def _cached_ocr(full, engines: list[str]) -> tuple[list[dict], str, list[dict]]:
+    """``PRE_PEER_CHECKER_RASTER_OCR_CACHE=<dir>`` (evaluation only) reuses OCR per image,
+    so changes after OCR can be compared on identical detections."""
+    cache_dir = (os.environ.get("PRE_PEER_CHECKER_RASTER_OCR_CACHE") or "").strip()
+    if not cache_dir:
+        return _run_ocr(full, engines)
+    import hashlib
+    import json
+
+    h = hashlib.sha256(full.tobytes())
+    h.update(f"{full.size}|{'+'.join(engines)}|{_MAX_SIDE}".encode())
+    path = Path(cache_dir) / f"{h.hexdigest()[:24]}.json"
+    if path.is_file():
+        d = json.loads(path.read_text(encoding="utf-8"))
+        return d["crops"], d["case"], d["dets"]
+    crops, case, dets = _run_ocr(full, engines)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps({"crops": crops, "case": case, "dets": dets}), encoding="utf-8")
+    return crops, case, dets
+
+
+def raster_panel_analysis_from_rgb(full, *, engines: list[str] | None = None) -> RasterPanelOcrResult:
+    """Layout + crop OCR on an already-loaded RGB image."""
+    engines = list(engines) if engines is not None else ocr_engine_names()
+    result = RasterPanelOcrResult(
+        engines=engines, width=int(full.width), height=int(full.height)
+    )
+    if not engines:
+        return result
+    crops, case, dets = _cached_ocr(full, engines)
+    result.crops = crops
 
     if dets:
         case = _infer_panel_case(dets)
     result.letters = {ch for ch, _ in panel_letter_dets(dets, case=case)}
     # c' / c'' are sub-panels of c; only the bare letter marks where panel c starts.
     unprimed = [d for d in _token_dets(dets) if not _PRIMED_RE.match(str(d.get("text", "")))]
-    result.label_boxes = {
-        ch: box for ch, box in panel_letter_dets(unprimed, case=case) if ch in result.letters
-    }
+    result.label_boxes = _label_boxes(unprimed, case, result.letters)
     try:
         result.photo_boxes = _photo_boxes(full)
         result.ink_boxes = _ink_boxes(full)
     except Exception:
         result.photo_boxes, result.ink_boxes = [], []
+    _vlm_check_labels(full, result)
     return result
+
+
+def _get_vlm() -> Any:
+    global _vlm
+    with _lock:
+        if _vlm is None:
+            from pre_peer_checker.llm.vlm_backend import select_vlm_backend
+
+            _vlm = select_vlm_backend(os.environ.get("PRE_PEER_CHECKER_PANEL_VLM_PREFER") or "auto") or False
+        return _vlm or None
+
+
+def _vlm_check_labels(full, result: RasterPanelOcrResult) -> None:
+    """Opt-in (PRE_PEER_CHECKER_PANEL_VLM_SELECT=1): VLM reads doubtful label spots."""
+    from pre_peer_checker.llm.panel_letter_select import select_labels_with_vlm, vlm_select_enabled
+
+    if not vlm_select_enabled() or not result.label_boxes:
+        return
+    keep = {c.upper() for c in dominant_panel_run(result.letters)}
+    labels = {k.upper(): b for k, b in result.label_boxes.items() if k.upper() in keep}
+    labels, _filled = fill_label_gaps(labels, result.photo_boxes)
+    try:
+        sel = select_labels_with_vlm(full, labels, result.photo_boxes, result.ink_boxes, _get_vlm())
+    except Exception:
+        return
+    if sel is None:
+        return
+    lower = next(iter(result.label_boxes)).islower()
+    result.label_boxes = {
+        k: b for k, b in result.label_boxes.items() if k.upper() not in sel.not_labels
+    }
+    for k in sel.added:
+        result.label_boxes[k.lower() if lower else k] = sel.labels[k]
+    result.inferred |= sel.added
+    result.not_labels |= sel.not_labels
+    result.vlm_answers = sel.answers
 
 
 def raster_panel_analysis_from_image(path: Path | str) -> RasterPanelOcrResult:

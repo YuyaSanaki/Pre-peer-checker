@@ -130,14 +130,16 @@ def _regions_for_kept_letters(
 
 
 def _has_internal_gap(labels: set[str]) -> bool:
-    """True when the vector letters skip a letter inside their own span.
+    """True when the vector letters skip a letter inside their span or do not start at A.
 
     A skipped letter usually means that panel's label is part of the artwork
     bitmap rather than PDF text, so OCR can still recover it.
     """
-    ascii_letters = sorted(c for c in labels if c.isascii() and c.isalpha())
-    if len(ascii_letters) < 2:
+    ascii_letters = sorted(c.upper() for c in labels if c.isascii() and c.isalpha())
+    if not ascii_letters:
         return False
+    if ascii_letters[0] != "A":
+        return True
     span = ord(ascii_letters[-1]) - ord(ascii_letters[0]) + 1
     return len(ascii_letters) < span
 

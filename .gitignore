@@ -76,6 +76,7 @@ fixtures/gold/private/
 fixtures/gold/panel_extract/*/panel_extract_gold.json
 fixtures/gold/panel_extract/*/panel_extract_draft.json
 fixtures/gold/panel_extract/*/panel_labels_gold.json
+fixtures/gold/panel_extract/*/panel_boxes_gold.json
 fixtures/gold/panel_extract/*/case_manifest.json
 
 # Optional local case notes derived from private manuscripts

@@ -217,6 +217,66 @@ def panel_boxes_from_elements(
     return out
 
 
+def _corner_owner(photo: list[float], centers: dict[str, tuple[float, float]], label_h: float) -> str | None:
+    """Label at the photo's top-left corner (printed on it or just outside)."""
+    w, h = photo[2] - photo[0], photo[3] - photo[1]
+    zone = [photo[0] - 2 * label_h, photo[1] - 2 * label_h, photo[0] + 0.35 * w, photo[1] + 0.35 * h]
+    near = [
+        (abs(cx - photo[0]) + abs(cy - photo[1]), k)
+        for k, (cx, cy) in centers.items()
+        if _contains(zone, cx, cy)
+    ]
+    return min(near)[1] if near else None
+
+
+def fill_label_gaps(
+    labels: dict[str, list[float]],
+    photos: list[list[float]],
+) -> tuple[dict[str, list[float]], set[str]]:
+    """Letters OCR missed on a row of same-size photos, inferred from the letters around them.
+
+    Between two labelled photos in one row (``h`` ... ``k``), unlabeled photos get the
+    skipped letters (``i``, ``j``) in reading order, but only when their count matches
+    the gap exactly. A filled letter's label box sits on the photo's top-left corner
+    and replaces any position OCR gave that letter elsewhere (axis ticks, tables).
+    """
+    if len(labels) < 2 or len(photos) < 3:
+        return dict(labels), set()
+    heights = sorted(b[3] - b[1] for b in labels.values())
+    label_h = heights[len(heights) // 2]
+    centers = {k: box_center(b) for k, b in labels.items()}
+    owners = [_corner_owner(p, centers, label_h) for p in photos]
+
+    rows: list[list[int]] = []
+    for i in sorted(range(len(photos)), key=lambda j: (photos[j][1], photos[j][0])):
+        p = photos[i]
+        ph = p[3] - p[1]
+        for row in rows:
+            q = photos[row[0]]
+            qh = q[3] - q[1]
+            if abs(p[1] - q[1]) <= max(label_h, 0.1 * qh) and abs(ph - qh) <= 0.2 * max(ph, qh):
+                row.append(i)
+                break
+        else:
+            rows.append([i])
+
+    out = dict(labels)
+    filled: set[str] = set()
+    for row in rows:
+        row.sort(key=lambda j: photos[j][0])
+        tagged = [(pos, owners[j]) for pos, j in enumerate(row) if owners[j] is not None]
+        for (a, la), (b, lb) in pairwise(tagged):
+            gap = ord(lb) - ord(la) - 1
+            if b - a - 1 <= 0 or gap != b - a - 1 or not (la.isalpha() and lb.isalpha()):
+                continue
+            for t, pos in enumerate(range(a + 1, b), start=1):
+                p = photos[row[pos]]
+                letter = chr(ord(la) + t)
+                out[letter] = [p[0], p[1], p[0] + label_h, p[1] + label_h]
+                filled.add(letter)
+    return out, filled
+
+
 def panel_boxes_from_photos(
     labels: dict[str, list[float]],
     photos: list[list[float]],

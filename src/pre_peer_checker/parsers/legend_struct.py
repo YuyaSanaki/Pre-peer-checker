@@ -7,13 +7,23 @@
 from __future__ import annotations
 
 import re
+from collections.abc import Iterable
 from dataclasses import dataclass, field
 from pathlib import Path
 
 _FIG_START_RE = re.compile(
-    r"^(Figure|Fig\.?|Supplementary Figure|Table)\s*(S?\d+)",
+    r"^(Extended\s+Data\s+Fig(?:ure|\.)?|Figure|Fig\.?|Supplementary Figure|Table)\s*(S?\d+)",
     re.IGNORECASE,
 )
+# Typeset PDFs put zero-width / thin spaces inside ``n =​ 22`` and ``P <​ 0.01``.
+_INVISIBLE_RE = re.compile("[\u200b\u200c\u200d\u2060\ufeff]")
+_THIN_SPACE_RE = re.compile("[\u00a0\u2002-\u200a\u202f]")
+
+
+def clean_legend_text(text: str) -> str:
+    return _THIN_SPACE_RE.sub(" ", _INVISIBLE_RE.sub("", text or ""))
+
+
 # Panel section openers: (A)  (D-I)  (K–M)  (N-Q) — NOT n=…(early L3)
 _SECTION_OPEN_RE = re.compile(
     r"(?:^|[.\u3002;]\s*|\()\s*"
@@ -60,9 +70,20 @@ _CAPTION_END_RE = re.compile(
     r"(?:Source data are provided|Scale bars?:|See also Figure|Data are mean)",
     re.IGNORECASE,
 )
+# PLOS ``Fig 1.`` / Sci Rep ``Fig. 1.`` / Frontiers ``FIGURE 1`` (own line); not ``Fig 1B``.
+_LINE_CAPTION_RE = re.compile(
+    r"^[^\S\n]*(?:Fig\.?|Figure|FIGURE)[^\S\n]*(\d+)(?![^\S\n]*\(Continued\))[^\S\n]*(?:[.|:]|$)",
+    re.MULTILINE,
+)
 _NATURE_BARE_HINT_RE = re.compile(
     r"Fig\.\s*\d+\s*\||\bN\s*=\s*\d+\s+(?:dishes?|images?|ROIs?|aggregates?|fi[bp]ers?)",
     re.IGNORECASE,
+)
+# Nature ``a–d, Confocal images …`` / ``e, f, Left …`` / ``i, Quantification …`` at sentence start.
+_COMMA_OPEN_RE = re.compile(
+    r"(?:^|(?<=[.;|] ))"
+    r"([a-z](?:\s*[–—-]\s*[a-z])?(?:\s*,\s*[a-z](?:\s*[–—-]\s*[a-z])?)*)"
+    r",\s+(?=\S)"
 )
 _UNIT_WORD_RE = re.compile(
     r"^(?:dishes?|images?|rois?|sarcomere\s+fi[bp](?:er|re)s?|aggregates?|fi[bp]ers?|"
@@ -275,7 +296,7 @@ def _trim_published_caption(text: str) -> str:
 
 
 def _normalize_caption_text(text: str) -> str:
-    t = (text or "").replace("\u00ad", "")
+    t = clean_legend_text(text).replace("\u00ad", "")
     t = t.replace("ﬁ", "fi").replace("ﬂ", "fl")
     t = re.sub(r"-\s*\n\s*", "", t)
     t = re.sub(r"\s+", " ", t)
@@ -285,8 +306,19 @@ def _normalize_caption_text(text: str) -> str:
 def _published_section_spans(
     text: str, *, nature_bare: bool
 ) -> list[tuple[int, int, list[str]]]:
-    """Section openers for published captions: (A)/(G and H) and optional Nature a/e,f."""
+    """Section openers for published captions: (A)/(G and H) and optional Nature a/e,f.
+
+    Two or more ``a–d,`` style openers mark a comma-style caption; they replace the
+    bare-letter heuristic, which would read ``shown in b (n = 22)`` as a new section.
+    """
     opens: list[tuple[int, list[str]]] = []
+    comma = [
+        (m.start(1), _expand_panel_token(m.group(1).upper()))
+        for m in _COMMA_OPEN_RE.finditer(text)
+    ]
+    if len(comma) >= 2:
+        opens.extend((start, panels) for start, panels in comma if panels)
+        nature_bare = False
     for m in re.finditer(
         r"\("
         r"("
@@ -438,10 +470,14 @@ def _parse_published_pdf_styles(figure: str, text: str) -> list[PanelN]:
     return found
 
 
+# Groups: 1 cohort word, 2 genotype-panel letter (``shown in b (n = 22)``, ``(n) (n = 30)``;
+# not ``24 h (n = 5)``), 3 condition, 4 n, 5 panel list. A unit / descriptor may follow n:
+# ``(n = 22 eye discs)`` / ``(n = 19, number of eye discs)``.
 _POSTFIX_N_RE = re.compile(
-    r"(?:(\b(?:clinical\s+)?patients?\b|\bmice\b)\s+)?"
+    r"(?:(\b(?:clinical\s+)?patients?\b|\bmice\b)\s+"
+    r"|(?<![\w(])(?<!\d )\(?((?-i:[a-z]))\)?\s+)?"
     r"\((?:([^(),]{1,30}?),\s*)?n\s*=\s*(\d+)"
-    r"(?:\s*,\s*([A-Z](?:\s*(?:,|and|[-–—])\s*[A-Z])*))?\)",
+    r"(?:\s*,\s*([A-Z](?:\s*(?:,|and|[-–—])\s*[A-Z])*)(?=\s*\))|[\s,][^()\d]{0,40}?)?\s*\)",
     re.I,
 )
 _INLINE_PANEL_REF_RE = re.compile(
@@ -485,7 +521,8 @@ def _postfix_n_assignments(
     labelled = []
     for m in hits:
         prefix = (m.group(1) or "").strip()
-        cond = (m.group(2) or "").strip()
+        letter = m.group(2) or ""
+        cond = (m.group(3) or "").strip()
         group = ""
         if (
             cond
@@ -493,36 +530,41 @@ def _postfix_n_assignments(
             and not re.match(r"^(upper|lower|left|right|see)\b", cond, re.I)
         ):
             group = cond
+        elif letter:
+            group = letter
         elif re.search(r"patients?", prefix, re.I):
             group = "patients"
         elif re.search(r"\bmice\b", prefix, re.I):
             group = "mice"
-        labelled.append((m, group, bool(prefix) and not cond))
+        labelled.append((m, group, bool(prefix) and not cond, bool(letter) and not cond))
     # "mice (n = 5)" is a group label only when contrasted with another cohort
-    cohort_labels = {g for _, g, from_prefix in labelled if from_prefix and g}
+    cohort_labels = {g for _, g, from_prefix, _ in labelled if from_prefix and g}
     if len(cohort_labels) < 2:
         labelled = [
-            (m, "" if from_prefix else g, from_prefix) for m, g, from_prefix in labelled
+            (m, "" if from_prefix else g, from_prefix, from_letter)
+            for m, g, from_prefix, from_letter in labelled
         ]
 
-    # (G and H) … (RNA-seq, n = 3) and … (ATAC-seq, n = 3): one labelled n per panel, in order
-    groups = [g for _, g, _ in labelled]
+    # (G and H) … (RNA-seq, n = 3) and … (ATAC-seq, n = 3): one labelled n per panel, in order.
+    # Genotype letters (``shown in b (n = 22)``) name groups of a shared plot, not panels.
+    groups = [g for _, g, _, _ in labelled]
     paired = (
         multi
         and not refs
         and len(labelled) == len(section_panels)
         and all(groups)
         and len(set(groups)) == len(groups)
+        and not any(from_letter for *_, from_letter in labelled)
     )
 
     out: list[tuple[str, int, str, str]] = []
     prev_end = body_start
     last_ref_panels: list[str] = []
-    for idx, (m, group, _) in enumerate(labelled):
-        n = int(m.group(3))
+    for idx, (m, group, _, _) in enumerate(labelled):
+        n = int(m.group(4))
         ctx = m.group(0)[:120]
-        if m.group(4):
-            targets = _expand_panel_token(m.group(4))
+        if m.group(5):
+            targets = _expand_panel_token(m.group(5))
         elif paired:
             targets = [section_panels[idx]]
         elif refs:
@@ -550,6 +592,7 @@ def _postfix_n_assignments(
 def parse_panel_ns(figure: str, text: str) -> list[PanelN]:
     """Context-aware panel n extraction (rules fallback / offline path)."""
     found: list[PanelN] = []
+    text = clean_legend_text(text)
     if not text:
         return found
 
@@ -680,25 +723,76 @@ def extract_figure_captions_from_pdf_text(
 ) -> list[tuple[str, str]]:
     """Split pdftotext -raw output into (Figure N, caption) pairs.
 
-    Prefer ``Fig. N |`` (Nature) then ``Figure N.`` (Cell). ``keep`` filters
-    figure numbers as strings ('1','2',...). Using -raw avoids two-column
-    left/right interleaving that breaks panel↔n pairing.
+    Header styles: ``Fig. N |`` (Nature), ``Figure N.`` (Cell), or a line-start
+    header (``Fig 1.`` / ``Fig. 1.`` / ``FIGURE 1``; first per number, ``(Continued)``
+    repeats skipped). The style covering the most figure numbers wins (ties keep that
+    order), so in-text ``Figure 2.`` references do not shadow the real headers.
+    ``keep`` filters figure numbers as strings ('1','2',...). Using -raw avoids
+    two-column left/right interleaving that breaks panel↔n pairing.
     """
     keep = keep or set()
+    text = text or ""
+    best: list[re.Match[str]] = []
+    for pat in (r"(?<!Data )Fig\.\s*(\d+)\s*\|", r"(?<!Data )Figure\s+(\d+)\.", _LINE_CAPTION_RE):
+        hits = list(re.finditer(pat, text))
+        if pat is _LINE_CAPTION_RE:
+            hits = _first_per_number(hits)
+        if len({m.group(1) for m in hits}) > len({m.group(1) for m in best}):
+            best = hits
+    heads = sorted(
+        [(m.start(), "", m.group(1)) for m in best]
+        + [(m.start(), "ED", m.group(1)) for m in _first_per_number(_ED_CAPTION_RE.finditer(text))]
+    )
     pairs: list[tuple[str, str]] = []
-    for pat in (r"Fig\.\s*(\d+)\s*\|", r"Figure\s+(\d+)\."):
-        hits = list(re.finditer(pat, text or ""))
-        if not hits:
+    for i, (start, prefix, num) in enumerate(heads):
+        if keep and f"{prefix}{num}" not in keep:
             continue
-        for i, m in enumerate(hits):
-            num = m.group(1)
-            if keep and num not in keep:
-                continue
-            end = hits[i + 1].start() if i + 1 < len(hits) else min(len(text), m.start() + 8000)
-            pairs.append((f"Figure {num}", text[m.start() : end]))
-        if pairs:
-            break
+        end = heads[i + 1][0] if i + 1 < len(heads) else min(len(text), start + 8000)
+        figure = f"Extended Data Figure {num}" if prefix else f"Figure {num}"
+        pairs.append((figure, _cut_caption_tail(clean_legend_text(text[start:end]))))
     return pairs
+
+
+_ED_CAPTION_RE = re.compile(
+    r"^[^\S\n]*Extended[^\S\n]+Data[^\S\n]+Fig(?:ure|\.)?[^\S\n]*(\d+)[^\S\n]*[.|:]",
+    re.MULTILINE | re.IGNORECASE,
+)
+# Running footer lines (copyright / download stamps) end a caption in -raw output.
+_CAPTION_STOP_RE = re.compile(r"^[^\S\n]*(?:©|Downloaded\s+from\b)", re.MULTILINE | re.IGNORECASE)
+# -raw also emits the artwork's own text after the caption: axis ticks, genotype and
+# panel labels, one short line each. Superscript breaks (``gene−/−`` / ``(k),``) also
+# give runs of short lines, but those continue a sentence instead of following its end.
+_LABEL_LINE_MAX = 24
+_LABEL_RUN = 8
+
+
+def _first_per_number(hits: Iterable[re.Match[str]]) -> list[re.Match[str]]:
+    seen: set[str] = set()
+    return [m for m in hits if not (m.group(1) in seen or seen.add(m.group(1)))]
+
+
+def _cut_caption_tail(caption: str) -> str:
+    stop = _CAPTION_STOP_RE.search(caption)
+    if stop:
+        caption = caption[: stop.start()]
+    offset = 0
+    run_start: int | None = None
+    run = 0
+    prev = ""
+    for line in caption.split("\n"):
+        s = line.strip()
+        if s:
+            if len(s) <= _LABEL_LINE_MAX and (run or prev.endswith(".")):
+                if not run:
+                    run_start = offset
+                run += 1
+                if run >= _LABEL_RUN and run_start:
+                    return caption[:run_start].rstrip()
+            else:
+                run = 0
+            prev = s
+        offset += len(line) + 1
+    return caption.rstrip()
 
 
 def extract_figure_captions_from_pdf(
@@ -737,7 +831,10 @@ def extract_structured_legends_from_paragraphs(paragraphs: list[str]) -> list[St
         if not m:
             i += 1
             continue
-        figure = f"{m.group(1)} {m.group(2)}".replace("Fig.", "Figure")
+        if m.group(1).lower().startswith("extended"):
+            figure = f"Extended Data Figure {m.group(2)}"
+        else:
+            figure = f"{m.group(1)} {m.group(2)}".replace("Fig.", "Figure")
         parts = [paragraphs[i]]
         j = i + 1
         while j < len(paragraphs) and not _FIG_START_RE.match(paragraphs[j]):
@@ -745,7 +842,7 @@ def extract_structured_legends_from_paragraphs(paragraphs: list[str]) -> list[St
             j += 1
             if len(parts) > 12:
                 break
-        text = " ".join(parts)
+        text = clean_legend_text(" ".join(parts))
         panel_ns = parse_panel_ns(figure, text)
         tests = [t.group(0) for t in _TEST_RE.finditer(text)]
         pvals = []

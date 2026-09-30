@@ -52,6 +52,151 @@ def dominant_panel_run(letters, *, max_gap: int = 1) -> set[str]:
     return set(max(runs, key=lambda r: (len(r), -ord(r[0]))))
 
 
+def _contains(box, x: float, y: float, pad: float = 0.0) -> bool:
+    return box[0] - pad <= x <= box[2] + pad and box[1] - pad <= y <= box[3] + pad
+
+
+def _union(a, b) -> list[float]:
+    return [min(a[0], b[0]), min(a[1], b[1]), max(a[2], b[2]), max(a[3], b[3])]
+
+
+def _gap(a, b) -> float:
+    dx = max(0.0, max(a[0], b[0]) - min(a[2], b[2]))
+    dy = max(0.0, max(a[1], b[1]) - min(a[3], b[3]))
+    return (dx * dx + dy * dy) ** 0.5
+
+
+def _grow(box: list[float], items: list[tuple[float, list[float]]], others) -> tuple[list[float], bool]:
+    grew = False
+    for _d, el in sorted(items, key=lambda t: t[0]):
+        cand = _union(box, el)
+        if any(_contains(cand, x, y) for x, y in others):
+            continue
+        box = cand
+        grew = True
+    return box, grew
+
+
+def _local_grid(area: list[float], centers: dict[str, tuple[float, float]], tol: float) -> dict[str, list[float]]:
+    """Cells inside ``area`` for the labels in it: each runs right to the next label in
+    its row (else the area edge) and down to the next row (else the area bottom)."""
+    out: dict[str, list[float]] = {}
+    for k, (cx, cy) in centers.items():
+        below = [y for _j, (_x, y) in centers.items() if y > cy + tol]
+        right = [x for _j, (x, y) in centers.items() if x > cx + tol and abs(y - cy) <= tol]
+        out[k] = [
+            max(area[0], cx - tol),
+            max(area[1], cy - tol),
+            min(right) - tol if right else area[2],
+            min(below) - tol if below else area[3],
+        ]
+    return out
+
+
+def panel_boxes_from_elements(
+    labels: dict[str, list[float]],
+    elements: list[list[float]],
+    opaque: list[list[float]] | None = None,
+) -> dict[str, list[float]]:
+    """Panel letter -> box covering the artwork it labels (letters without artwork are absent).
+
+    A label sits at the top-left of its panel, either just outside the artwork or
+    printed over its top-left corner. Large elements (photos, plot frames) go to the
+    nearest label up-left of them, rows weighing more than columns; small ones (text,
+    ticks, genotype headers) join the nearest large element, preferring the one below
+    since headers sit above their panel. Elements enclosing two or more labels (page
+    backgrounds, one bitmap holding every panel) are ignored, and a panel box never
+    grows over another panel's label. ``opaque`` areas hold artwork that could not be
+    split per panel; labels inside them without artwork of their own get a letter grid
+    cell of that area.
+    """
+    if not labels:
+        return {}
+    centers = {k: box_center(b) for k, b in labels.items()}
+    heights = sorted(b[3] - b[1] for b in labels.values())
+    label_h = heights[len(heights) // 2]
+    core_side = 2.0 * label_h
+    reach = label_h + 2.0
+
+    def owner(el, columns: dict[str, list[float]] | None = None) -> tuple[float, str] | None:
+        """Nearest label up-left of ``el``; with ``columns``, a label that already has
+        artwork only owns elements within that artwork's horizontal span."""
+        inside = [k for k, (cx, cy) in centers.items() if _contains(el, cx, cy, 1.0)]
+        if len(inside) >= 2:
+            return None
+        if inside:
+            return 0.0, inside[0]
+        mid_x = (el[0] + el[2]) / 2
+        best: tuple[float, str] | None = None
+        for k, (cx, cy) in centers.items():
+            lb = labels[k]
+            if cx > el[0] + 1.5 * (lb[2] - lb[0]) + 2.0 or cy > el[1] + (lb[3] - lb[1]) + 2.0:
+                continue
+            col = (columns or {}).get(k)
+            if col is not None and not col[0] - reach <= mid_x <= col[2] + reach:
+                continue
+            d = max(0.0, el[0] - cx) ** 2 + (3.0 * max(0.0, el[1] - cy)) ** 2
+            if best is None or d < best[0]:
+                best = (d, k)
+        return best
+
+    core: dict[str, list[tuple[float, list[float]]]] = {k: [] for k in labels}
+    small: list[list[float]] = []
+    for el in elements:
+        if min(el[2] - el[0], el[3] - el[1]) >= core_side:
+            hit = owner(el)
+            if hit is not None:
+                core[hit[1]].append((hit[0], el))
+        else:
+            small.append(el)
+
+    core_boxes: dict[str, list[float]] = {}
+    for k, items in core.items():
+        others = [c for j, c in centers.items() if j != k]
+        box, grew = _grow(list(labels[k]), items, others)
+        if grew:
+            core_boxes[k] = box
+
+    extra: dict[str, list[tuple[float, list[float]]]] = {k: [] for k in labels}
+    for el in small:
+        if sum(_contains(el, cx, cy, 1.0) for cx, cy in centers.values()) >= 2:
+            continue
+        own = owner(el, core_boxes)
+        if own is not None and own[1] not in core_boxes:
+            extra[own[1]].append((own[0], el))
+            continue
+        near: tuple[float, str] | None = None
+        for k, box in core_boxes.items():
+            g = _gap(el, box)
+            if el[3] <= box[1] + 1.0:
+                g -= 2.0
+            if g <= reach and (near is None or g < near[0]):
+                near = (g, k)
+        if near is None:
+            near = own
+        if near is not None:
+            extra[near[1]].append((max(near[0], 0.0), el))
+
+    cells: dict[str, list[float]] = {}
+    for area in opaque or []:
+        beside = [area[0] - 1.5 * label_h, area[1] - 1.5 * label_h, area[2], area[3]]
+        inside = {
+            k: c for k, c in centers.items() if k not in core_boxes and _contains(beside, *c)
+        }
+        cells.update(_local_grid(area, inside, label_h))
+
+    out: dict[str, list[float]] = {}
+    for k, label_box in labels.items():
+        others = [c for j, c in centers.items() if j != k]
+        box = core_boxes.get(k, list(label_box))
+        if k in cells:
+            box = _union(box, cells[k])
+        box, grew = _grow(box, extra[k], others)
+        if grew or k in core_boxes or k in cells:
+            out[k] = box
+    return out
+
+
 def crops_from_panel_letters(
     width: int,
     height: int,

@@ -7,9 +7,11 @@ import re
 from pathlib import Path
 
 from pre_peer_checker.parsers.figure_chunks import normalize_figure_id
-from pre_peer_checker.parsers.pdf_panel_geometry import regions_from_labels
+from pre_peer_checker.parsers.pdf_panel_geometry import (
+    regions_from_labels,
+    regions_from_page_elements,
+)
 from pre_peer_checker.parsers.pdf_panel_plots import _figure_label, _panel_labels
-
 
 _FIG_HEAD_RE = re.compile(
     r"^(Figure|Fig\.?|Supplementary\s+Figure)\s*(S?\d+)",
@@ -100,6 +102,8 @@ def _figure_id_from_filename(path: Path) -> str | None:
     fnum = _figure_num_from_pdf_name(path)
     if not fnum:
         return None
+    if fnum.startswith("ED"):
+        return normalize_figure_id("Extended Data Figure", fnum[2:])
     if fnum.startswith("S"):
         return normalize_figure_id("Supplementary Figure", fnum)
     return normalize_figure_id("Figure", fnum)
@@ -163,14 +167,28 @@ def build_figure_preview_for_page(
     page_index: int,
     max_width: int = 960,
     quality: int = 70,
+    regions: list[dict] | None = None,
+    single_page: bool = False,
 ) -> dict | None:
     """One page → {figure_id, image_data_uri, panels, source, page}."""
     figure_id = _figure_id_from_page_text(page) or _infer_supp_figure_id(path, page_index)
+    if not figure_id and single_page:
+        figure_id = _figure_id_from_filename(path)
     if not figure_id:
         return None
     labels = _panel_labels(page)
     rect = page.rect
-    panels = panel_boxes_percent(labels, float(rect.width), float(rect.height))
+    page_w, page_h = float(rect.width), float(rect.height)
+    panels = [
+        {"panel": r.panel, **r.as_percent(page_w, page_h)}
+        for r in regions_from_page_elements(page, labels, page_index=page_index)
+    ]
+    if not panels:
+        for r in _regions_for_path(path, regions or []):
+            pct = r.get("pct") or {}
+            if pct and int(r.get("page_index") or 0) == page_index:
+                panels.append({"panel": r.get("panel"), **pct})
+        panels.sort(key=lambda p: str(p.get("panel") or ""))
     try:
         uri = _page_to_jpeg_data_uri(page, max_width=max_width, quality=quality)
     except Exception:
@@ -181,10 +199,7 @@ def build_figure_preview_for_page(
         "source_name": path.name,
         "page": page_index,
         "image_data_uri": uri,
-        "panels": [
-            {"panel": letter, **box}
-            for letter, box in sorted(panels.items())
-        ],
+        "panels": panels,
         "n_panels": len(panels),
     }
 
@@ -241,6 +256,8 @@ def build_figure_previews(
                     page_index=i,
                     max_width=max_width,
                     quality=quality,
+                    regions=region_list,
+                    single_page=doc.page_count == 1,
                 )
                 if not prev:
                     continue

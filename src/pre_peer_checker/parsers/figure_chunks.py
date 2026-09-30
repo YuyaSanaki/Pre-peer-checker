@@ -27,16 +27,17 @@ _SECTION_RE = re.compile(
 )
 
 _FIG_MENTION_RE = re.compile(
-    r"(?:Figs?\.?|Figures?|Supplementary\s+Figures?)\s*"
+    r"(?:(?:Extended\s+Data\s+)?Figs?\.?|(?:Extended\s+Data\s+)?Figures?|Supplementary\s+Figures?)\s*"
     r"(S?\d+)(?:\s*[–\-]\s*(S?\d+))?(?:\s*[,/]\s*(S?\d+))*"
     r"(?:\s*[A-Za-z]\d*[’']?)?",
     re.IGNORECASE,
 )
 
 _LEGEND_HEAD_RE = re.compile(
-    r"^(Figure|Fig\.?|Supplementary Figure|Table)\s*(S?\d+)",
+    r"^(Extended\s+Data\s+Fig(?:ure|\.)?|Figure|Fig\.?|Supplementary Figure|Table)\s*(S?\d+)",
     re.IGNORECASE,
 )
+_ED_KEY_RE = re.compile(r"extended[\s_-]*data\D{0,12}?(\d+)|(?<![A-Za-z])ED[\s_-]?(\d+)", re.I)
 
 
 @dataclass
@@ -86,12 +87,25 @@ def normalize_figure_id(kind: str, num: str) -> str:
     kind_n = kind.replace("Fig.", "Figure").replace("Fig", "Figure")
     if "supplementary" in kind_n.lower():
         return f"Supplementary Figure {num.upper()}"
+    if kind_n.lower().startswith("extended"):
+        return f"Extended Data Figure {num.upper()}"
     return f"Figure {num.upper()}"
 
 
 def figure_num_key(figure_id: str) -> str:
+    """'1' / 'S2' / 'ED3' (Extended Data keeps its own numbering)."""
+    m = _ED_KEY_RE.search(figure_id or "")
+    if m:
+        return f"ED{m.group(1) or m.group(2)}"
     m = re.search(r"(S?\d+)", figure_id, re.I)
     return m.group(1).upper() if m else figure_id.upper()
+
+
+def figure_label(key: str) -> str:
+    """Display name for a figure key: 'ED3' → 'Extended Data Figure 3', '2' → 'Figure 2'."""
+    if key.upper().startswith("ED"):
+        return f"Extended Data Figure {key[2:]}"
+    return f"Figure {key}"
 
 
 def _classify_section(text: str) -> str | None:
@@ -139,6 +153,8 @@ def _expand_fig_nums(match: re.Match[str]) -> set[str]:
     # trailing comma list in group 0
     for m in re.finditer(r"(S?\d+)", match.group(0), re.I):
         nums.add(m.group(1).upper())
+    if match.group(0).lower().startswith("extended"):
+        return {f"ED{n}" for n in nums if not n.startswith("S")}
     return nums
 
 
@@ -253,7 +269,7 @@ def build_figure_chunks_from_paragraphs(
 
     def _fig_sort_key(num: str) -> tuple:
         digits = re.sub(r"\D", "", num) or "0"
-        return (num.startswith("S"), int(digits), num)
+        return (num.startswith("ED"), num.startswith("S"), int(digits), num)
 
     chunks: list[FigureChunk] = []
     for num in sorted(fig_nums, key=_fig_sort_key):

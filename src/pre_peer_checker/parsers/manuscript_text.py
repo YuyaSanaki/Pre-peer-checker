@@ -32,7 +32,7 @@ _HEADING_RE = re.compile(
 )
 _REF_HEAD_RE = re.compile(r"^(?:references?|bibliography|references\s+and\s+notes)\s*$", re.I)
 _LEGEND_HEAD_RE = re.compile(
-    r"^(?:Figure|Fig\.?|Supplementary\s+Figure|Extended\s+Data\s+Fig\.?)\s*S?\d+\s*[.:|]"
+    r"^(?:Figure|Fig\.?|Supplementary\s+Figure|Extended\s+Data\s+Fig(?:ure|\.)?)\s*S?\d+\s*[.:|]"
 )
 _PANEL_OPEN_RE = re.compile(r"^\([A-Z]\d?(?:\s*(?:[-–,]|and)\s*[A-Z]\d?)*\)")
 _BRACKET_CITE_RE = re.compile(r"\[\d{1,3}(?:\s*[,–\-]\s*\d{1,3})*\]")

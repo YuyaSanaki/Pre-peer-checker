@@ -48,6 +48,9 @@ def _figure_num_from_pdf_name(path: Path) -> str | None:
     patterns: ``figs?(\\d+)`` would treat ``figs1.pdf`` (from FigS1) as main ``1``.
     """
     name = path.name.lower().replace(" ", "")
+    m = re.search(r"extended[_-]?data[_-]?fig(?:ure)?[_-]?(\d+)", name)
+    if m:
+        return f"ED{m.group(1)}"
     # Supplementary first: FigSupp1 / FigSup1 / FigureSupp2
     m = re.search(r"fig(?:ure)?supp?(\d+)", name)
     if m:

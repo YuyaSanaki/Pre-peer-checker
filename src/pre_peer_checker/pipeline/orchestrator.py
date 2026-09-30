@@ -610,6 +610,19 @@ def run_verification(
     )
 
     fig_files = _publication_figure_files(bundle, roots)
+    if not fig_files and manuscript_kind == "pdf":
+        # Published-article PDF with figures embedded in the page layout.
+        from pre_peer_checker.parsers.article_figures import export_article_figures
+
+        tracker.update(detail="論文 PDF から Figure 領域を切り出し中")
+        try:
+            fig_files = export_article_figures(manuscripts[0])
+        except Exception:  # noqa: BLE001
+            fig_files = []
+        result.artifacts["article_figures"] = {
+            "source": str(manuscripts[0]),
+            "figures": [p.name for p in fig_files],
+        }
     if fig_files:
         tracker.update(
             detail=f"Figure のパネルラベルを読み取り中（{len(fig_files)} 件・PDF/JPEG/PNG）"

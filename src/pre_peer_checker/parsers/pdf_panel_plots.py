@@ -2,12 +2,16 @@
 
 from __future__ import annotations
 
+import re
+from collections import Counter
 from dataclasses import dataclass, field
 from itertools import combinations
 from pathlib import Path
 
 import fitz
 import numpy as np
+
+from pre_peer_checker.parsers.figure_panel_layout import dominant_panel_run
 
 
 @dataclass(frozen=True)
@@ -39,9 +43,42 @@ class FigurePagePlots:
     panels: list[PanelPlot] = field(default_factory=list)
 
 
-def _panel_labels(page: fitz.Page, *, min_size: float = 10.0) -> dict[str, tuple[float, float, float]]:
-    """Map panel letter -> (font_size, cx, cy), keeping the largest span per letter."""
+_BOLD_FONT_RE = re.compile(r"bold|black|heavy|blk", re.IGNORECASE)
+_MIN_BOLD_LABEL_SIZE = 6.0
+
+
+def _is_bold(span: dict) -> bool:
+    return bool(int(span.get("flags", 0)) & 16) or bool(_BOLD_FONT_RE.search(span.get("font", "")))
+
+
+def _bold_panel_labels(spans: list[tuple[str, float, float, float, bool]]) -> dict[str, tuple[float, float, float]]:
+    """Journal-style labels (bold, often lowercase, ~7–8 pt): one size, one letter run."""
+    bold = [(t.upper(), size, cx, cy) for t, size, cx, cy, is_bold in spans if is_bold and size >= _MIN_BOLD_LABEL_SIZE]
+    if not bold:
+        return {}
+    sizes = Counter(round(size * 2) / 2 for _t, size, _x, _y in bold)
+    mode = sizes.most_common(1)[0][0]
     best: dict[str, tuple[float, float, float]] = {}
+    for letter, size, cx, cy in bold:
+        if abs(size - mode) > 0.5:
+            continue
+        prev = best.get(letter)
+        if prev is None or size > prev[0]:
+            best[letter] = (size, cx, cy)
+    run = dominant_panel_run(best)
+    if len(run) < 2:
+        return {}
+    return {k: v for k, v in best.items() if k in run}
+
+
+def _panel_labels(page: fitz.Page, *, min_size: float = 10.0) -> dict[str, tuple[float, float, float]]:
+    """Map panel letter -> (font_size, cx, cy), keeping the largest span per letter.
+
+    Large uppercase letters are preferred; otherwise bold single letters of a common
+    size (lowercase journal labels) are used, keyed in uppercase.
+    """
+    best: dict[str, tuple[float, float, float]] = {}
+    singles: list[tuple[str, float, float, float, bool]] = []
     data = page.get_text("dict")
     for block in data.get("blocks", []):
         if block.get("type") != 0:
@@ -49,18 +86,21 @@ def _panel_labels(page: fitz.Page, *, min_size: float = 10.0) -> dict[str, tuple
         for line in block.get("lines", []):
             for span in line.get("spans", []):
                 text = span.get("text", "").strip()
-                if len(text) != 1 or not text.isalpha() or not text.isupper():
+                if len(text) != 1 or not text.isascii() or not text.isalpha():
                     continue
                 size = float(span.get("size", 0))
-                if size < min_size:
-                    continue
                 bbox = span["bbox"]
                 cx = (bbox[0] + bbox[2]) / 2.0
                 cy = (bbox[1] + bbox[3]) / 2.0
+                singles.append((text, size, cx, cy, _is_bold(span)))
+                if not text.isupper() or size < min_size:
+                    continue
                 prev = best.get(text)
                 if prev is None or size > prev[0]:
                     best[text] = (size, cx, cy)
-    return best
+    if len(best) >= 2:
+        return best
+    return _bold_panel_labels(singles) or best
 
 
 def _marker_centroids(page: fitz.Page, *, max_span: float = 15.0) -> list[tuple[float, float]]:

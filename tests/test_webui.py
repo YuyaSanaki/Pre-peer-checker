@@ -180,7 +180,7 @@ def test_web_api_run_passes_legend_llm(tmp_path: Path, monkeypatch: pytest.Monke
     )
     assert res.status_code == 200
     assert res.json()["ok"] is True
-    assert captured["cfg"].legend_llm is True
+    assert captured["cfg"].legend_llm == "on"
     assert captured["cfg"].legend_llm_prefer == "none"
     assert captured["cfg"].legend_llm_profile == "qwen2.5-7b-hf"
     assert captured["cfg"].vlm_profile == "qwen2.5-vl-7b"

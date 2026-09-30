@@ -16,6 +16,7 @@ from fastapi.responses import FileResponse, HTMLResponse
 from pydantic import BaseModel, Field
 
 from pre_peer_checker.gui.worker import GuiRunConfig, run_verification_job
+from pre_peer_checker.llm.legend_extract import normalize_legend_llm_mode
 from pre_peer_checker.pipeline.progress import ProgressTracker, Stage, load_history
 from pre_peer_checker.pipeline.run_archive import (
     DEFAULT_RUNS_DIR,
@@ -45,7 +46,8 @@ class RootBody(BaseModel):
 
 class RunBody(BaseModel):
     root: str = Field(..., min_length=1)
-    legend_llm: bool = True
+    # "auto" | "on" | "off" (legacy bool: True = on)
+    legend_llm: bool | str = "auto"
     legend_llm_prefer: str = "auto"
     legend_llm_profile: str | None = None
     legend_llm_model: str | None = None
@@ -134,7 +136,7 @@ def _build_run_config(body: RunBody) -> tuple[GuiRunConfig | None, str | None]:
     return (
         GuiRunConfig(
             inputs=list(v.inputs),
-            legend_llm=bool(body.legend_llm),
+            legend_llm=normalize_legend_llm_mode(body.legend_llm),
             legend_llm_prefer=prefer,
             legend_llm_profile=(body.legend_llm_profile or "").strip() or None,
             legend_llm_model=(body.legend_llm_model or "").strip() or None,
@@ -200,7 +202,7 @@ def _prepare_archive(config: GuiRunConfig, body: RunBody) -> RunArchive:
         config.progress.start(ARCHIVE_STAGE.id, "照合フォルダを作成中")
     case_root = config.inputs[0].parent
     title_llm = None
-    if config.legend_llm and not (body.run_title or "").strip():
+    if config.legend_llm == "on" and not (body.run_title or "").strip():
         from pre_peer_checker.llm.backend import select_backend
 
         if config.progress is not None:

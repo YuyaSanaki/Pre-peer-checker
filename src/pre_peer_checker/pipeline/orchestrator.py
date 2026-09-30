@@ -93,6 +93,7 @@ from pre_peer_checker.llm.legend_extract import (
     legends_any_reuse_statement,
     legends_to_artifact,
     merge_panel_ns,
+    normalize_legend_llm_mode,
     summarize_legend_llm_meta,
 )
 from pre_peer_checker.parsers.legend_struct import all_panel_ns, extract_structured_legends
@@ -255,7 +256,7 @@ def _letter_crop_boxes_by_source(meta: dict) -> dict[str, list]:
 
 def _plan_stages(
     *,
-    legend_llm: bool,
+    legend_llm: bool | str,
     vlm_assist: bool,
     n_corpus_images: int,
     cited_papers: bool,
@@ -282,8 +283,16 @@ def _plan_stages(
     n_fig = n_fig_pdf + n_fig_raster
     n_images = n(FileKind.IMAGE)
     n_micro = n(FileKind.LIF, FileKind.CZI)
-    # Legend LLM は Figure 数ぶん生成する（Figure 数は抽出するまで不明なので 1 原稿 8 Figure と仮定）
-    legend_est = (20.0 + 30.0 * 8 * n_docx) if legend_llm else (1.0 + 2.0 * n_docx)
+    llm_mode = normalize_legend_llm_mode(legend_llm)
+    llm_on = llm_mode == "on"
+    # Legend LLM は Figure 数ぶん生成する（Figure 数は抽出するまで不明なので 1 原稿 8 Figure と仮定）。
+    # auto は規則で読めなかった Figure だけなので 1 原稿 1 Figure 程度と仮定する。
+    if llm_on:
+        legend_est = 20.0 + 30.0 * 8 * n_docx
+    elif llm_mode == "auto":
+        legend_est = 1.0 + 2.0 * n_docx + 60.0 * n_docx
+    else:
+        legend_est = 1.0 + 2.0 * n_docx
     legend_est += 8.0 * n_fig_raster
     panels_est = 2.0 + 3.0 * n_fig_pdf
     if vlm_assist:
@@ -297,10 +306,11 @@ def _plan_stages(
             1.0 + 0.3 * n(FileKind.PYTHON, FileKind.NOTEBOOK, FileKind.R_SCRIPT, FileKind.PRISM),
         ),
         Stage(
-            "legend_llm" if legend_llm else "legend",
-            "Figure Legend の読み取り（ローカル LLM）"
-            if legend_llm
-            else "Figure Legend の読み取り（規則ベース）",
+            "legend_llm" if llm_on else "legend",
+            {
+                "on": "Figure Legend の読み取り（ローカル LLM）",
+                "auto": "Figure Legend の読み取り（規則＋読めない Figure だけ LLM）",
+            }.get(llm_mode, "Figure Legend の読み取り（規則ベース）"),
             legend_est,
         ),
         Stage("tables", "表データの読み込み・統計の再計算", 1.0 + 0.5 * n(FileKind.CSV, FileKind.EXCEL)),
@@ -312,9 +322,9 @@ def _plan_stages(
         ),
         Stage("plots", "Legend の n と生データ・作図 PDF の突合", 1.0 + 0.5 * n_pdf),
         Stage(
-            "n_matrix_llm" if legend_llm else "n_matrix",
+            "n_matrix_llm" if llm_on else "n_matrix",
             "n 対照表の作成（群名の対応付け）",
-            22.0 if legend_llm else 2.0,
+            22.0 if llm_on else 2.0,
         ),
         Stage(
             "figure_panels_vlm" if vlm_assist else "figure_panels",
@@ -357,13 +367,13 @@ def _plan_stages(
 
 def _plan_flags(
     *,
-    legend_llm: bool,
+    legend_llm: bool | str,
     vlm_assist: bool,
     corpus: list[Path | str] | None,
     cited_papers: list[Path | str] | None,
-) -> dict[str, bool | int]:
+) -> dict[str, bool | int | str]:
     return {
-        "legend_llm": bool(legend_llm),
+        "legend_llm": normalize_legend_llm_mode(legend_llm),
         "vlm_assist": bool(vlm_assist),
         "n_corpus_images": len(collect_corpus_images(list(corpus))) if corpus else 0,
         "cited_papers": bool(cited_papers),
@@ -372,7 +382,7 @@ def _plan_flags(
 
 def initial_stages(
     *,
-    legend_llm: bool,
+    legend_llm: bool | str,
     vlm_assist: bool,
     corpus: list[Path | str] | None = None,
     cited_papers: list[Path | str] | None = None,
@@ -393,7 +403,7 @@ def run_verification(
     *,
     corpus: list[Path | str] | None = None,
     cited_papers: list[Path | str] | None = None,
-    legend_llm: bool = False,
+    legend_llm: bool | str = False,
     legend_llm_prefer: str = "auto",
     legend_llm_model: str | None = None,
     legend_llm_profile: str | None = None,
@@ -408,7 +418,9 @@ def run_verification(
 
     corpus: 過去論文画像コーパス（H3 外部照合）。未指定ならスキップ。
     cited_papers: 引用先 PDF／そのディレクトリ（文献メタ＋引用整合）。未指定ならスキップ。
-    legend_llm: True のとき MLX/CUDA で Legend／Fig チャンク → チェック項目 JSON（読む本線）。
+    legend_llm: ``"on"``/True で全 Figure を MLX/CUDA LLM で読む（読む本線）。``"auto"`` は
+        規則で n を読み切れなかった Figure だけ LLM に回す（全部読めればモデルを読み込まない）。
+        ``"off"``/False は規則のみ。
     legend_llm_profile / vlm_profile: ``llm/model_registry.yaml`` のプロファイル ID。
     vlm_assist: True のときベクターパネル分割が空の出版 Fig に VLM パネル地図を補助。
     patterns_path: 照合カタログ JSON。未指定時はアクティブカタログ → fixtures。
@@ -423,6 +435,7 @@ def run_verification(
     )
     from pre_peer_checker.llm.registry import resolve_model
 
+    legend_llm = normalize_legend_llm_mode(legend_llm)
     tracker = progress if progress is not None else ProgressTracker()
     plan_flags = _plan_flags(
         legend_llm=legend_llm,
@@ -593,7 +606,7 @@ def run_verification(
     manuscripts = _select_docx_for_legend(docx_files)
     manuscript_kind = "docx" if manuscripts else "none"
     tracker.start(
-        "legend_llm" if legend_llm else "legend",
+        "legend_llm" if legend_llm == "on" else "legend",
         "Word 原稿から Figure Legend を抽出中"
         if manuscripts
         else "PDF から原稿本文を読み取り中",
@@ -704,7 +717,7 @@ def run_verification(
     # One text model for every manuscript and the n-matrix alias step; each
     # select_backend() call would otherwise load the weights again.
     shared_llm = None
-    if legend_llm:
+    if legend_llm != "off":
         try:
             from pre_peer_checker.llm.backend import select_backend
 
@@ -739,14 +752,14 @@ def run_verification(
             what = f"{label or 'Figure'} を読み取り中（{done + 1}/{total}）"
             if n_legend_docs > 1:
                 what = f"{_p.name}: {what}"
-            if legend_llm and _i == 0 and done == 0:
+            if legend_llm == "on" and _i == 0 and done == 0:
                 what += " ※初回はモデル読込を含むため時間がかかります"
             tracker.update(detail=what)
 
         try:
             legs, meta = extract_legends_with_backend(
                 p,
-                enabled=legend_llm,
+                mode=legend_llm,
                 prefer=legend_llm_prefer,
                 model_id=legend_llm_model,
                 profile_id=legend_llm_profile,
@@ -1235,7 +1248,7 @@ def run_verification(
 
     # --- n 対照表（原稿 / 実験データ / 作図 / 統計）---
     tracker.start(
-        "n_matrix_llm" if legend_llm else "n_matrix",
+        "n_matrix_llm" if legend_llm == "on" else "n_matrix",
         "Legend の群名と表の列名を対応付け中",
     )
     legend_json_by_panel: dict[tuple[str, str], dict] = {}
@@ -1296,10 +1309,13 @@ def run_verification(
         )
         table_gs = sorted({v.group_key for v in all_vectors if v.group_key})
         cands = propose_key_candidates(legend_gs, table_gs)
-        if legend_llm and legend_gs and table_gs:
+        if legend_llm != "off" and legend_gs and table_gs:
             try:
                 backend = shared_llm
-                if backend is not None:
+                # auto: reuse the model only if the legend step already loaded it
+                if backend is not None and (
+                    legend_llm == "on" or getattr(backend, "_model", None) is not None
+                ):
 
                     def _alias_llm(prompt: str) -> str:
                         return backend.generate(prompt, max_tokens=512)

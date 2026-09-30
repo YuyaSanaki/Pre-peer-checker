@@ -296,7 +296,9 @@ LLM / VLM 補助:
 # pip install -e ".[llm-json]"     # Outlines（JSON schema 強制。未導入時は free+coerce）
 # pip install -e ".[vlm-mlx]"      # Mac: パネル地図補助（mlx-vlm）
 # pip install -e ".[vlm-cuda]"     # Linux GPU: Qwen2.5-VL
-pre-peer-checker ... --legend-llm --legend-llm-prefer auto
+# Legend LLM は既定で auto（規則で n を読み切れなかった Figure だけ LLM で読む）
+pre-peer-checker ... --legend-llm        # on: 全 Figure を LLM で読む（1 Figure 数分）
+pre-peer-checker ... --legend-llm off    # 規則のみ
 pre-peer-checker ... --vlm-assist --vlm-prefer auto --vlm-profile qwen2.5-vl-7b-mlx
 # 明示例: --legend-llm-prefer cuda --llm-profile qwen2.5-7b-hf
 # 受入スクリプト（Mac）:
@@ -307,7 +309,8 @@ pre-peer-checker ... --vlm-assist --vlm-prefer auto --vlm-profile qwen2.5-vl-7b-
 #   python scripts/dev_vlm_panel_map_verify.py --prefer cuda --profile qwen2.5-vl-7b --synthetic --require-vlm
 ```
 
-- `auto`: Mac → MLX、PyTorch から GPU（NVIDIA CUDA / AMD ROCm / Intel XPU）を利用可 → transformers（GPU）。MLX 既定プロファイルでも GPU ホストでは HF にフォールバックします。GPU の判定は `pre_peer_checker/accel.py` に集約しています（LLM / VLM / DINOv2 / LightGlue 共通）。
+- `--legend-llm auto`（既定・WebUI も同じ）: 各 Figure の Legend に書かれた n（`n = …`、`N independent experiments` 等）を規則が全部拾えていれば LLM を呼ばず、モデルも読み込みません。拾えていない Figure だけ LLM に回します。
+- `--legend-llm-prefer auto`: Mac → MLX、PyTorch から GPU（NVIDIA CUDA / AMD ROCm / Intel XPU）を利用可 → transformers（GPU）。MLX 既定プロファイルでも GPU ホストでは HF にフォールバックします。GPU の判定は `pre_peer_checker/accel.py` に集約しています（LLM / VLM / DINOv2 / LightGlue 共通）。
 - `PRE_PEER_CHECKER_DEVICE=cuda|xpu|mps|cpu` で演算デバイスを強制できます。
 - `PRE_PEER_CHECKER_GPU_MAX_MEMORY_GB=8` のように指定すると、LLM / VLM が使う GPU メモリを上限までに抑え、残りを PC のメモリに置きます。大きな GPU 上で GPU メモリの少ない環境を再現する検証にも使えます。
 - DGX Spark では `TORCH_DISABLE_NATIVE_JIT=1` をバックエンドが自動設定します（Triton 再ビルド不要）。

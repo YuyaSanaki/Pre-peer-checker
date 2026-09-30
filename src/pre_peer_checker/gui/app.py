@@ -33,7 +33,6 @@ def main(argv: list[str] | None = None) -> int:
     from PyQt6.QtGui import QDragEnterEvent, QDropEvent
     from PyQt6.QtWidgets import (
         QApplication,
-        QCheckBox,
         QComboBox,
         QFileDialog,
         QHBoxLayout,
@@ -162,10 +161,14 @@ def main(argv: list[str] | None = None) -> int:
             out_row.addWidget(browse)
             layout.addLayout(out_row)
 
-            self.legend_llm = QCheckBox(
-                "Figチャンク LLM 補助（Legend/Results/Methods→JSON・未導入時は規則のみ）"
-            )
-            layout.addWidget(self.legend_llm)
+            llm_mode_row = QHBoxLayout()
+            llm_mode_row.addWidget(QLabel("Legend LLM 補助"))
+            self.legend_llm = QComboBox()
+            self.legend_llm.addItem("自動（規則で n を読み切れなかった Figure だけ）", "auto")
+            self.legend_llm.addItem("常に（全 Figure を LLM で読む）", "on")
+            self.legend_llm.addItem("オフ（規則のみ）", "off")
+            llm_mode_row.addWidget(self.legend_llm)
+            layout.addLayout(llm_mode_row)
 
             try:
                 from pre_peer_checker.llm.registry import list_profiles, load_registry
@@ -257,7 +260,7 @@ def main(argv: list[str] | None = None) -> int:
                 corpus=self.corpus_list.paths(),
                 output_html=out,
                 output_json=out.with_suffix(".json"),
-                legend_llm=self.legend_llm.isChecked(),
+                legend_llm=self.legend_llm.currentData(),
                 legend_llm_profile=(
                     self.llm_profile.currentData() if self.llm_profile is not None else None
                 ),

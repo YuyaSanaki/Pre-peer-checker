@@ -45,8 +45,15 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument(
         "--legend-llm",
-        action="store_true",
-        help="Figチャンク（Legend/Results/Methods）からチェック項目 JSON を MLX/CUDA LLM で補助抽出（未導入時は規則のみ）",
+        nargs="?",
+        const="on",
+        default="auto",
+        choices=["auto", "on", "off"],
+        help=(
+            "Figチャンク（Legend/Results/Methods）→チェック項目 JSON の MLX/CUDA LLM 読み取り。"
+            "auto（既定）= 規則で n を読み切れなかった Figure だけ LLM、"
+            "on（値なしの --legend-llm も同じ）= 全 Figure、off = 規則のみ。未導入時は規則のみ"
+        ),
     )
     parser.add_argument(
         "--legend-llm-prefer",

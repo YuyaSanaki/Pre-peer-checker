@@ -56,6 +56,78 @@ def structured_to_legend_json(leg: StructuredLegend) -> LegendFigureJSON:
     )
 
 
+LEGEND_LLM_MODES = ("off", "auto", "on")
+
+
+def normalize_legend_llm_mode(value: Any) -> str:
+    """``off`` / ``auto`` / ``on`` from a mode string or the legacy bool flag.
+
+    auto: rules first; the LLM reads only figures whose legend states a sample size
+    the rules did not pick up (the model is not loaded when every figure was read).
+    """
+    if value is True:
+        return "on"
+    if value is None or value is False:
+        return "off"
+    v = str(value).strip().lower()
+    if v in {"on", "always", "all", "true", "1", "yes"}:
+        return "on"
+    if v in {"auto", "unread"}:
+        return "auto"
+    return "off"
+
+
+_WORD_NUMS = {
+    "two": 2, "three": 3, "four": 4, "five": 5, "six": 6, "seven": 7,
+    "eight": 8, "nine": 9, "ten": 10, "eleven": 11, "twelve": 12,
+}
+_NUM = r"(\d+|" + "|".join(_WORD_NUMS) + r")"
+# ``n = 19 (a), 16 (d), and 13 (g)`` — the list after one ``n =`` states several n.
+_N_EQ_RE = re.compile(
+    r"\b[nN]\s*(?:=|≥|>|≤|<)\s*(\d+)"
+    r"((?:\s*(?:\([^()]{1,40}\))?\s*(?:,|and|or)\s*(?:and\s+)?\d+)*)"
+)
+_PAREN_RE = re.compile(r"\([^()]*\)")
+_N_PHRASE_RE = re.compile(
+    _NUM + r"\s+(?:independent|biological(?:ly\s+independent)?|technical|separate)\s+"
+    r"(?:experiments?|replicates?|repeats?|cultures?|samples?|animals|mice)\b"
+    r"|\b(\d+)\s+(?:mice|rats|animals|patients|donors|embryos|larvae|individuals)\b",
+    re.IGNORECASE,
+)
+
+
+def legend_sample_sizes(text: str) -> set[int]:
+    """Sample sizes a legend states (``n = …``, ``three independent experiments``, ``12 mice``).
+
+    Replicate / animal phrases count only in legends without any ``n =``: next to an
+    explicit n they describe where the n came from (``N = 14 images from 3 independent
+    experiments``), not another panel n.
+    """
+    from pre_peer_checker.parsers.legend_struct import clean_legend_text
+
+    text = clean_legend_text(text)
+    out: set[int] = set()
+    for m in _N_EQ_RE.finditer(text):
+        out.add(int(m.group(1)))
+        tail = _PAREN_RE.sub(" ", m.group(2) or "")
+        out.update(int(x) for x in re.findall(r"(?<![\w.])\d+(?![\w.])", tail))
+    if out:
+        return out
+    for m in _N_PHRASE_RE.finditer(text):
+        tok = (m.group(1) or m.group(2) or "").lower()
+        out.add(int(tok) if tok.isdigit() else _WORD_NUMS[tok])
+    return out
+
+
+def legend_needs_llm(chunk: FigureChunk, rules: LegendFigureJSON) -> bool:
+    """True when the legend states a sample size the rules did not extract."""
+    stated = legend_sample_sizes(chunk.legend or "")
+    if not stated:
+        return False
+    read = {int(p.n) for p in rules.panels if p.n is not None}
+    return not stated <= read
+
+
 # Merge guards that post-filter / supplement LLM rows. The product always runs with
 # ALL_GUARDS; subsets exist only for generalization ablation (eval/generalization.py).
 GUARD_GROUNDING = "grounding"
@@ -439,6 +511,7 @@ def extract_legend_json_hybrid(
     figure_hint: str | None = None,
     llm_generate: Callable[[str], str] | None = None,
     prefer_llm: bool = False,
+    only_if_unread: bool = False,
 ) -> LegendFigureJSON:
     """Rules first; optional LLM fill/override when prefer_llm and callable given.
 
@@ -454,6 +527,7 @@ def extract_legend_json_hybrid(
         llm_generate=llm_generate,
         prefer_llm=prefer_llm,
         legend_only_prompt=True,
+        only_if_unread=only_if_unread,
     )
 
 
@@ -466,14 +540,18 @@ def extract_check_items_from_chunk(
     llm_primary: bool = True,
     guards: frozenset[str] = ALL_GUARDS,
     prompt_variant: str = "full",
+    only_if_unread: bool = False,
 ) -> LegendFigureJSON:
     """Rules fallback; when prefer_llm, LLM panels take priority by default.
 
     Without the ``rule_fill`` guard an LLM failure yields no panels instead of
     the rules result, so ablations measure the LLM path alone.
+    only_if_unread: skip the LLM when the rules already read every stated n.
     """
     base = _rules_from_chunk(chunk)
     if not prefer_llm or llm_generate is None:
+        return base
+    if only_if_unread and not legend_needs_llm(chunk, base):
         return base
     if legend_only_prompt:
         prompt = build_legend_llm_prompt(
@@ -511,10 +589,12 @@ def extract_legends_json_from_docx(
     panel_labels_by_figure: dict[str, list[str]] | None = None,
     panel_label_meta: dict | None = None,
     on_item: Callable[[int, int, str], None] | None = None,
+    llm_only_unread: bool = False,
 ) -> tuple[list[LegendFigureJSON], list[FigureChunk]]:
     """Extract check-item JSON per figure; returns (items, chunks used).
 
     on_item(done, total, figure_label) is called before each figure and once at the end.
+    llm_only_unread: call the LLM only for figures the rules could not fully read.
     """
 
     def _notify(done: int, total: int, label: str) -> None:
@@ -548,6 +628,7 @@ def extract_legends_json_from_docx(
                     figure_hint=leg.figure,
                     llm_generate=llm_generate,
                     prefer_llm=prefer_llm,
+                    only_if_unread=llm_only_unread,
                 )
             )
         _notify(len(legs), len(legs), "")
@@ -563,6 +644,7 @@ def extract_legends_json_from_docx(
                 prefer_llm=prefer_llm,
                 legend_only_prompt=False,
                 llm_primary=True,
+                only_if_unread=llm_only_unread,
             )
         )
     _notify(len(chunks), len(chunks), "")
@@ -581,14 +663,19 @@ def extract_legends_with_backend(
     panel_label_meta: dict | None = None,
     on_item: Callable[[int, int, str], None] | None = None,
     backend: Any | None = None,
+    mode: str | None = None,
 ) -> tuple[list[LegendFigureJSON], dict[str, Any]]:
     """Extract legends/check-items; optionally refine with MLX/CUDA when enabled.
 
     backend: an already-selected backend to reuse (keeps the model loaded across
     manuscripts in one run). None selects one here.
+    mode: ``off`` / ``auto`` / ``on`` (overrides ``enabled``); see normalize_legend_llm_mode.
     """
+    mode = normalize_legend_llm_mode(mode if mode is not None else enabled)
+    enabled = mode != "off"
     meta: dict[str, Any] = {
         "legend_llm_enabled": enabled,
+        "legend_llm_mode": mode,
         "backend": None,
         "figure_chunk_mode": True,
         "llm_primary": bool(enabled),
@@ -655,7 +742,10 @@ def extract_legends_with_backend(
         panel_labels_by_figure=panel_labels_by_figure,
         panel_label_meta=panel_label_meta,
         on_item=on_item,
+        llm_only_unread=mode == "auto",
     )
+    meta["n_llm_calls"] = len(json_modes)
+    meta["n_figures"] = len(items)
     meta["n_figure_chunks"] = len(chunks)
     meta["figure_chunks"] = chunks_to_artifact(chunks)
     meta["n_llm_panels"] = sum(len(x.panels) for x in items)
@@ -764,6 +854,21 @@ def summarize_legend_llm_meta(metas: list[dict[str, Any]] | None) -> dict[str, A
     uniq_profiles = sorted(set(profiles))
     if uniq_profiles:
         profile_extra = f" · profile={','.join(uniq_profiles)}"
+    auto = all(m.get("legend_llm_mode") == "auto" for m in metas if m.get("legend_llm_enabled"))
+    n_calls = sum(int(m.get("n_llm_calls") or 0) for m in metas)
+    n_figs = sum(int(m.get("n_figures") or 0) for m in metas)
+    if used and auto and n_calls == 0:
+        return {
+            "requested": True,
+            "used": False,
+            "status": "auto_skipped",
+            "mode": "auto",
+            "n_llm_calls": 0,
+            "n_figures": n_figs,
+            "backends": backends,
+            "profiles": uniq_profiles,
+            "message": f"Legend LLM 自動: 規則で全 {n_figs} Figure の n を読めたため LLM は未使用",
+        }
     if used:
         extractors: list[str] = []
         for m in metas:
@@ -782,17 +887,23 @@ def summarize_legend_llm_meta(metas: list[dict[str, Any]] | None) -> dict[str, A
         uniq_modes = sorted(set(modes))
         if uniq_modes:
             extra += f" · json_mode={','.join(uniq_modes)}"
+        head = (
+            f"Legend LLM 自動: 規則で読めなかった {n_calls}/{n_figs} Figure を LLM で読み取り: "
+            if auto
+            else "Legend LLM を本線使用: "
+        )
         return {
             "requested": True,
             "used": True,
             "status": "active",
+            "mode": "auto" if auto else "on",
+            "n_llm_calls": n_calls,
+            "n_figures": n_figs,
             "backends": backends,
             "profiles": uniq_profiles,
             "json_modes": uniq_modes,
             "n_figure_chunks": sum(int(m.get("n_figure_chunks") or 0) for m in metas),
-            "message": "Legend LLM を本線使用: "
-            + (", ".join(backends) or "backend")
-            + extra,
+            "message": head + (", ".join(backends) or "backend") + extra,
         }
     return {
         "requested": True,

@@ -276,7 +276,9 @@ LLM / VLM assistance:
 # pip install -e ".[llm-json]"     # Outlines (enforces JSON schema; without it: free + coerce)
 # pip install -e ".[vlm-mlx]"      # Mac: panel-map assistance (mlx-vlm)
 # pip install -e ".[vlm-cuda]"     # Linux GPU: Qwen2.5-VL
-pre-peer-checker ... --legend-llm --legend-llm-prefer auto
+# Legend LLM defaults to auto (the LLM reads only figures whose n the rules could not fully read)
+pre-peer-checker ... --legend-llm        # on: every figure through the LLM (minutes per figure)
+pre-peer-checker ... --legend-llm off    # rules only
 pre-peer-checker ... --vlm-assist --vlm-prefer auto --vlm-profile qwen2.5-vl-7b-mlx
 # Explicit example: --legend-llm-prefer cuda --llm-profile qwen2.5-7b-hf
 # Acceptance scripts (Mac):
@@ -287,7 +289,8 @@ pre-peer-checker ... --vlm-assist --vlm-prefer auto --vlm-profile qwen2.5-vl-7b-
 #   python scripts/dev_vlm_panel_map_verify.py --prefer cuda --profile qwen2.5-vl-7b --synthetic --require-vlm
 ```
 
-- `auto`: Mac → MLX; a GPU usable from PyTorch (NVIDIA CUDA / AMD ROCm / Intel XPU) → transformers (GPU). Even with the default MLX profile, GPU hosts fall back to HF. GPU detection lives in `pre_peer_checker/accel.py` (shared by LLM / VLM / DINOv2 / LightGlue).
+- `--legend-llm auto` (default, also in the WebUI): when the rules picked up every sample size a legend states (`n = …`, `N independent experiments`, …) the LLM is not called and the model is not loaded; only figures with unread n go to the LLM.
+- `--legend-llm-prefer auto`: Mac → MLX; a GPU usable from PyTorch (NVIDIA CUDA / AMD ROCm / Intel XPU) → transformers (GPU). Even with the default MLX profile, GPU hosts fall back to HF. GPU detection lives in `pre_peer_checker/accel.py` (shared by LLM / VLM / DINOv2 / LightGlue).
 - `PRE_PEER_CHECKER_DEVICE=cuda|xpu|mps|cpu` forces the compute device.
 - `PRE_PEER_CHECKER_GPU_MAX_MEMORY_GB=8` caps the GPU memory used by the LLM / VLM and keeps the rest in system memory — also handy for reproducing a small-GPU machine on a large GPU.
 - On DGX Spark, the backend sets `TORCH_DISABLE_NATIVE_JIT=1` automatically (no Triton rebuild needed).

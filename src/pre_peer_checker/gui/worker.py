@@ -18,7 +18,7 @@ class GuiRunConfig:
     cited_papers: list[Path] = field(default_factory=list)
     output_html: Path = Path("outputs/report.html")
     output_json: Path | None = Path("outputs/warnings.json")
-    legend_llm: bool = False
+    legend_llm: bool | str = False  # "auto" | "on" | "off" (legacy bool: True = on)
     legend_llm_prefer: str = "auto"
     legend_llm_model: str | None = None
     legend_llm_profile: str | None = None

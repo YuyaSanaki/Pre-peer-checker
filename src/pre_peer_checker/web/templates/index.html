@@ -381,13 +381,15 @@
 
       <section class="panel">
         <h2>3. 照合</h2>
-        <label class="opt" for="legendLlm">
-          <input type="checkbox" id="legendLlm" checked />
-          <span>
-            Legend LLM 補助（Figチャンク → チェック項目 JSON）
-            <span class="opt-note" id="legendLlmHint">状態を確認中…</span>
-          </span>
-        </label>
+        <div class="field" id="legendLlmField">
+          <label for="legendLlm">Legend LLM 補助（Figチャンク → チェック項目 JSON）</label>
+          <select id="legendLlm">
+            <option value="auto" selected>自動 — 規則で n を読み切れなかった Figure だけ LLM</option>
+            <option value="on">常に — 全 Figure を LLM で読む（1 Figure 数分）</option>
+            <option value="off">オフ — 規則のみ</option>
+          </select>
+          <span class="opt-note" id="legendLlmHint">状態を確認中…</span>
+        </div>
         <label class="opt" for="useActiveCatalog" style="margin-top:0.65rem;">
           <input type="checkbox" id="useActiveCatalog" checked />
           <span>
@@ -708,7 +710,7 @@
             "利用可能: " + (sel.name || "backend") + " / 既定 " + (def || sel.model_id || "");
         } else {
           legendLlmHint.textContent =
-            "未導入のため ON でも規則のみ。導入: " + (data.install_hint || 'pip install -e ".[mlx]"');
+            "未導入のため自動／常にでも規則のみ。導入: " + (data.install_hint || 'pip install -e ".[mlx]"');
         }
       } catch (err) {
         legendLlmHint.textContent = "LLM 状態を取得できませんでした。";
@@ -1329,7 +1331,7 @@
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             root: rootEl.value.trim(),
-            legend_llm: !!(legendLlm && legendLlm.checked),
+            legend_llm: legendLlm ? legendLlm.value : "auto",
             legend_llm_prefer: "auto",
             legend_llm_profile: llmProfile && llmProfile.value ? llmProfile.value : null,
             vlm_profile: vlmProfile && vlmProfile.value ? vlmProfile.value : null,

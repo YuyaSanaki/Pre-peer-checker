@@ -253,7 +253,7 @@ def build_run_coverage(
     if isinstance(llm_status, dict) and llm_status.get("status"):
         st = str(llm_status.get("status"))
         msg = str(llm_status.get("message") or "")
-        if st == "active":
+        if st in {"active", "auto_skipped"}:
             add("legend_llm", "Legend LLM 補助（Figチャンク抽出）", "ran", msg)
         elif st == "unavailable":
             add("legend_llm", "Legend LLM 補助（Figチャンク抽出）", "skipped", msg)

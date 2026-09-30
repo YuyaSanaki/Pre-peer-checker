@@ -202,6 +202,7 @@ class LegendPanelJSON:
     n_scope: str = "unknown"
     evidence_span: str = ""
     confidence: float | None = None
+    n_max: int | None = None
 
 
 @dataclass

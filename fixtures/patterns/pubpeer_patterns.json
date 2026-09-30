@@ -914,6 +914,134 @@
       ],
       "enabled": true,
       "synthetic_fixture_hint": "fixtures/synthetic/ref_claim"
+    },
+    {
+      "id": "P-SOURCE-DATA-CROSS-FIGURE-REUSE",
+      "status": "implemented",
+      "phase": "6",
+      "priority": "P0",
+      "source_kinds": [
+        "check_reference",
+        "curated_pubpeer"
+      ],
+      "warning_tags": [
+        "Warning [コントロール群共有]",
+        "Warning [データ取り違え]"
+      ],
+      "abstract_rule": "雑誌 Source Data（Figure ごとのブロック）で、別 Figure／別パネルのブロックの測定列が行順まで（または並べ替えて）完全一致する。同条件なら再掲の明記、別条件なら貼り間違いの確認を促す。",
+      "inputs": [
+        "source_tables",
+        "figure_panels",
+        "manuscript_claims"
+      ],
+      "not_sufficient": [
+        "Legend／Methods に再利用が明記されている同条件の再掲",
+        "離散カウントで少数値のみの一致"
+      ],
+      "synthetic_fixture_hint": "2 ブックに Fig. 3e / Fig. 4h 見出しで同一列を仕込む",
+      "taxonomy": [
+        "B2"
+      ],
+      "enabled": true
+    },
+    {
+      "id": "P-SOURCE-DATA-SUMMARY-MISMATCH",
+      "status": "implemented",
+      "phase": "6",
+      "priority": "P1",
+      "source_kinds": [
+        "check_reference"
+      ],
+      "warning_tags": [
+        "Warning [実験データとの不一致]"
+      ],
+      "abstract_rule": "Source Data ブロックの Mean/SD/SEM 行が、同ブロックの生データ行から再計算した値と一致しない（一部行の除外、SEM 分母 √(n−1) 等を説明として付す）。",
+      "inputs": [
+        "source_tables"
+      ],
+      "not_sufficient": [
+        "表示桁の丸めの範囲内の差"
+      ],
+      "synthetic_fixture_hint": "Mean 行を先頭 1 行を除いた平均にする",
+      "taxonomy": [
+        "F2"
+      ],
+      "enabled": true
+    },
+    {
+      "id": "P-SOURCE-DATA-POPULATION-SD",
+      "status": "implemented",
+      "phase": "6",
+      "priority": "P2",
+      "source_kinds": [
+        "check_reference"
+      ],
+      "warning_tags": [
+        "Warning [統計手法の不整合]"
+      ],
+      "abstract_rule": "Source Data の SD 行が標本 SD（n−1）ではなく母標準偏差（STDEVP, n で割る）と一致する。",
+      "inputs": [
+        "source_tables",
+        "manuscript_claims"
+      ],
+      "not_sufficient": [
+        "Methods で母 SD の使用が明記されている"
+      ],
+      "synthetic_fixture_hint": "SD 行を ddof=0 で計算",
+      "taxonomy": [
+        "C2"
+      ],
+      "enabled": true
+    },
+    {
+      "id": "P-SOURCE-DATA-LEGEND-N",
+      "status": "implemented",
+      "phase": "6",
+      "priority": "P0",
+      "source_kinds": [
+        "check_reference"
+      ],
+      "warning_tags": [
+        "Warning [サンプルサイズ記載誤記]"
+      ],
+      "abstract_rule": "Source Data ブロック（見出しで定量パネルと画像パネルを特定）の行数が、Legend の該当パネル・群の n と一致しない。",
+      "inputs": [
+        "source_tables",
+        "figure_legends"
+      ],
+      "not_sufficient": [
+        "除外基準が明記され行数差が説明される"
+      ],
+      "synthetic_fixture_hint": "Legend n=30 に対し 20 行のブロック",
+      "taxonomy": [
+        "A2"
+      ],
+      "enabled": true
+    },
+    {
+      "id": "P-SOURCE-DATA-PANEL-REF-DUP",
+      "status": "implemented",
+      "phase": "6",
+      "priority": "P2",
+      "source_kinds": [
+        "check_reference"
+      ],
+      "warning_tags": [
+        "Warning [表記揺れ・参照不整合]"
+      ],
+      "abstract_rule": "同じ定量パネル内で条件の異なる Source Data ブロックが同じ画像パネル記号を参照する（Legend の未参照群と n が一致すれば候補を示す）。",
+      "inputs": [
+        "source_tables",
+        "figure_legends"
+      ],
+      "not_sufficient": [
+        "同一画像パネルに複数条件が実際に含まれる"
+      ],
+      "synthetic_fixture_hint": "2 条件の見出しをどちらも (Fig. 4d) にする",
+      "taxonomy": [
+        "E4"
+      ],
+      "enabled": true
     }
   ]
 }

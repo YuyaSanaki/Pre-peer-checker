@@ -572,3 +572,87 @@ rules:
   source_kinds:
   - literature
   not_sufficient: []
+- id: ERR_P_SOURCE_DATA_CROSS_FIGURE_REUSE
+  pattern_id: P-SOURCE-DATA-CROSS-FIGURE-REUSE
+  category: Warning [コントロール群共有]
+  description: 雑誌 Source Data（Figure ごとのブロック）で、別 
+    Figure／別パネルのブロックの測定列が行順まで（または並べ替えて）完全一致する。同条件なら再掲の明記、別条件なら貼り間違いの確認を促す。
+  status: implemented
+  priority: P0
+  target:
+  - source_tables
+  - figure_panels
+  - manuscript_claims
+  severity: Warning
+  taxonomy:
+  - B2
+  source_kinds:
+  - check_reference
+  - curated_pubpeer
+  not_sufficient:
+  - Legend／Methods に再利用が明記されている同条件の再掲
+  - 離散カウントで少数値のみの一致
+- id: ERR_P_SOURCE_DATA_SUMMARY_MISMATCH
+  pattern_id: P-SOURCE-DATA-SUMMARY-MISMATCH
+  category: Warning [実験データとの不一致]
+  description: Source Data ブロックの Mean/SD/SEM 行が、同ブロックの生データ行から再計算した値と一致しない（一部行の除外、SEM 分母 √(n−1) 
+    等を説明として付す）。
+  status: implemented
+  priority: P1
+  target:
+  - source_tables
+  severity: Warning
+  taxonomy:
+  - F2
+  source_kinds:
+  - check_reference
+  not_sufficient:
+  - 表示桁の丸めの範囲内の差
+- id: ERR_P_SOURCE_DATA_POPULATION_SD
+  pattern_id: P-SOURCE-DATA-POPULATION-SD
+  category: Warning [統計手法の不整合]
+  description: Source Data の SD 行が標本 SD（n−1）ではなく母標準偏差（STDEVP, n で割る）と一致する。
+  status: implemented
+  priority: P2
+  target:
+  - source_tables
+  - manuscript_claims
+  severity: Warning
+  taxonomy:
+  - C2
+  source_kinds:
+  - check_reference
+  not_sufficient:
+  - Methods で母 SD の使用が明記されている
+- id: ERR_P_SOURCE_DATA_LEGEND_N
+  pattern_id: P-SOURCE-DATA-LEGEND-N
+  category: Warning [サンプルサイズ記載誤記]
+  description: Source Data ブロック（見出しで定量パネルと画像パネルを特定）の行数が、Legend の該当パネル・群の n と一致しない。
+  status: implemented
+  priority: P0
+  target:
+  - source_tables
+  - figure_legends
+  severity: Warning
+  taxonomy:
+  - A2
+  source_kinds:
+  - check_reference
+  not_sufficient:
+  - 除外基準が明記され行数差が説明される
+- id: ERR_P_SOURCE_DATA_PANEL_REF_DUP
+  pattern_id: P-SOURCE-DATA-PANEL-REF-DUP
+  category: Warning [表記揺れ・参照不整合]
+  description: 同じ定量パネル内で条件の異なる Source Data ブロックが同じ画像パネル記号を参照する（Legend の未参照群と n が一致すれば候補を示す）。
+  status: implemented
+  priority: P2
+  target:
+  - source_tables
+  - figure_legends
+  severity: Warning
+  taxonomy:
+  - E4
+  source_kinds:
+  - check_reference
+  not_sufficient:
+  - 同一画像パネルに複数条件が実際に含まれる

@@ -39,6 +39,7 @@ def structured_to_legend_json(leg: StructuredLegend) -> LegendFigureJSON:
             n_scope="unknown",
             evidence_span=pn.context[:160],
             confidence=0.95,
+            n_max=pn.n_max,
         )
         for pn in leg.panel_ns
     ]
@@ -178,6 +179,7 @@ def _rules_from_chunk(chunk: FigureChunk) -> LegendFigureJSON:
                 notes=p.context[:120],
                 evidence_span=p.context[:160],
                 confidence=0.95,
+                n_max=p.n_max,
             )
             for p in panel_ns
         ],
@@ -345,6 +347,7 @@ def _paneln_to_legend_json(pn: PanelN) -> LegendPanelJSON:
         n_scope="per_group" if getattr(pn, "group", "") else "unknown",
         evidence_span=(pn.context or "")[:160],
         confidence=0.95,
+        n_max=pn.n_max,
     )
 
 
@@ -435,6 +438,7 @@ def _merge_llm_over_rules(
                     n_scope=p.n_scope,
                     evidence_span=p.evidence_span,
                     confidence=p.confidence,
+                    n_max=p.n_max,
                 )
                 g = ""
                 overlaid = True
@@ -782,6 +786,7 @@ def legend_json_to_panel_ns(
                     figure=fig.figure,
                     context=ctx[:200],
                     group=group,
+                    n_max=p.n_max,
                 )
             )
     return out

@@ -96,7 +96,9 @@ def test_hybrid_drops_ungrounded_and_replicate_llm_rows():
     got = {(p.panel, p.n) for p in hybrid.panels}
     assert ("C", 71) in got
     assert ("A", 1) not in got
-    assert ("B", 7) not in got
+    # worded repeat counts are the panel n (gold policy); the rules read it, not the LLM row
+    b = [p for p in hybrid.panels if (p.panel, p.n) == ("B", 7)]
+    assert len(b) == 1 and b[0].confidence == 0.95
 
 
 def test_verifier_with_stub_backend():

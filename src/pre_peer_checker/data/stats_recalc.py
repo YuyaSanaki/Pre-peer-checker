@@ -187,11 +187,32 @@ def _load_excel_best_inner(path: Path) -> pd.DataFrame:
     return best
 
 
+def _source_data_tidy(path: Path) -> pd.DataFrame | None:
+    """Source Data workbook → one label per block, value = plotted column."""
+    from pre_peer_checker.data.source_data_blocks import parse_source_data_blocks
+
+    blocks = parse_source_data_blocks(path)
+    if not blocks:
+        return None
+    labels: list[str] = []
+    values: list[float] = []
+    for b in blocks:
+        for v in b.primary.numeric():
+            labels.append(b.label)
+            values.append(v)
+    if not values:
+        return None
+    return pd.DataFrame({"label": labels, "value": values})
+
+
 def load_table(path: Path | str) -> pd.DataFrame:
     path = Path(path)
     if path.suffix.lower() == ".csv":
         return pd.read_csv(path)
-    if path.suffix.lower() in {".xlsx", ".xls"}:
+    if path.suffix.lower() in {".xlsx", ".xls", ".xlsm"}:
+        tidy = _source_data_tidy(path)
+        if tidy is not None:
+            return tidy
         return _load_excel_best(path)
     raise ValueError(f"Unsupported table format: {path.suffix}")
 
@@ -347,6 +368,13 @@ def analyze_table_file(path: Path | str) -> StatsResult:
     df = load_table(path)
     result = describe_groups(df)
     result.path = path
+    from pre_peer_checker.data.source_data_blocks import is_source_data_workbook
+
+    if is_source_data_workbook(path):
+        # blocks belong to different panels/units; cross-block tests are meaningless
+        result.pairwise = []
+        result.anova = None
+        result.warnings_hints = []
     return result
 
 

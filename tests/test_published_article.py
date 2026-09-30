@@ -66,6 +66,35 @@ def test_n_with_its_own_panel_list_is_not_spread_to_the_section() -> None:
     assert rows == {("H", 6), ("I", 3)}
 
 
+def test_range_n_is_kept_as_a_range() -> None:
+    text = (
+        "(A) Schematic of the assay. (B) Spine density of mutant neurons (n = 28–32 neurons). "
+        "(C) Soma size in control and mutant (n = 11–14 cells for control and mutant, respectively)."
+    )
+    rows = {(r.panel, r.group, r.n, r.n_max) for r in parse_panel_ns("Figure 3", text)}
+    assert ("B", "", 28, 32) in rows
+    assert ("C", "control", 11, None) in rows
+    assert ("C", "mutant", 14, None) in rows
+    assert not {r for r in rows if r[0] == "A"}
+
+
+def test_worded_counts_bind_like_n() -> None:
+    text = (
+        "(A–C) Staining of the tissue (A), with quantification (B and C). Data are "
+        "representative of three independent experiments. "
+        "(D) Lesion size, 30 cells from four mice. "
+        "(E) Four to twenty four independent experiments showed similar staining. "
+        "(F) Tumor growth (n = 6 mice per group); two-tailed t test. "
+        "(G) Treated for 3 days in 2 wells; two independent samples t test."
+    )
+    rows = {(r.panel, r.n, r.n_max) for r in parse_panel_ns("Figure 4", text)}
+    assert {("A", 3, None), ("B", 3, None), ("C", 3, None)} <= rows
+    assert ("D", 30, None) in rows and ("D", 4, None) not in rows
+    assert ("E", 4, 24) in rows
+    assert {r for r in rows if r[0] == "F"} == {("F", 6, None)}
+    assert {r for r in rows if r[0] == "G"} == {("G", 2, None)}
+
+
 def test_extended_data_keys() -> None:
     assert figure_num_key("Extended Data Fig. 3") == "ED3"
     assert figure_num_key("Extended Data Figure 10") == "ED10"

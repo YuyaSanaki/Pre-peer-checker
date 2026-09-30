@@ -40,6 +40,12 @@ from pre_peer_checker.engine.plot_table_match import (
 from pre_peer_checker.engine.shared_control import (
     warnings_from_shared_controls,
 )
+from pre_peer_checker.data.source_data_blocks import parse_source_data_blocks
+from pre_peer_checker.engine.source_data_checks import (
+    warnings_from_source_data_panels,
+    warnings_from_source_data_reuse,
+    warnings_from_source_data_summaries,
+)
 from pre_peer_checker.engine.source_values import (
     warnings_from_source_duplicates,
     warnings_from_source_ratio_artifacts,
@@ -815,6 +821,8 @@ def run_verification(
     )
     if llm_active:
         result.artifacts["legend_panel_ns_merge"] = "rules_lock"
+    # a legend range (``n = 28–32``) is no single n to compare with counts
+    exact_panel_ns = [pn for pn in panel_ns if pn.n_max is None]
 
     # --- 表: 群ベクトル + 統計 ---
     table_paths = bundle.get(FileKind.CSV) + bundle.get(FileKind.EXCEL)
@@ -960,6 +968,43 @@ def run_verification(
     result.warnings.extend(warnings_from_source_ratio_artifacts(plot_vectors, min_n=4))
     result.warnings.extend(warnings_from_derived_precision(plot_vectors, claim_texts))
 
+    # --- P-SOURCE-DATA-*: 雑誌 Source Data（Figure ごとのブロック） ---
+    source_blocks = [
+        b for p in bundle.get(FileKind.EXCEL) for b in parse_source_data_blocks(p)
+    ]
+    result.artifacts["source_data_blocks"] = [
+        {
+            "path": str(b.path),
+            "cell": f"{b.sheet}!{b.header_cell}",
+            "figure": b.figure.label() if b.figure else None,
+            "title": b.title,
+            "n": b.n,
+            "columns": [c.header for c in b.columns],
+        }
+        for b in source_blocks
+    ]
+    if source_blocks:
+        reuse = warnings_from_source_data_reuse(source_blocks, disclosure=disclosure)
+        if reuse:
+            source_paths = {b.path.resolve() for b in source_blocks}
+            # exact block-vs-block copies are reported by the Source Data reuse check
+            result.warnings = [
+                w
+                for w in result.warnings
+                if not (
+                    w.metadata.get("pattern_id")
+                    in {"P-SHARED-CONTROL-UNDISCLOSED", "P-DATA-SWAP-CROSS-CONDITION"}
+                    and w.metadata.get("exact")
+                    and len(w.sources) == 2
+                    and {Path(s).resolve() for s in w.sources} <= source_paths
+                )
+            ]
+        result.warnings.extend(reuse)
+        result.warnings.extend(warnings_from_source_data_summaries(source_blocks))
+        result.warnings.extend(
+            warnings_from_source_data_panels(source_blocks, exact_panel_ns)
+        )
+
     # --- P-NUMERIC-CROSSREF-MISMATCH / P-METHODS-CLAIM-MISMATCH ---
     tracker.update(detail="本文中の数値・統計記載とデータを照合中")
     result.warnings.extend(
@@ -1073,7 +1118,7 @@ def run_verification(
             exclusion_blobs.append(raw)
     exclusion_mentioned = detect_exclusion_criteria("\n".join(exclusion_blobs)).mentioned
     result.artifacts["exclusion_criteria_mentioned"] = exclusion_mentioned
-    n_mismatches = match_legend_n_to_vectors(panel_ns, all_vectors)
+    n_mismatches = match_legend_n_to_vectors(exact_panel_ns, all_vectors)
     result.warnings.extend(
         warnings_from_n_mismatches(
             n_mismatches, exclusion_mentioned=exclusion_mentioned
@@ -1255,7 +1300,7 @@ def run_verification(
                     )
     result.warnings.extend(warnings_from_cross_plot_identity(digitized_plots))
     result.warnings.extend(
-        warnings_inconsistent_n_identical_plots(panel_ns, all_vectors, digitized_plots)
+        warnings_inconsistent_n_identical_plots(exact_panel_ns, all_vectors, digitized_plots)
     )
     result.artifacts["digitized_plots"] = dig_arts
 
@@ -1353,7 +1398,7 @@ def run_verification(
         key_alias_map = None
 
     n_rows = build_n_matrix(
-        panel_ns,
+        exact_panel_ns,
         all_vectors,
         digitized_plots=digitized_plots,
         legend_json_by_panel=legend_json_by_panel,

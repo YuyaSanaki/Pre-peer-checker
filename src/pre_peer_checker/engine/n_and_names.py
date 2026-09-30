@@ -34,7 +34,13 @@ def is_plot_quant_table(path: Path) -> bool:
     name = path.name.lower()
     if suf not in {".xlsx", ".xls", ".csv"}:
         return False
-    return name.startswith("graph") or name.startswith("quant_")
+    if name.startswith("graph") or name.startswith("quant_"):
+        return True
+    if suf in {".xlsx", ".xls"}:
+        from pre_peer_checker.data.source_data_blocks import is_source_data_workbook
+
+        return is_source_data_workbook(path)
+    return False
 
 
 def figure_num_from_label(figure: str) -> str | None:

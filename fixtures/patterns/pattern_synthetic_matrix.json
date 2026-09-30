@@ -228,6 +228,36 @@
       "harness": "gold_eval",
       "case_id": "ref_claim",
       "gold_item_id": "E5a"
+    },
+    {
+      "pattern_id": "P-SOURCE-DATA-CROSS-FIGURE-REUSE",
+      "ci_required": true,
+      "harness": "unit",
+      "unit": "source_data_synthetic"
+    },
+    {
+      "pattern_id": "P-SOURCE-DATA-SUMMARY-MISMATCH",
+      "ci_required": true,
+      "harness": "unit",
+      "unit": "source_data_synthetic"
+    },
+    {
+      "pattern_id": "P-SOURCE-DATA-POPULATION-SD",
+      "ci_required": true,
+      "harness": "unit",
+      "unit": "source_data_synthetic"
+    },
+    {
+      "pattern_id": "P-SOURCE-DATA-LEGEND-N",
+      "ci_required": true,
+      "harness": "unit",
+      "unit": "source_data_synthetic"
+    },
+    {
+      "pattern_id": "P-SOURCE-DATA-PANEL-REF-DUP",
+      "ci_required": true,
+      "harness": "unit",
+      "unit": "source_data_synthetic"
     }
   ]
 }

@@ -177,6 +177,7 @@ def test_range_n_matches_only_the_same_range() -> None:
     assert score_one(gold, [{**base, "n": 28}])["n_hit"] == 0
     sc = score_one(gold, [{**base, "n": None, "n_range": [28, 32]}])
     assert (sc["n_hit"], sc["n_pred_hit"], sc["n_pred"]) == (1, 1, 1)
+    assert gz._legend_row("Figure 3", "h", "", 28, 32) == {**base, "n": None, "n_range": [28, 32]}
 
 
 def test_frozen_gold_edit_is_refused_unless_revised(roots: Path) -> None:

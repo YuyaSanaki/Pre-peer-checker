@@ -355,7 +355,7 @@ def legend_predictions(
     for fig, text in captions if captions is not None else legend_captions(case, source):
         if not cfg.use_llm:
             for pn in parse_panel_ns(fig, text):
-                rows.append(_legend_row(fig, pn.panel, pn.group or "", pn.n))
+                rows.append(_legend_row(fig, pn.panel, pn.group or "", pn.n, pn.n_max))
             continue
         if llm_generate is None:
             raise RuntimeError(f"config {cfg.name!r} needs an LLM backend")
@@ -372,12 +372,21 @@ def legend_predictions(
         for p in item.panels:
             if p.n is None:
                 continue
-            rows.append(_legend_row(fig, p.panel, p.groups[0] if p.groups else "", p.n))
+            rows.append(
+                _legend_row(fig, p.panel, p.groups[0] if p.groups else "", p.n, p.n_max)
+            )
     return rows
 
 
-def _legend_row(fig: str, panel: str, group: str, n: Any) -> dict[str, Any]:
-    return {"figure": fig, "panel": str(panel).upper(), "group": str(group or ""), "n": int(n)}
+def _legend_row(
+    fig: str, panel: str, group: str, n: Any, n_max: int | None = None
+) -> dict[str, Any]:
+    row: dict[str, Any] = {"figure": fig, "panel": str(panel).upper(), "group": str(group or "")}
+    if n_max is not None:
+        row.update(n=None, n_range=[int(n), int(n_max)])
+    else:
+        row["n"] = int(n)
+    return row
 
 
 def legend_location(case: Case, captions: list[tuple[str, str]]) -> dict[str, Any]:

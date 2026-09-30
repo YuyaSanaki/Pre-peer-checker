@@ -168,6 +168,8 @@ class PanelN:
     figure: str
     context: str
     group: str = ""
+    # legend range ``n = 28–32``: ``n`` is the low end; numeric n checks skip these rows
+    n_max: int | None = None
 
 
 @dataclass
@@ -266,12 +268,17 @@ def _add_pn(
     n: int,
     context: str,
     group: str = "",
+    n_max: int | None = None,
 ) -> None:
     panel_u = _normalize_panel(panel)
     if not panel_u:
         return
     if any(
-        x.panel == panel_u and x.n == n and x.figure == figure and x.group == group
+        x.panel == panel_u
+        and x.n == n
+        and x.n_max == n_max
+        and x.figure == figure
+        and x.group == group
         for x in found
     ):
         return
@@ -282,6 +289,7 @@ def _add_pn(
             figure=figure,
             context=context[:120],
             group=group,
+            n_max=n_max,
         )
     )
 
@@ -624,9 +632,38 @@ def _postfix_n_assignments(
     return out
 
 
-# ``n = 26`` / ``n=8`` / ``n = 67 cells from 14 mice`` (X only); not ranges ``n = 28–32`` or
-# decimals.
-_N_MENTION_RE = re.compile(r"(?<![A-Za-z])[nN]\s*=\s*(\d+)(?!\d)(?![.,]\d)(?!\s*(?:[–—-]|to)\s*\d)")
+# ``n = 26`` / ``n=8`` / ``n = 67 cells from 14 mice`` (X only) / range ``n = 28–32``; not decimals.
+_N_MENTION_RE = re.compile(
+    r"(?<![A-Za-z])[nN]\s*=\s*(\d+)(?:\s*(?:[–—-]|to)\s*(\d+))?(?!\d)(?![.,]\d)"
+)
+_NUMBER_WORDS = {
+    w: i
+    for i, w in enumerate(
+        "one two three four five six seven eight nine ten eleven twelve thirteen fourteen "
+        "fifteen sixteen seventeen eighteen nineteen".split(),
+        start=1,
+    )
+}
+_TENS_WORDS = {"twenty": 20, "thirty": 30, "forty": 40, "fifty": 50}
+_NUM_TOKEN = (
+    r"(?:\d{1,3}|(?:" + "|".join(_TENS_WORDS) + r")(?:[\s-](?:one|two|three|four|five|six|seven"
+    r"|eight|nine)\b)?|(?:" + "|".join(sorted(_NUMBER_WORDS, key=len, reverse=True)) + r")\b)"
+)
+# ``three independent experiments`` / ``3 mice per group`` / ``four to twenty four independent …``
+_WORDED_N_RE = re.compile(
+    r"(?<![\w.,=≥≤<>/–—-])(" + _NUM_TOKEN + r")"
+    r"(?:\s*(?:[–—-]|to)\s*(" + _NUM_TOKEN + r"))?\s+"
+    r"(?:(?:biologically|biological|technical|independent|separate|individual|different|"
+    r"distinct|experimental|independently)\s+){0,2}"
+    r"(?:experiments?|replicates?|repeats?|repetitions|mice|animals|rats|flies|larvae|embryos|"
+    r"samples|patients|donors|cultures|litters|brains|preparations|organoids|fish|individuals|"
+    r"subjects|participants|biopsies|tumou?rs|cells|neurons|wells|clones|(?:cell\s+)?lines)\b"
+    r"(?!\s*t[-\s]?tests?)",
+    re.I,
+)
+_RESPECTIVELY_GROUPS_RE = re.compile(
+    r"\b(?:for|in|of)\s+([^,;()]+?)\s+and\s+([^,;()]+?)\s*,?\s*respectively\b", re.I
+)
 _ANY_PANEL_REF_RE = re.compile(r"\(([A-Z](?:\s*(?:,|and|[-–—])\s*[A-Z])*)\)")
 _SENTENCE_BREAK_RE = re.compile(r"[.;]\s+(?=[A-Z(])")
 # Section header whose letters carry primes: ``(C-F′) TUNEL assay …`` / ``(C′,D′) Orthogonal …``
@@ -695,42 +732,119 @@ def _generic_clause_ns(figure: str, text: str, found: list[PanelN]) -> list[Pane
 
         scope = set(section_panels) | {p for *_, ps in refs_in(body, len(chunk)) for p in ps}
         already = {n for p, n in read if p in scope}
-        rows: list[tuple[int, list[str], int, str, str, bool]] = []
+        rows: list[tuple[int, list[str], int, int | None, str, str, bool]] = []
         prev: dict[int, tuple[int, list[str]]] = {}
-        for m in _N_MENTION_RE.finditer(chunk):
-            n = int(m.group(1))
-            sent_start = max([b for b in breaks if b <= m.start()], default=0)
-            ctx = chunk[max(0, m.start() - 40) : m.end() + 20]
-            if re.match(r"\s*(?:\(\s*[A-Za-z][^)]{0,40}\)|,\s*[A-Z]\b)", chunk[m.end() :]):
-                prev[sent_start] = (m.end(), prev.get(sent_start, (0, section_panels))[1])
+        for start, end, values, kind in _clause_mentions(chunk, breaks):
+            sent_start = max([b for b in breaks if b <= start], default=0)
+            ctx = chunk[max(0, start - 40) : end + 20]
+            if re.match(r"\s*(?:\(\s*[A-Za-z][^)]{0,40}\)|,\s*[A-Z]\b)", chunk[end:]):
+                prev[sent_start] = (end, prev.get(sent_start, (0, section_panels))[1])
                 continue
-            if n in already:
+            n0, n_max0, _ = values[0]
+            if kind != "split" and n_max0 is None and n0 in already:
+                if kind == "worded":
+                    continue
                 # read without its group (``WT (n = 7) and KO (n = 9)``): offer the label only
-                panels = sorted({pn.panel for pn in found if pn.n == n and not pn.group and pn.panel in scope})
-                label = _group_label_before(chunk[sent_start : m.start()])
+                panels = sorted({pn.panel for pn in found if pn.n == n0 and not pn.group and pn.panel in scope})
+                label = _group_label_before(chunk[sent_start:start])
                 if panels:
-                    rows.append((sent_start, panels, n, ctx, label, True))
-                prev[sent_start] = (m.end(), panels or prev.get(sent_start, (0, section_panels))[1])
+                    rows.append((sent_start, panels, n0, None, ctx, label, True))
+                prev[sent_start] = (end, panels or prev.get(sent_start, (0, section_panels))[1])
                 continue
             since, last_targets = prev.get(sent_start, (max(sent_start, body), []))
-            refs = refs_in(max(since, body), m.start())
-            if refs and re.fullmatch(r"\s*\(\s*", chunk[refs[-1][1] : m.start()]):
+            refs = refs_in(max(since, body), start)
+            if refs and re.fullmatch(r"\s*\(\s*", chunk[refs[-1][1] : start]):
                 targets = refs[-1][2]
             elif refs:
                 ps = [p for *_, rp in refs for p in rp]
                 targets = list(dict.fromkeys(ps + section_panels if sent_start == 0 else ps))
             else:
                 targets = last_targets or section_panels
-            prev[sent_start] = (m.end(), targets)
-            label = _group_label_before(chunk[sent_start : m.start()])
-            rows.append((sent_start, targets, n, ctx, label, False))
-        for sent, targets, n, ctx, label, relabel in rows:
-            grouped = len({r[4] for r in rows if r[0] == sent and r[1] == targets and r[4]}) >= 2
+            prev[sent_start] = (end, targets)
+            for n, n_max, label in values:
+                if label is None:
+                    label = _group_label_before(chunk[sent_start:start])
+                rows.append((sent_start, targets, n, n_max, ctx, label, False))
+        for sent, targets, n, n_max, ctx, label, relabel in rows:
+            grouped = len({r[5] for r in rows if r[0] == sent and r[1] == targets and r[5]}) >= 2
             if relabel and not (grouped and label):
                 continue
             for p in targets:
-                _add_pn(out, figure=figure, panel=p, n=n, context=ctx, group=label if grouped else "")
+                _add_pn(
+                    out,
+                    figure=figure,
+                    panel=p,
+                    n=n,
+                    context=ctx,
+                    group=label if grouped else "",
+                    n_max=n_max,
+                )
     return out
+
+
+def _short_label(s: str) -> str:
+    words = [w for w in s.split() if not _LABEL_STOP_RE.match(w)][-4:]
+    label = " ".join(words).strip(" ,")
+    return "" if len(label) > 40 or label.isdigit() else label
+
+
+def _clause_mentions(
+    chunk: str, breaks: list[int]
+) -> list[tuple[int, int, list[tuple[int, int | None, str | None]], str]]:
+    """Sample-size mentions of one section: ``(start, end, [(n, n_max, group|None)], kind)``.
+
+    ``n = 5`` / range ``n = 28–32`` (``n_max``) / ``n = 119–134 … for X and Y, respectively``
+    (split, one n per group) / worded ``three independent experiments`` (only in sentences
+    without ``n =``; ``30 cells from three mice`` keeps the 30).
+    """
+    def sentence(pos: int) -> tuple[int, int]:
+        s = max([b for b in breaks if b <= pos], default=0)
+        e = min([b for b in breaks if b > pos], default=len(chunk))
+        return s, e
+
+    out: list[tuple[int, int, list[tuple[int, int | None, str | None]], str]] = []
+    n_sentences: set[int] = set()
+    for m in _N_MENTION_RE.finditer(chunk):
+        lo = int(m.group(1))
+        n_sentences.add(sentence(m.start())[0])
+        if not m.group(2):
+            out.append((m.start(), m.end(), [(lo, None, None)], "n"))
+            continue
+        hi = int(m.group(2))
+        if hi <= lo:
+            continue
+        tail = chunk[m.end() : sentence(m.start())[1]]
+        if re.search(r"\brespectively\b", tail, re.I):
+            g = _RESPECTIVELY_GROUPS_RE.search(tail)
+            labels = (_short_label(g.group(1)), _short_label(g.group(2))) if g else ("", "")
+            out.append((m.start(), m.end(), [(lo, None, labels[0]), (hi, None, labels[1])], "split"))
+        else:
+            out.append((m.start(), m.end(), [(lo, hi, None)], "range"))
+    last_worded: dict[int, int] = {}
+    for m in _WORDED_N_RE.finditer(chunk):
+        s, _ = sentence(m.start())
+        if s in n_sentences:
+            continue
+        prior = last_worded.get(s)
+        last_worded[s] = m.end()
+        if prior is not None and re.fullmatch(r"\s*from\s+", chunk[prior : m.start()], re.I):
+            continue
+        lo = _number_value(m.group(1))
+        hi = _number_value(m.group(2)) if m.group(2) else None
+        if hi is not None and hi <= lo:
+            continue
+        out.append((m.start(), m.end(), [(lo, hi, "")], "worded"))
+    return sorted(out, key=lambda r: r[0])
+
+
+def _number_value(tok: str) -> int:
+    """``12`` / ``three`` / ``twenty four`` / ``twenty-four`` → int."""
+    t = tok.lower().replace("-", " ").split()
+    if t[0].isdigit():
+        return int(t[0])
+    if t[0] in _TENS_WORDS:
+        return _TENS_WORDS[t[0]] + (_NUMBER_WORDS[t[1]] if len(t) > 1 else 0)
+    return _NUMBER_WORDS[t[0]]
 
 
 def parse_panel_ns(figure: str, text: str) -> list[PanelN]:
@@ -870,6 +984,7 @@ def parse_panel_ns(figure: str, text: str) -> list[PanelN]:
             n=pn.n,
             context=pn.context,
             group=pn.group,
+            n_max=pn.n_max,
         )
 
     return found

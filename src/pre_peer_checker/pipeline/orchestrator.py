@@ -40,7 +40,7 @@ from pre_peer_checker.engine.plot_table_match import (
 from pre_peer_checker.engine.shared_control import (
     warnings_from_shared_controls,
 )
-from pre_peer_checker.data.source_data_blocks import parse_source_data_blocks
+from pre_peer_checker.data.source_data_blocks import parse_source_data_bundle
 from pre_peer_checker.engine.source_data_checks import (
     warnings_from_source_data_panels,
     warnings_from_source_data_reuse,
@@ -976,16 +976,18 @@ def run_verification(
     result.warnings.extend(warnings_from_derived_precision(plot_vectors, claim_texts))
 
     # --- P-SOURCE-DATA-*: 雑誌 Source Data（Figure ごとのブロック） ---
-    source_blocks = [
-        b for p in bundle.get(FileKind.EXCEL) for b in parse_source_data_blocks(p)
-    ]
+    source_blocks = parse_source_data_bundle(bundle.get(FileKind.EXCEL))
     result.artifacts["source_data_blocks"] = [
         {
             "path": str(b.path),
             "cell": f"{b.sheet}!{b.header_cell}",
             "figure": b.figure.label() if b.figure else None,
+            "panels": list(b.all_panels),
             "title": b.title,
+            "layout": b.layout,
             "n": b.n,
+            "n_comparable": b.n_comparable,
+            "groups": [{"name": g, "n": len(v)} for g, v in b.groups[:50]],
             "columns": [c.header for c in b.columns],
         }
         for b in source_blocks
@@ -1197,7 +1199,7 @@ def run_verification(
     for root in roots:
         base = root if root.is_dir() else root.parent
         for rp in find_residue_files(base):
-            if not str(rp).endswith("textClipping"):
+            if not rp.name.lower().endswith(".textclipping"):
                 continue
             residue_paths.append(rp)
             try:
@@ -1208,6 +1210,8 @@ def run_verification(
                         "kind": st.kind,
                         "means": st.means,
                         "p_value": st.p_value,
+                        "df": st.df,
+                        "group_sizes": list(st.group_sizes),
                     }
                 )
             except Exception:

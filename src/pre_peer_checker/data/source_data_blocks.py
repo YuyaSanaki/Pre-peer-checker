@@ -30,7 +30,7 @@ from __future__ import annotations
 
 import re
 from collections import OrderedDict
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from functools import lru_cache
 from pathlib import Path
 from typing import Any
@@ -82,6 +82,14 @@ _SUMMARY_CANON = {
 # coordinates, omics tables), not per-sample values a legend n counts.
 LARGE_BLOCK_ROWS = 1000
 
+# "Experiment 2" / "Rep 3" / "Batch 1" rows split one group's column into runs
+_REPLICATE_RE = re.compile(
+    r"^\s*(?:(?:independent\s+|biological\s+|technical\s+)?(?:experiment|replicate)s?|"
+    r"exp\.?|expt\.?|rep\.?|batch|trial|run|round|set|cohort|plate|donor|litter)"
+    r"\s*[#no.]*\s*\d{1,3}\s*$",
+    re.IGNORECASE,
+)
+
 
 @dataclass(frozen=True)
 class FigureRef:
@@ -131,6 +139,8 @@ class SourceDataBlock:
     truncated: bool = False
     # y columns of a curve whose x column sits in a separate block to the left
     curve: bool = False
+    # figure taken from a bare sheet name like "3bf" (main vs Extended Data unknown)
+    figure_implicit: bool = False
 
     @property
     def primary(self) -> SourceColumn:
@@ -358,6 +368,10 @@ def _header_runs(grid: list[list[tuple[str, Any]]], r: int) -> list[tuple[int, i
             continue
         if end - start + 1 == 1 and _parse_figure_label(cells[0]):
             continue
+        if all(_REPLICATE_RE.match(x) for x in cells) and any(
+            _cell(grid, r - 1, j)[0] == "num" for j in range(start, end + 1)
+        ):
+            continue
         below = [_cell(grid, r + 1, j)[0] for j in range(start, end + 1)]
         n_num = below.count("num")
         if n_num >= 1 and (n_num * 2 >= len(below) or n_num + below.count("str") == len(below)):
@@ -390,6 +404,48 @@ def _nearest_figure_label(
     return best[2] if best else None
 
 
+def _is_replicate_row(cells: list[tuple[str, Any]]) -> bool:
+    filled = [(k, v) for k, v in cells if k != "empty"]
+    return bool(filled) and all(k == "str" and _REPLICATE_RE.match(v) for k, v in filled)
+
+
+def _stacked_header(grid: list[list[tuple[str, Any]]], r: int, c: int, c0: int) -> list[str]:
+    """Header cells above (r, c); a merged cell left of c within the run counts too."""
+    parts: list[str] = []
+    for up in range(r - 1, max(-1, r - 4), -1):
+        k, v = _cell(grid, up, c)
+        if k == "empty":
+            left = next(
+                (_cell(grid, up, cc) for cc in range(c - 1, c0 - 1, -1) if _cell(grid, up, cc)[0] != "empty"),
+                ("empty", None),
+            )
+            k, v = left
+        if k != "str" or parse_figure_label(v) is not None or _is_summary(k, v):
+            break
+        parts.insert(0, str(v).strip())
+    return parts
+
+
+def _resolve_headers(grid: list[list[tuple[str, Any]]], r: int, c0: int, c1: int) -> list[str]:
+    """Column names; stacked/merged header rows name groups whose own cell is a replicate
+    label ("Experiment 1") or repeats a neighbour ("shX", "shX")."""
+    raw = [str(_cell(grid, r, c)[1]) for c in range(c0, c1 + 1)]
+    weak = [bool(_REPLICATE_RE.match(h)) for h in raw]
+    dup = len(set(raw)) < len(raw)
+    if not any(weak) and not dup:
+        return raw
+    out: list[str] = []
+    for i, c in enumerate(range(c0, c1 + 1)):
+        stack = _stacked_header(grid, r, c, c0)
+        own = [] if weak[i] else [raw[i]]
+        out.append(" ".join(stack + own) or raw[i])
+    counts = {h: out.count(h) for h in out}
+    return [
+        f"{h} [{get_column_letter(c0 + i + 1)}]" if counts[h] > 1 else h
+        for i, h in enumerate(out)
+    ]
+
+
 def _parse_block(
     path: Path,
     sheet: str,
@@ -399,10 +455,11 @@ def _parse_block(
     c1: int,
     *,
     sheet_label: FigureLabel | None = None,
+    sheet_label_implicit: bool = False,
     truncated: bool = False,
 ) -> SourceDataBlock | None:
     width = c1 - c0 + 1
-    headers = [str(_cell(grid, r, c)[1]) for c in range(c0, c1 + 1)]
+    headers = _resolve_headers(grid, r, c0, c1)
     first = [_cell(grid, r + 1, c) for c in range(c0, c1 + 1)]
     cat_idx = {i for i, (k, v) in enumerate(first) if k == "str" and not _is_summary(k, v)}
     if len(cat_idx) == width:
@@ -426,6 +483,9 @@ def _parse_block(
                     k, v = cells[i]
                     if k == "num":
                         nums[i].summary.setdefault(key, v)
+            rr += 1
+            continue
+        if not cat_idx and _is_replicate_row(cells):
             rr += 1
             continue
         if any(k == "str" and i not in cat_idx for i, (k, _) in enumerate(cells)):
@@ -474,8 +534,10 @@ def _parse_block(
                 title_parts.insert(0, v)
     if label is None:
         label = _nearest_figure_label(grid, r, c0, c1)
+    implicit = False
     if label is None:
         label = sheet_label
+        implicit = sheet_label_implicit and label is not None
     title = " / ".join(title_parts)
 
     return SourceDataBlock(
@@ -490,6 +552,7 @@ def _parse_block(
         panels=label.panels if label is not None else (),
         categories=categories,
         truncated=truncated,
+        figure_implicit=implicit,
     )
 
 
@@ -517,11 +580,20 @@ def _parse_uncached(path: Path) -> list[SourceDataBlock]:
         sheet_label = sheet_figure_label(sheet, file_label=file_label, short_names_ok=short_ok)
         if sheet_label is None:
             sheet_label = file_label
+        implicit = file_label is None and parse_figure_label(sheet) is None
         for r in range(len(grid)):
             prev: SourceDataBlock | None = None
             for c0, c1 in _header_runs(grid, r):
                 block = _parse_block(
-                    path, sheet, grid, r, c0, c1, sheet_label=sheet_label, truncated=truncated
+                    path,
+                    sheet,
+                    grid,
+                    r,
+                    c0,
+                    c1,
+                    sheet_label=sheet_label,
+                    sheet_label_implicit=implicit,
+                    truncated=truncated,
                 )
                 if block is None:
                     continue
@@ -560,3 +632,48 @@ def parse_source_data_blocks(path: Path | str) -> list[SourceDataBlock]:
 
 def is_source_data_workbook(path: Path | str) -> bool:
     return bool(parse_source_data_blocks(path))
+
+
+def _values_key(block: SourceDataBlock) -> tuple:
+    return tuple((g, tuple(round(v, 9) for v in vals)) for g, vals in block.groups)
+
+
+def reconcile_copies(blocks: list[SourceDataBlock]) -> list[SourceDataBlock]:
+    """A copy labelled only by a bare sheet name takes the figure of an explicit copy.
+
+    Journals often ship the same Source Data twice (e.g. renamed supplementary
+    files); the copy whose file / cell says "Extended Data" decides the figure.
+    """
+    explicit: dict[tuple, FigureRef] = {}
+    for b in blocks:
+        if b.figure is not None and not b.figure_implicit:
+            explicit.setdefault((b.figure.number, b.all_panels, _values_key(b)), b.figure)
+    if not explicit:
+        return list(blocks)
+    out: list[SourceDataBlock] = []
+    for b in blocks:
+        if b.figure is not None and b.figure_implicit:
+            ref = explicit.get((b.figure.number, b.all_panels, _values_key(b)))
+            if ref is not None and ref != b.figure:
+                b = replace(b, figure=ref, figure_implicit=False)
+        out.append(b)
+    return out
+
+
+@lru_cache(maxsize=32)
+def _bundle_cached(key: tuple[tuple[str, int], ...]) -> tuple[SourceDataBlock, ...]:
+    blocks: list[SourceDataBlock] = []
+    for path_str, _ in key:
+        blocks.extend(parse_source_data_blocks(path_str))
+    return tuple(reconcile_copies(blocks))
+
+
+def parse_source_data_bundle(paths) -> list[SourceDataBlock]:
+    """Blocks of all Source Data workbooks of a submission, duplicates reconciled."""
+    key = []
+    for p in dict.fromkeys(Path(x).resolve() for x in paths):
+        try:
+            key.append((str(p), p.stat().st_mtime_ns))
+        except OSError:
+            continue
+    return list(_bundle_cached(tuple(sorted(key))))

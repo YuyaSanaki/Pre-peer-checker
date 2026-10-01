@@ -378,6 +378,8 @@ def grid_to_frame(grid: Grid, header_row: int | None = 0):
     for c in df.columns:
         conv = pd.to_numeric(df[c], errors="coerce")
         if conv.notna().sum() == df[c].notna().sum():
+            if len(conv) and conv.notna().all() and (conv % 1 == 0).all() and (conv.abs() < 2**53).all():
+                conv = conv.astype("int64")
             df[c] = conv
     return df.reset_index(drop=True)
 

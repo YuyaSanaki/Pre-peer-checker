@@ -377,8 +377,15 @@ def match_source_block_for_panel(
         by_group_n = [
             b for b in cands if b.n_comparable and any(len(v) == pn.n for _, v in b.groups)
         ]
-        cands = _distinct(by_group_n or [b for b in cands if b.n == pn.n])
-    return (cands[0] if len(cands) == 1 else None), True
+        cands = _distinct(by_group_n or [b for b in cands if b.n == pn.n]) or cands
+        if len({_n_profile(b) for b in cands}) > 1:
+            return None, True
+    return (cands[0] if cands else None), True
+
+
+def _n_profile(block: SourceDataBlock) -> tuple:
+    """Sub-tables of one panel with the same layout and group sizes give the same n."""
+    return (block.layout, tuple(len(v) for _, v in block.groups))
 
 
 def _distinct(blocks: list[SourceDataBlock]) -> list[SourceDataBlock]:

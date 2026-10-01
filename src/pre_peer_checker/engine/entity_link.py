@@ -663,16 +663,14 @@ def _source_data_link(pn: PanelN, vectors: list[GroupVector]) -> EntityLink | No
         LAYOUT_JA,
         is_source_data_workbook,
         match_group,
-        parse_source_data_blocks,
+        parse_source_data_bundle,
     )
     from pre_peer_checker.engine.source_data_checks import match_source_block_for_panel
 
     sd_vectors = [v for v in vectors if is_source_data_workbook(v.source)]
     if not sd_vectors:
         return None
-    blocks = []
-    for path in dict.fromkeys(v.source for v in sd_vectors):
-        blocks.extend(parse_source_data_blocks(path))
+    blocks = parse_source_data_bundle(v.source for v in sd_vectors)
     block, covered = match_source_block_for_panel(pn, blocks)
     if block is None:
         if covered:

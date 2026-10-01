@@ -695,7 +695,7 @@ def _postfix_n_assignments(
 
 # ``n = 26`` / ``n=8`` / ``n = 67 cells from 14 mice`` (X only) / range ``n = 28–32``; not decimals.
 _N_MENTION_RE = re.compile(
-    r"(?<![A-Za-z])[nN]\s*=\s*(\d+)(?:\s*(?:[–—-]|to)\s*(\d+))?(?!\d)(?![.,]\d)"
+    r"(?<![A-Za-z])[nN]\s*=\s*(\d+)(?:\s*(?:[–—-]|to|or)\s*(\d+))?(?!\d)(?![.,]\d)"
 )
 _SEX_UNIT_RE = re.compile(r"\s*(?:males?|females?|men|women|boys|girls)\b", re.I)
 # ``n (BW and KW/BW) = 12``: n of the named measurements

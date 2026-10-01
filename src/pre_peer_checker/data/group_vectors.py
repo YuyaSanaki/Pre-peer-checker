@@ -68,7 +68,7 @@ def extract_group_vectors(path: Path | str) -> list[GroupVector]:
         vals = tuple(
             sorted(float(x) for x in part["_mc_value"].dropna().tolist())
         )
-        gk = str(key)
+        gk = str(int(key)) if isinstance(key, float) and key.is_integer() else str(key)
         if gk.lower() in {"all", "nan", "none", ""}:
             gk = group_key_from_path(path)
         out.append(GroupVector(path, gk, vals, len(vals)))

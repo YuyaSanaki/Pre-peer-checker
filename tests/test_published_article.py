@@ -124,6 +124,52 @@ def test_capital_n_next_to_lowercase_n_is_the_replicate_level() -> None:
     assert rows == {("B", 12), ("B", 19)}
 
 
+def test_single_multi_panel_opener_starts_a_section() -> None:
+    text = "Figure 2. Title. A, B, Spikes per hour in cortex (A) or thalamus (B). WT, n = 5 mice; KO, n = 9 mice."
+    rows = {(r.panel, r.n) for r in parse_panel_ns("Figure 2", text)}
+    assert rows == {("A", 5), ("B", 5), ("A", 9), ("B", 9)}
+
+
+def test_sex_breakdowns_and_totals_are_not_group_n() -> None:
+    text = (
+        "Figure 3. Title. A, Images. B, Density of cells (8-month-old mice, n = 4 per genotype). "
+        "WT, n = 3 males, 1 female; KO, n = 2 males, 2 females. C, D, Quantification of properties. "
+        "WT, n = 26 cells; KO, n = 29 cells; HET, n = 22 cells. All measures reach n = 77."
+    )
+    rows = {(r.panel, r.group, r.n) for r in parse_panel_ns("Figure 3", text)}
+    assert {r for r in rows if r[0] == "B"} == {("B", "", 4)}
+    assert {r[2] for r in rows if r[0] == "C"} == {26, 29, 22}
+
+
+def test_n_after_closing_stats_covers_every_data_panel() -> None:
+    text = (
+        "Figure 4. Title. A, Representative firing traces. B, F-I curves of firing frequency. "
+        "C, D, Quantification of active (C) and passive (D) properties. Statistical significance "
+        "was assessed by mixed-effects regression. WT, n = 26 cells; KO, n = 29 cells."
+    )
+    rows = {(r.panel, r.n) for r in parse_panel_ns("Figure 4", text)}
+    assert rows == {(p, n) for p in "BCD" for n in (26, 29)}
+
+
+def test_measurement_named_n_and_per_animal_counts() -> None:
+    text = (
+        "Figure 1. Title. (E, F, G) BW, KW/BW ratio, and GFR of animals at 6 wk. n (BW and KW/BW) = 12 "
+        "per group, n (GFR) = 5–6 per group. (H) Podocyte density. n = 10 glomeruli per section "
+        "per animal × 4–6 per group."
+    )
+    rows = {(r.panel, r.n, r.n_max) for r in parse_panel_ns("Figure 1", text)}
+    assert rows == {("E", 12, None), ("F", 12, None), ("G", 5, 6), ("H", 4, 6)}
+
+
+def test_panel_ref_after_n_closes_the_run_before_it() -> None:
+    text = (
+        "(C, D) Heart volume in control fish (n = 5) or mutants (n = 5) (C) or heartbeat (D) "
+        "in control fish (n = 8) or mutants (n = 8)."
+    )
+    rows = {(r.panel, r.n) for r in parse_panel_ns("Figure 4", text)}
+    assert rows == {("C", 5), ("D", 8)}
+
+
 def test_extended_data_keys() -> None:
     assert figure_num_key("Extended Data Fig. 3") == "ED3"
     assert figure_num_key("Extended Data Figure 10") == "ED10"

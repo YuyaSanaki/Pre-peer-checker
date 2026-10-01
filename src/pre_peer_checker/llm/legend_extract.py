@@ -451,6 +451,8 @@ def _merge_llm_over_rules(
             g = str(rp.groups[0]) if rp.groups else ""
             key = (rp.panel.upper(), g, rp.n)
             if key in by_key:
+                if rp.n_max is not None and by_key[key].n_max is None:
+                    by_key[key] = rp  # ``n = 7–9`` read by rules, only the 7 by the LLM
                 continue
             panel_u = rp.panel.upper()
             # Keep every distinct rule (panel, group, n). Empty-group panel+n from

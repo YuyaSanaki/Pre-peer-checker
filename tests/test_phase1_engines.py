@@ -113,6 +113,24 @@ def test_merge_fills_omitted_panel_groups_from_rules():
     assert j.get("mutx+/-") == 10
 
 
+def test_merge_keeps_rule_range_when_llm_reads_only_the_low_end():
+    from pre_peer_checker.llm.legend_extract import _merge_llm_over_rules
+    from pre_peer_checker.llm.legend_schema import LegendFigureJSON, LegendPanelJSON
+
+    rules = LegendFigureJSON(
+        figure="Figure 3",
+        panels=[LegendPanelJSON(panel="B", n=7, n_max=9, evidence_span="n = 7–9 per group")],
+        extractor="rules",
+    )
+    llm = LegendFigureJSON(
+        figure="Figure 3",
+        panels=[LegendPanelJSON(panel="B", n=7, evidence_span="n = 7–9 per group", confidence=0.9)],
+        extractor="llm",
+    )
+    merged = _merge_llm_over_rules(rules, llm, llm_primary=True)
+    assert [(p.panel, p.n, p.n_max) for p in merged.panels] == [("B", 7, 9)]
+
+
 def test_parse_panel_ns_lowercase_groups_bind_to_quant_panel():
     """n=18 (a) and 10 (b) after quantification (M) must NOT become panels A/B."""
     text = (

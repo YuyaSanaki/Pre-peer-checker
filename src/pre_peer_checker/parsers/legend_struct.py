@@ -358,7 +358,8 @@ def _upper_letter_openers(text: str) -> list[tuple[int, list[str]]]:
     """``A, …`` / ``D–F: …`` section openers, when the caption is written in that style.
 
     Two or more openers in alphabetical order, starting at ``A``, mark the style; a later
-    ``For B-D:`` sentence re-opens panels already named. A lone ``A, `` is not enough.
+    ``For B-D:`` sentence re-opens panels already named. A lone ``A, `` is not enough, a lone
+    ``A, B, `` is.
     """
     kept: list[tuple[int, list[str]]] = []
     back: list[tuple[int, list[str]]] = []
@@ -372,7 +373,7 @@ def _upper_letter_openers(text: str) -> list[tuple[int, list[str]]]:
         elif (not kept and panels[0] == "A") or (kept and panels[0] > last):
             kept.append((m.start(), panels))
             last = panels[-1]
-    if len(kept) < 2:
+    if len(kept) < 2 and not (kept and len(kept[0][1]) >= 2):
         return []
     named = {p for _, ps in kept for p in ps}
     return kept + [(s, ps) for s, ps in back if set(ps) <= named]
@@ -564,6 +565,9 @@ _POSTFIX_N_RE = re.compile(
 _INLINE_PANEL_REF_RE = re.compile(
     r"\(([A-Z](?:\s*(?:,|and|[-–—])\s*[A-Z])*)\)"
 )
+_SHARED_N_RE = re.compile(
+    r"\b(?:per|each|for\s+each)\s+(?:genotype|group|condition|strain|treatment|arm|cohort)s?\b", re.I
+)
 _SCHEMATIC_RE = re.compile(r"^\(\s*[A-Z]\s*\)\s*(?:Schematic|Scheme)\b", re.I)
 
 
@@ -605,7 +609,9 @@ def _postfix_n_assignments(
         letter = m.group(2) or ""
         cond = (m.group(3) or "").strip()
         group = ""
-        if (
+        if _SHARED_N_RE.search(chunk[m.end(4) : m.end()]):
+            pass  # ``(8-week-old mice, n = 4 per genotype)``: one n for every group
+        elif (
             cond
             and not _UNIT_WORD_RE.match(cond)
             and not re.match(r"^(upper|lower|left|right|see)\b", cond, re.I)
@@ -638,6 +644,20 @@ def _postfix_n_assignments(
         and not any(from_letter for *_, from_letter in labelled)
     )
 
+    # ``control (n = 5) or KO (n = 5) (C)``: a ref right after an n closes the run of n before it
+    trailing: dict[int, list[str]] = {}
+    closing: set[int] = set()
+    run: list[int] = []
+    for idx, (m, *_) in enumerate(labelled):
+        nxt = labelled[idx + 1][0].start() if idx + 1 < len(labelled) else len(chunk)
+        run.append(idx)
+        after = [r for r in refs if m.end() <= r[0] and r[1] <= nxt]
+        if after and not chunk[m.end() : after[0][0]].strip():
+            trailing.update((i, after[0][2]) for i in run)
+            closing.add(after[0][0])
+        if after:
+            run = []
+
     out: list[tuple[str, int, str, str]] = []
     prev_end = body_start
     last_ref_panels: list[str] = []
@@ -648,8 +668,10 @@ def _postfix_n_assignments(
             targets = _expand_panel_token(m.group(5))
         elif paired:
             targets = [section_panels[idx]]
+        elif idx in trailing:
+            targets = trailing[idx]
         elif refs:
-            before = [r for r in refs if prev_end <= r[0] and r[1] <= m.start()]
+            before = [r for r in refs if prev_end <= r[0] and r[1] <= m.start() and r[0] not in closing]
             adjacent = [r for r in before if not chunk[r[1] : m.start()].strip()]
             if adjacent:
                 targets = adjacent[-1][2]
@@ -673,6 +695,14 @@ def _postfix_n_assignments(
 # ``n = 26`` / ``n=8`` / ``n = 67 cells from 14 mice`` (X only) / range ``n = 28–32``; not decimals.
 _N_MENTION_RE = re.compile(
     r"(?<![A-Za-z])[nN]\s*=\s*(\d+)(?:\s*(?:[–—-]|to)\s*(\d+))?(?!\d)(?![.,]\d)"
+)
+_SEX_UNIT_RE = re.compile(r"\s*(?:males?|females?|men|women|boys|girls)\b", re.I)
+# ``n (BW and KW/BW) = 12``: n of the named measurements
+_N_QUALIFIED_RE = re.compile(r"(?<![A-Za-z])n\s*\(([^()=]{1,40})\)\s*=\s*(\d+)(?:\s*[–—-]\s*(\d+))?(?!\d)")
+# ``n = 10 glomeruli per section per animal × 4–6``: the animal count
+_N_PER_UNIT_TIMES_RE = re.compile(
+    r"(?<![A-Za-z])n\s*=\s*(?:\d+|all)\b[^.;×=]{0,60}?\bper\s+(?:animal|mouse|rat|fish|subject|patient|donor)"
+    r"\s*[×x]\s*(\d+)(?:\s*[–—-]\s*(\d+))?(?!\d)"
 )
 _NUMBER_WORDS = {
     w: i
@@ -707,8 +737,54 @@ _SENTENCE_BREAK_RE = re.compile(r"[.;]\s+(?=[A-Z(])")
 # Section header whose letters carry primes: ``(C-F′) TUNEL assay …`` / ``(C′,D′) Orthogonal …``
 _HEADER_WITH_PRIMES_RE = re.compile(r"\(([A-Z][′']*(?:\s*(?:,|and|[-–—])\s*[A-Z][′']*)*)\)\s+[A-Z]")
 _LABEL_STOP_RE = re.compile(
-    r"^(?:and|or|of|from|in|for|with|versus|vs\.?|between|to|the|by|on|at|per|each|both)$", re.I
+    r"^(?:and|or|of|from|in|for|with|versus|vs\.?|between|to|the|by|on|at|per|each|both|either|neither)$",
+    re.I,
 )
+
+
+_STATS_BOILERPLATE_RE = re.compile(
+    r"\b(?:Statistical\s+(?:significance|analys[ie]s|tests?)|"
+    r"Data\s+(?:are|were)\s+(?:presented|shown|expressed|represented)\s+as|"
+    r"Error\s+bars\s+(?:represent|indicate|show|denote))",
+    re.I,
+)
+_DATA_STRONG_RE = re.compile(
+    r"\b(?:quantif\w*|densit(?:y|ies)|numbers?\s+of|curves?|summary|percentages?|proportions?|"
+    r"histograms?)\b",
+    re.I,
+)
+_DATA_WEAK_RE = re.compile(r"\b(?:mean|average\w*|frequenc\w*|plots?|graphs?|levels?|ratios?)\b", re.I)
+_IMAGE_RE = re.compile(
+    r"\b(?:representative|images?|micrographs?|photographs?|schematics?|illustrations?|traces?)\b", re.I
+)
+
+
+def _measure_panels(body: str, section_panels: list[str], names: str) -> list[str]:
+    """``(E, F, G) BW, KW/BW ratio, and GFR of …`` + ``BW and KW/BW`` → E, F.
+
+    The section must open with one measurement per panel, in panel order.
+    """
+    head = re.match(r"\s*([^.;()]+?)\s+(?:of|in|for|from|at|by|were|was|are|is)\s", body)
+    if not head or len(section_panels) < 2:
+        return []
+    items = [x.strip().lower() for x in re.split(r"\s*,\s*(?:and\s+)?|\s+and\s+", head.group(1)) if x.strip()]
+    if len(items) != len(section_panels):
+        return []
+    wanted = [x.strip().lower() for x in re.split(r"\s*,\s*|\s+and\s+", names) if x.strip()]
+    out = []
+    for w in wanted:
+        hits = [p for p, item in zip(section_panels, items, strict=True) if re.match(re.escape(w) + r"\b", item)]
+        if len(hits) != 1:
+            return []
+        out.extend(hits)
+    return out
+
+
+def _is_data_section(text: str) -> bool:
+    """A section that plots measurements (``Quantification of …``), not images or traces."""
+    return bool(_DATA_STRONG_RE.search(text)) or (
+        bool(_DATA_WEAK_RE.search(text)) and not _IMAGE_RE.search(text)
+    )
 
 
 def _group_label_before(pre: str) -> str:
@@ -751,6 +827,15 @@ def _generic_clause_ns(figure: str, text: str, found: list[PanelN]) -> list[Pane
         for m in _HEADER_WITH_PRIMES_RE.finditer(t)
         for p in _expand_panel_token(re.sub(r"[′']", "", m.group(1)))
     }
+    last_start, last_end, _ = spans[-1]
+    stats = _STATS_BOILERPLATE_RE.search(t, last_start, last_end)
+    fig_at = stats.start() - last_start if stats else len(t)
+    data_panels = [
+        p
+        for s, e, panels in spans
+        for p in panels
+        if _is_data_section(t[s : min(e, stats.start()) if stats else e])
+    ]
     for start, end, section_panels in spans:
         if not section_panels:
             continue
@@ -758,6 +843,12 @@ def _generic_clause_ns(figure: str, text: str, found: list[PanelN]) -> list[Pane
         header = re.match(r"\s*\([^)]*\)", chunk)
         body = header.end() if header else 0
         breaks = [m.end() for m in _SENTENCE_BREAK_RE.finditer(chunk)]
+        # n written after the closing stats boilerplate describes the figure, not the last section
+        figure_panels = (
+            list(dict.fromkeys(data_panels + section_panels))
+            if start == last_start and data_panels
+            else section_panels
+        )
 
         def refs_in(a: int, b: int) -> list[tuple[int, int, list[str]]]:
             # a ref to a panel with its own section elsewhere points at it (``Myc positive (D)``)
@@ -797,7 +888,9 @@ def _generic_clause_ns(figure: str, text: str, found: list[PanelN]) -> list[Pane
                 ps = [p for *_, rp in refs for p in rp]
                 targets = list(dict.fromkeys(ps + section_panels if sent_start == 0 else ps))
             else:
-                targets = last_targets or section_panels
+                targets = last_targets or (figure_panels if start > fig_at else section_panels)
+            if kind.startswith("qual:"):
+                targets = _measure_panels(chunk[body:], section_panels, kind[5:]) or targets
             prev[sent_start] = (end, targets)
             for n, n_max, label in values:
                 if label is None:
@@ -834,7 +927,9 @@ def _clause_mentions(
     ``n = 5`` / range ``n = 28–32`` (``n_max``) / ``n = 119–134 … for X and Y, respectively``
     (split, one n per group) / worded ``three independent experiments`` (only in sections
     without ``n =``; ``30 cells from three mice`` keeps the 30). A capital ``N =`` next to a
-    lowercase ``n =`` in the same sentence is the replicate level and is skipped.
+    lowercase ``n =`` in the same sentence is the replicate level and is skipped, as are sex
+    breakdowns (``n = 4 males, 2 females``) and an n that totals the others of the section.
+    ``n (GFR) = 5`` is kind ``qual:GFR``; ``n = 10 glomeruli per animal × 4–6`` reads 4–6.
     """
     def sentence(pos: int) -> tuple[int, int]:
         s = max([b for b in breaks if b <= pos], default=0)
@@ -843,13 +938,29 @@ def _clause_mentions(
 
     out: list[tuple[int, int, list[tuple[int, int | None, str | None]], str]] = []
     n_sentences: set[int] = set()
-    mentions = list(_N_MENTION_RE.finditer(chunk))
+    for m in _N_QUALIFIED_RE.finditer(chunk):
+        lo, hi = int(m.group(2)), int(m.group(3)) if m.group(3) else None
+        n_sentences.add(sentence(m.start())[0])
+        out.append((m.start(), m.end(), [(lo, hi if hi and hi > lo else None, None)], "qual:" + m.group(1)))
+    times = list(_N_PER_UNIT_TIMES_RE.finditer(chunk))
+    for m in times:
+        lo, hi = int(m.group(1)), int(m.group(2)) if m.group(2) else None
+        n_sentences.add(sentence(m.start())[0])
+        out.append((m.start(), m.end(), [(lo, hi if hi and hi > lo else None, None)], "n"))
+    mentions = [
+        m
+        for m in _N_MENTION_RE.finditer(chunk)
+        if not _SEX_UNIT_RE.match(chunk, m.end()) and not any(t.start() <= m.start() < t.end() for t in times)
+    ]
     lower = {sentence(m.start())[0] for m in mentions if m.group(0)[0] == "n"}
+    # ``n = 12 cells, N = 3 replicates``: capital N counts the higher level
+    mentions = [m for m in mentions if not (m.group(0)[0] == "N" and sentence(m.start())[0] in lower)]
+    singles = [int(m.group(1)) for m in mentions if not m.group(2)]
     for m in mentions:
-        # ``n = 12 cells, N = 3 replicates``: capital N counts the higher level
-        if m.group(0)[0] == "N" and sentence(m.start())[0] in lower:
-            continue
         lo = int(m.group(1))
+        # ``… n = 22; … n = 34. All measures reach n = 134``: the total of the groups
+        if m is mentions[-1] and not m.group(2) and len(singles) >= 3 and 2 * lo == sum(singles):
+            continue
         n_sentences.add(sentence(m.start())[0])
         if not m.group(2):
             out.append((m.start(), m.end(), [(lo, None, None)], "n"))

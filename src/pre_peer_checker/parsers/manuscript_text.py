@@ -42,6 +42,7 @@ _PANEL_OPEN_RE = re.compile(r"^\([A-Z]\d?(?:\s*(?:[-–,]|and)\s*[A-Z]\d?)*\)")
 _BRACKET_CITE_RE = re.compile(r"\[\d{1,3}(?:\s*[,–\-]\s*\d{1,3})*\]")
 _SENT_END_RE = re.compile(r"[.!?:;)\]]$")
 _LEGEND_CONT_RE = re.compile(r"^\(?(?:figure\s+)?legend\s+continued.*\)?$", re.I)
+_FIG_CONT_RE = re.compile(r"^(?:figure|fig\.?)\s+\d+\s+continued(\s+on\s+(?:the\s+)?next\s+page)?\.?$", re.I)
 _PAGE_NUM_RE = re.compile(r"^(?:page\s+)?\d{1,4}(?:\s*(?:of|/)\s*\d{1,4})?$", re.I)
 _REF_ENTRY_START_RE = re.compile(r"^(?:\[\d{1,3}\]|\d{1,3}\.)\s+\S")
 _SUP_CITE_RE = re.compile(r"^\d{1,3}(?:\s*[,–\-]\s*\d{1,3})*$")
@@ -249,6 +250,10 @@ def _assemble(pages: list[list[_Block]]) -> tuple[list[str], int]:
             t = b.text.strip()
             if not t or _PAGE_NUM_RE.match(t) or _LEGEND_CONT_RE.match(t):
                 continue
+            if cont := _FIG_CONT_RE.match(t):
+                if cont.group(1):
+                    kept.append(b)
+                continue
             if _norm_key(t) in running:
                 continue
             for part in _split_heading(b):
@@ -270,7 +275,12 @@ def _assemble(pages: list[list[_Block]]) -> tuple[list[str], int]:
     body: list[_Block] = []
     open_leg: list[_Block] | None = None
     last_was_legend = False
+    resume_page = 0
     for b in kept:
+        if _FIG_CONT_RE.match(b.text.strip()):
+            # ``Figure 1 continued on next page``: the legend resumes in the next page's legend font
+            resume_page = b.page + 1 if open_leg is not None else 0
+            continue
         is_head = bool(_LEGEND_HEAD_RE.match(b.text)) and _smaller(b)
         if is_head:
             open_leg = [b]
@@ -287,9 +297,11 @@ def _assemble(pages: list[list[_Block]]) -> tuple[list[str], int]:
                 and _smaller(b)
                 and not _SENT_END_RE.search(last.text)
             )
-            if follows or panel_cont or unfinished:
+            resumed = b.page == resume_page and _smaller(b)
+            if follows or panel_cont or unfinished or resumed:
                 open_leg.append(b)
                 last_was_legend = True
+                resume_page = 0
                 continue
         last_was_legend = False
         body.append(b)

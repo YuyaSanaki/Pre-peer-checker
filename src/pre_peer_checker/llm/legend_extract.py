@@ -723,7 +723,9 @@ def extract_legends_with_backend(
         prefer=None if (prefer or "auto").lower() == "auto" else prefer,
     )
     meta["resolved_llm"] = resolved.to_dict()
-    meta["backends_probed"] = [b.__dict__ for b in probe_backends()]
+    meta["backends_probed"] = [
+        b.__dict__ for b in probe_backends(model_id=model_id, profile_id=profile_id)
+    ]
     if backend is None:
         backend = select_backend(prefer, model_id=model_id, profile_id=profile_id)
     if backend is None:

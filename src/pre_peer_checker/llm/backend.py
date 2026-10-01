@@ -275,10 +275,26 @@ class CallableBackend(LocalLLMBackend):
         return self._fn(prompt)
 
 
-def probe_backends() -> list[BackendInfo]:
+def probe_backends(
+    *,
+    model_id: str | None = None,
+    profile_id: str | None = None,
+) -> list[BackendInfo]:
+    """Availability of each backend, with the model it would load for this profile."""
+    from pre_peer_checker.llm.registry import effective_llm_profile_id, resolve_model
+
+    resolved = resolve_model(
+        role="text",
+        profile_id=profile_id or effective_llm_profile_id(),
+        model_id=model_id,
+    )
+    mid = (model_id or resolved.model_id or "").strip() or (
+        "mlx-community/Qwen2.5-7B-Instruct-4bit"
+    )
+    hf_mid = _hf_text_model_from_mlx_id(mid) if mid.startswith("mlx-community/") else mid
     return [
-        MLXBackend().info(),
-        TransformersBackend().info(),
+        MLXBackend(_mlx_text_model(mid)).info(),
+        TransformersBackend(model_id=hf_mid).info(),
     ]
 
 
@@ -298,6 +314,14 @@ def _hf_text_model_from_mlx_id(model_id: str) -> str:
     if "32b" in low:
         return "Qwen/Qwen2.5-32B-Instruct"
     return os.environ.get("PRE_PEER_CHECKER_LLM_MODEL") or "Qwen/Qwen2.5-7B-Instruct"
+
+
+def _mlx_text_model(model_id: str) -> str:
+    """MLX build of the same size; HF ids are not loadable via mlx_lm."""
+    if model_id.startswith("mlx-community/"):
+        return model_id
+    size = "32B" if "32b" in model_id.lower() else "7B"
+    return f"mlx-community/Qwen2.5-{size}-Instruct-4bit"
 
 
 def select_backend(
@@ -359,11 +383,7 @@ def select_backend(
         return TransformersBackend(model_id=hf_mid, device=_gpu_device())
     # auto: MLX on Apple Silicon; else GPU transformers when GPU works
     if MLXBackend.available():
-        if not mid.startswith("mlx-community/"):
-            # HF ids are not loadable via mlx_lm; use the MLX build of the same size
-            size = "32B" if "32b" in mid.lower() else "7B"
-            mid = f"mlx-community/Qwen2.5-{size}-Instruct-4bit"
-        return MLXBackend(mid)
+        return MLXBackend(_mlx_text_model(mid))
     if TransformersBackend.available():
         hf_mid = mid
         if mid.startswith("mlx-community/"):

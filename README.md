@@ -76,9 +76,9 @@
 
 そのほかに必要なもの:
 
-- メモリ 16GB 以上（推奨）。Mac では照合中に本ツールが使うのは 6〜7GB 程度です。8GB の Mac では macOS 本体と合わせてメモリが足りなくなり、遅くなることがあります
+- メモリ: Mac は 32GB 以上を推奨。Legend LLM の既定モデル **Qwen2.5-32B** は 7B より読み取り精度が高い一方（n をパネルへ割り当てる精度: 開発評価で 32B 約 0.83 対 7B 約 0.6）、読み込むと **GPU 側のメモリを約 18.5GB** 使います（Mac はメモリを CPU と GPU で共有するため、本体メモリから約 18.5GB。照合全体のピークは約 27GB）。LLM を呼ばない照合では本ツールが使うのは 6〜7GB 程度です。16GB 以下の Mac では `--llm-profile qwen2.5-7b-mlx`（約 4GB）に切り替えてください
 - Linux の GPU メモリ: 20GB 以上を推奨。それ未満の GPU では AI モデルの一部を PC のメモリに置いて動かすため、照合は完了しますが遅くなります
-- 空きディスク: Mac で約 15GB、Linux + GPU で約 40GB（AI モデルを含む）
+- 空きディスク: Mac で約 30GB、Linux + GPU で約 40GB（AI モデルを含む）
 - インストール時のインターネット接続
 - ブラウザ（Chrome / Safari / Firefox など）
 
@@ -114,7 +114,7 @@ bash install.sh
 1. 最初に **利用区分** を聞かれます。画像照合に使う部品のライセンス条件が異なるためです（詳しくは「[ライセンス](#ライセンス第三者コンポーネント)」）。
    - 大学・非営利組織での非商用研究 → `1`
    - 企業・製薬企業・CRO など、それ以外の場合や判断がつかない場合 → `2`
-2. あとは自動で進みます。必要なソフトと AI モデル（Mac で合計約 10GB）をダウンロードするため、しばらく時間がかかります。
+2. あとは自動で進みます。必要なソフトと AI モデル（Mac で合計約 25GB。うち Legend LLM の 32B モデルが 18.4GB）をダウンロードするため、しばらく時間がかかります。
 3. 最後に機能チェックの結果が表示され、「**セットアップ完了**」と出れば終わりです。
 
 途中で失敗した場合は、ネットワークを確認してもう一度 `bash install.sh` を実行してください。足りない分だけ補います。
@@ -311,7 +311,7 @@ pre-peer-checker ... --vlm-assist --vlm-prefer auto --vlm-profile qwen2.5-vl-7b-
 ```
 
 - `--legend-llm auto`（既定・WebUI も同じ）: 各 Figure の Legend に書かれた n（`n = …`、`N independent experiments` 等）を規則が全部拾えていれば LLM を呼ばず、モデルも読み込みません。拾えていない n があれば、Legend 中の n に印を付けて LLM に渡し、規則が読み残した値だけをどのパネル・群のものか割り当てさせます（n の値は本文から取るので LLM が値を作ることはありません）。
-- Text LLM の既定は Qwen2.5-32B（Mac は MLX 4-bit でメモリ約 20 GB、32 GB 以上の Apple Silicon 推奨）。メモリが足りない機種は `--llm-profile qwen2.5-7b-mlx`（割り当て精度は下がります）。
+- Text LLM の既定は Qwen2.5-32B。7B より n の割り当て精度が高い（開発評価で約 0.83 対 0.6）代わりに、Mac（MLX 4-bit）では **GPU 側のメモリを約 18.5GB** 使います（実測。照合全体のピークは約 27GB）。32GB 以上の Apple Silicon を推奨。メモリが足りない機種は `--llm-profile qwen2.5-7b-mlx`（約 4GB。割り当て精度は下がります）。`--legend-llm on` で全 Figure を 32B で読むと 1 Figure 約 2〜3 分かかります（M 系 Mac・64GB での実測）。
 - `--legend-llm-prefer auto`: Mac → MLX、PyTorch から GPU（NVIDIA CUDA / AMD ROCm / Intel XPU）を利用可 → transformers（GPU）。MLX 既定プロファイルでも GPU ホストでは HF にフォールバックします。GPU の判定は `pre_peer_checker/accel.py` に集約しています（LLM / VLM / DINOv2 / LightGlue 共通）。
 - `PRE_PEER_CHECKER_DEVICE=cuda|xpu|mps|cpu` で演算デバイスを強制できます。
 - `PRE_PEER_CHECKER_GPU_MAX_MEMORY_GB=8` のように指定すると、LLM / VLM が使う GPU メモリを上限までに抑え、残りを PC のメモリに置きます。大きな GPU 上で GPU メモリの少ない環境を再現する検証にも使えます。

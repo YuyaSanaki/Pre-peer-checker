@@ -116,3 +116,21 @@ def test_effective_llm_profile_non_mlx_uses_hf(monkeypatch):
     assert kw["legend_llm_profile"] == "qwen2.5-32b-hf"
     assert kw["legend_llm_prefer"] == "cuda"
     assert kw["legend_llm_prefer"] != "none"
+
+
+def test_probe_backends_reports_profile_model(monkeypatch):
+    from pre_peer_checker.llm import backend as be
+
+    monkeypatch.delenv("PRE_PEER_CHECKER_LLM_PROFILE", raising=False)
+    monkeypatch.setattr(be.MLXBackend, "available", staticmethod(lambda: True))
+    by_name = {b.name: b.model_id for b in be.probe_backends()}
+    assert by_name["mlx"] == "mlx-community/Qwen2.5-32B-Instruct-4bit"
+    assert by_name["transformers"] == "Qwen/Qwen2.5-32B-Instruct"
+
+    by_name = {b.name: b.model_id for b in be.probe_backends(profile_id="qwen2.5-7b-mlx")}
+    assert by_name["mlx"] == "mlx-community/Qwen2.5-7B-Instruct-4bit"
+    assert by_name["transformers"] == "Qwen/Qwen2.5-7B-Instruct"
+
+    by_name = {b.name: b.model_id for b in be.probe_backends(profile_id="qwen2.5-32b-hf")}
+    assert by_name["mlx"] == "mlx-community/Qwen2.5-32B-Instruct-4bit"
+    assert by_name["transformers"] == "Qwen/Qwen2.5-32B-Instruct"

@@ -73,9 +73,9 @@ Please also read the [Disclaimer](#disclaimer).
 
 You will also need:
 
-- 16GB of memory or more (recommended). On a Mac the tool itself uses at most about 6–7GB while checking; on an 8GB Mac, macOS plus the tool can run short of memory and checks may slow down
+- Memory: 32GB or more recommended on Mac. The default Legend LLM **Qwen2.5-32B** reads more accurately than 7B (accuracy of assigning n to panels: about 0.83 vs 0.6 in development evaluation), but once loaded it uses **about 18.5GB of GPU-side memory** (Macs share memory between CPU and GPU, so this comes out of system memory; the whole check peaks at about 27GB). Checks that do not call the LLM use about 6–7GB. On Macs with 16GB or less, switch to `--llm-profile qwen2.5-7b-mlx` (about 4GB)
 - GPU memory on Linux: 20GB or more recommended. On smaller GPUs part of the AI models is kept in system memory, so checks still complete but run slower
-- Free disk space: about 15GB on Mac, about 40GB on Linux + GPU (including AI models)
+- Free disk space: about 30GB on Mac, about 40GB on Linux + GPU (including AI models)
 - An internet connection during installation
 - A web browser (Chrome / Safari / Firefox, etc.)
 
@@ -109,7 +109,7 @@ bash install.sh
 1. First, you are asked for your **usage category**, because a component used for image matching has different license terms (see [License](#license-and-third-party-components) for details).
    - Non-commercial research at a university or non-profit organization → `1`
    - Companies, pharmaceutical companies, CROs, other cases, or if unsure → `2`
-2. The rest is automatic. It downloads the required software and AI models (about 10GB in total on Mac), so it takes a while.
+2. The rest is automatic. It downloads the required software and AI models (about 25GB in total on Mac, of which the 32B Legend LLM is 18.4GB), so it takes a while.
 3. Finally, a feature check is shown. When you see "**セットアップ完了**" (setup complete), you are done.
 
 If it fails midway, check your network and run `bash install.sh` again. It fills in only what is missing.
@@ -291,7 +291,7 @@ pre-peer-checker ... --vlm-assist --vlm-prefer auto --vlm-profile qwen2.5-vl-7b-
 ```
 
 - `--legend-llm auto` (default, also in the WebUI): when the rules picked up every sample size a legend states (`n = …`, `N independent experiments`, …) the LLM is not called and the model is not loaded. Otherwise every stated n is tagged in the legend and the LLM assigns only the values the rules left unread to panels and groups (values come from the text, so the LLM cannot invent an n).
-- The default text LLM is Qwen2.5-32B (on Mac, MLX 4-bit at about 20 GB; Apple Silicon with 32 GB or more recommended). On machines with less memory use `--llm-profile qwen2.5-7b-mlx` (lower assignment accuracy).
+- The default text LLM is Qwen2.5-32B. It assigns n more accurately than 7B (about 0.83 vs 0.6 in development evaluation), but on Mac (MLX 4-bit) it uses **about 18.5GB of GPU-side memory** (measured; the whole check peaks at about 27GB). Apple Silicon with 32GB or more recommended. On machines with less memory use `--llm-profile qwen2.5-7b-mlx` (about 4GB; lower assignment accuracy). With `--legend-llm on`, reading every figure with 32B takes about 2–3 minutes per figure (measured on an M-series Mac with 64GB).
 - `--legend-llm-prefer auto`: Mac → MLX; a GPU usable from PyTorch (NVIDIA CUDA / AMD ROCm / Intel XPU) → transformers (GPU). Even with the default MLX profile, GPU hosts fall back to HF. GPU detection lives in `pre_peer_checker/accel.py` (shared by LLM / VLM / DINOv2 / LightGlue).
 - `PRE_PEER_CHECKER_DEVICE=cuda|xpu|mps|cpu` forces the compute device.
 - `PRE_PEER_CHECKER_GPU_MAX_MEMORY_GB=8` caps the GPU memory used by the LLM / VLM and keeps the rest in system memory — also handy for reproducing a small-GPU machine on a large GPU.

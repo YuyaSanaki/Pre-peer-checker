@@ -349,9 +349,9 @@ def create_app() -> FastAPI:
         )
 
         catalog = registry_public_dict()
-        probed = [b.__dict__ for b in probe_backends()]
         default_llm = catalog["default_llm_profile"]
         effective_llm = effective_llm_profile_id()
+        probed = [b.__dict__ for b in probe_backends(profile_id=effective_llm)]
         # Prefer host-aware profile for auto-select (MLX無し → 7b-hf)
         selected = select_backend("auto", profile_id=effective_llm)
         available = selected is not None

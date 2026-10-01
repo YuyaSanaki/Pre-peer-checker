@@ -616,6 +616,7 @@ primary private benchmark 相当の fixture（匿名化コピー可）:
 
 ## 7. 改訂履歴
 
+- 2026-10-01: **Mac のラスタ Figure OCR を Apple Vision 単独に** — Florence-2 は Mac CPU で 1 図数分以上かかるため既定エンジンから外した（明示指定 `PRE_PEER_CHECKER_RASTER_OCR_ENGINES=vision florence` は従来どおり）。Florence layout が無い分、Vision に図全体＋768px タイル＋写真ごとの切り出しを読ませて和を取る。Nature Extended Data 10 図（51 文字）で図全体のみ 65% → **88%（余分 2）**、10 図で約 30 秒。Linux は Florence のまま。
 - 2026-09-29: **dev / holdout 汎化評価** — case に `split`。holdout は未見 OA 論文をブラインドで全件 gold 化し、初回採点で sha256 凍結、集計のみ表示（`--reveal` で dev へ burn）。`rules_only` / `llm_minimal` / `prompt_minimal` / `current-minus-<guard>` の ablation、`--gate`（dev 非悪化・holdout 許容幅）、`rule_ledger.json`。`legend_extract` のマージガードと `legend_schema` のプロンプトを切替可能に（製品既定は不変）。`scripts/dev_holdout_prepare.py` / `dev_generalization_eval.py`。
 - 2026-09-25: **bbox ゴールデン + P-EXCLUSION-UNDECLARED 初期** — 2×2 合成 pct CI。data_n>legend_n かつ除外基準なしで Warning（合成 exclusion_undeclared）。
 - 2026-09-25: **P0 抽出キー** — `error_bar_type` / `independence_claims` / `exclusion_criteria` を Legend JSON スキーマ・rules・coerce に追加。

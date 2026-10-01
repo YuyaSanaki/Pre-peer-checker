@@ -10,7 +10,7 @@
 
 | 環境 | 図中 OCR（パネル crop 後） | パネル layout | Legend（テキスト） |
 | --- | --- | --- | --- |
-| **macOS** | **Apple Vision + Florence-2 の和**（layout 用に Florence は既に常駐） | Florence-2（CPU） | Qwen2.5-7B（MLX 本線） |
+| **macOS** | **Apple Vision 単独**（図全体＋768px タイル＋写真ごとの切り出しの和。2026-10-01 から Florence は使わない） | なし（写真分割＋インク塊で枠を作る） | Qwen2.5-7B（MLX 本線） |
 | **Linux + GPU（Spark 等）** | **Florence-2** OCR | 同 Florence | Qwen2.5-7B（transformers / CUDA） |
 | **製品 VLM 補助** | 対象外（別タスク） | — | Qwen2.5-VL（`--vlm-assist`・ベクター分割が空のときのみ） |
 
@@ -42,7 +42,7 @@
 | 環境変数 | 既定 | 用途 |
 | --- | --- | --- |
 | `PRE_PEER_CHECKER_RASTER_PANEL_OCR` | `auto` | `0` で完全オフ |
-| `PRE_PEER_CHECKER_RASTER_OCR_ENGINES` | `vision florence` | 片方だけにして高速化 |
+| `PRE_PEER_CHECKER_RASTER_OCR_ENGINES` | Mac `vision` / 他 `florence` | `vision florence` で両方 |
 | `PRE_PEER_CHECKER_RASTER_OCR_DPI` | `300` | ベンチ計測値 |
 | `PRE_PEER_CHECKER_RASTER_OCR_MAX_SIDE` | `1280` | layout パスの長辺 |
 | `PRE_PEER_CHECKER_RASTER_OCR_DEVICE` | Mac `cpu` / 他 GPU | Florence の実行先 |

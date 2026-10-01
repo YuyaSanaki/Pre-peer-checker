@@ -1,9 +1,13 @@
-"""Raster publication figures: Florence panel layout + Vision (Mac) crop / Florence tiled OCR.
+"""Raster publication figures: Apple Vision on Mac, Florence layout + tiled OCR elsewhere.
 
 Benchmarked on quick profile (4 raster figures, ``scripts/dev_figure_ocr_bench.py``):
 Vision 82.1%, Florence 82.1%, both together 87.2% panel-letter recall. Settings that
 the benchmark measured — 300 dpi render, 1280 px layout pass, tiled Florence — are the
 defaults here; changing them changes accuracy.
+
+Vision alone (no Florence layout) reads the whole figure, overlapping tiles and each
+split photo: a single whole-figure pass misses most isolated panel letters (65% vs 88%
+on 10 Nature Extended Data figures), while Florence on Mac CPU takes minutes per figure.
 """
 
 from __future__ import annotations
@@ -93,9 +97,10 @@ def florence_available() -> bool:
 
 
 def ocr_engine_names() -> list[str]:
-    """Crop OCR engines to run, best-recall first. Both are used when available."""
+    """Crop OCR engines to run: Apple Vision on Mac, Florence elsewhere."""
     raw = (os.environ.get("PRE_PEER_CHECKER_RASTER_OCR_ENGINES") or "").strip().lower()
-    wanted = [e for e in raw.replace(",", " ").split() if e] or ["vision", "florence"]
+    default = ["vision"] if sys.platform == "darwin" else ["florence"]
+    wanted = [e for e in raw.replace(",", " ").split() if e] or default
     probes = {"vision": apple_vision_available, "florence": florence_available}
     return [name for name in wanted if name in probes and probes[name]()]
 
@@ -114,7 +119,7 @@ def _resolve_device() -> str:
     if forced:
         return forced
     if sys.platform == "darwin":
-        # Florence on MPS is unverified here; the benchmark ran it on CPU.
+        # Only reached when Florence is requested explicitly on Mac; MPS is unverified.
         return "cpu"
     from pre_peer_checker.accel import gpu_device
 
@@ -343,7 +348,7 @@ def _photo_boxes(full, pad: int = 10) -> list[list[float]]:
 
 def _panel_crops(full, engines: list[str]) -> tuple[list[dict], str]:
     """Panel boxes in full-resolution coordinates, plus the panel letter case."""
-    if "florence" not in engines and not florence_available():
+    if "florence" not in engines:
         return [{"panel": "*", "box": [0.0, 0.0, float(full.width), float(full.height)]}], "upper"
     layout_img, sx, sy = _resize_for_layout(full)
     dets = _get_florence().ocr_image(layout_img)
@@ -434,6 +439,46 @@ def load_figure_rgb(path: Path | str):
         return im.convert("RGB")
 
 
+_VISION_TILE = 768
+_VISION_PHOTO_PAD = 60
+
+
+def _vision_tiles_and_photos(vision: _AppleVisionOcr, full, tmp: Path) -> list[dict]:
+    """Vision on overlapping tiles and on each split photo (with margin for its letter).
+
+    Without a Florence layout the whole-figure pass is all Vision gets; small isolated
+    letters only surface once the region around them is enlarged.
+    """
+    regions: list[tuple[int, int, int, int]] = []
+    w, h = full.size
+    overlap = _VISION_TILE // 4
+    step = _VISION_TILE - overlap
+    if max(w, h) > _VISION_TILE:
+        for y in range(0, max(h - overlap, 1), step):
+            for x in range(0, max(w - overlap, 1), step):
+                regions.append((x, y, min(x + _VISION_TILE, w), min(y + _VISION_TILE, h)))
+    try:
+        photos = _photo_boxes(full)
+    except Exception:
+        photos = []
+    pad = _VISION_PHOTO_PAD
+    for b in photos:
+        regions.append(
+            (max(int(b[0]) - pad, 0), max(int(b[1]) - pad, 0),
+             min(int(b[2]) + pad, w), min(int(b[3]) + pad, h))
+        )
+    dets: list[dict] = []
+    for i, (x0, y0, x1, y1) in enumerate(regions):
+        if x1 - x0 < 16 or y1 - y0 < 16:
+            continue
+        cp = tmp / f"vision_{i}.png"
+        full.crop((x0, y0, x1, y1)).save(cp)
+        for d in vision.ocr_path(cp):
+            b = d["box"]
+            dets.append({**d, "box": [b[0] + x0, b[1] + y0, b[2] + x0, b[3] + y0]})
+    return dets
+
+
 def _run_ocr(full, engines: list[str]) -> tuple[list[dict], str, list[dict]]:
     """Layout crops, their case, and every OCR detection in full-image pixels."""
     crops, case = _panel_crops(full, engines)
@@ -454,6 +499,8 @@ def _run_ocr(full, engines: list[str]) -> tuple[list[dict], str, list[dict]]:
             for d in crop_dets:
                 b = d["box"]
                 dets.append({**d, "box": [b[0] + x0, b[1] + y0, b[2] + x0, b[3] + y0]})
+        if vision is not None and florence is None:
+            dets.extend(_vision_tiles_and_photos(vision, full, Path(tmp)))
     if florence is not None:
         # Also the whole image in overlapping tiles: each crop starts at its own label,
         # and Florence drops text sitting on the image border.
@@ -468,7 +515,7 @@ def _cached_ocr(full, engines: list[str]) -> tuple[list[dict], str, list[dict]]:
     import json
 
     h = hashlib.sha256(full.tobytes())
-    h.update(f"{full.size}|{'+'.join(engines)}|{_MAX_SIDE}".encode())
+    h.update(f"{full.size}|{'+'.join(engines)}|{_MAX_SIDE}|vt{_VISION_TILE}".encode())
     digest = h.hexdigest()[:24]
     cache_dir = (os.environ.get("PRE_PEER_CHECKER_RASTER_OCR_CACHE") or "").strip()
     if not cache_dir:

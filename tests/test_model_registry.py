@@ -14,8 +14,9 @@ from pre_peer_checker.llm.registry import (
 
 def test_registry_loads_defaults():
     profiles, default_llm, default_vlm = load_registry()
-    assert default_llm == "qwen2.5-7b-mlx"
+    assert default_llm == "qwen2.5-32b-mlx"
     assert default_vlm == "qwen2.5-vl-7b"
+    assert "qwen2.5-32b-mlx" in profiles
     assert "qwen2.5-7b-mlx" in profiles
     assert "qwen2.5-7b-hf" in profiles
     assert "qwen2.5-vl-7b" in profiles
@@ -110,8 +111,8 @@ def test_effective_llm_profile_non_mlx_uses_hf(monkeypatch):
     )
 
     monkeypatch.setattr(be.MLXBackend, "available", staticmethod(lambda: False))
-    assert effective_llm_profile_id() == "qwen2.5-7b-hf"
+    assert effective_llm_profile_id() == "qwen2.5-32b-hf"
     kw = distribution_legend_llm_kwargs()
-    assert kw["legend_llm_profile"] == "qwen2.5-7b-hf"
+    assert kw["legend_llm_profile"] == "qwen2.5-32b-hf"
     assert kw["legend_llm_prefer"] == "cuda"
     assert kw["legend_llm_prefer"] != "none"

@@ -112,7 +112,7 @@ def _cell_from_path(
 def _cell_from_link(link: EntityLink, roots: list[Path] | None) -> NCell:
     if link.status == LinkStatus.LINKED and link.vector is not None:
         return _cell_from_path(
-            n=link.vector.n,
+            n=link.vector.n if link.n_comparable else None,
             path=link.vector.source,
             detail=link.reason,
             roots=roots,
@@ -392,12 +392,15 @@ def build_n_matrix(
             )
         )
         stats = _script_hint_for_panel(pn, stats_table, script_artifacts, roots=roots)
+
+        def _linked_n() -> int | None:
+            for link in (raw_link, plot_link):
+                if link.status == LinkStatus.LINKED and link.vector:
+                    return link.vector.n if link.n_comparable else None
+            return None
+
         if stats.file is None and stats_table is not None:
-            n_stats = None
-            if raw_link.status == LinkStatus.LINKED and raw_link.vector:
-                n_stats = raw_link.vector.n
-            elif plot_link.status == LinkStatus.LINKED and plot_link.vector:
-                n_stats = plot_link.vector.n
+            n_stats = _linked_n()
             stats = _cell_from_path(
                 n=n_stats,
                 path=stats_table,
@@ -405,11 +408,7 @@ def build_n_matrix(
                 roots=roots,
             )
         elif stats.file is not None and stats.n is None:
-            n_stats = None
-            if raw_link.status == LinkStatus.LINKED and raw_link.vector:
-                n_stats = raw_link.vector.n
-            elif plot_link.status == LinkStatus.LINKED and plot_link.vector:
-                n_stats = plot_link.vector.n
+            n_stats = _linked_n()
             stats = NCell(
                 n=n_stats,
                 file=stats.file,

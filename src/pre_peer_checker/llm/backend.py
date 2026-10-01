@@ -360,8 +360,9 @@ def select_backend(
     # auto: MLX on Apple Silicon; else GPU transformers when GPU works
     if MLXBackend.available():
         if not mid.startswith("mlx-community/"):
-            # HF ids are not loadable via mlx_lm; use registry MLX default
-            mid = "mlx-community/Qwen2.5-7B-Instruct-4bit"
+            # HF ids are not loadable via mlx_lm; use the MLX build of the same size
+            size = "32B" if "32b" in mid.lower() else "7B"
+            mid = f"mlx-community/Qwen2.5-{size}-Instruct-4bit"
         return MLXBackend(mid)
     if TransformersBackend.available():
         hf_mid = mid

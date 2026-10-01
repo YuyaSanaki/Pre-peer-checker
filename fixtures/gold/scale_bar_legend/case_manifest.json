@@ -1,0 +1,16 @@
+{
+  "schema_version": "1.0",
+  "case_id": "scale_bar_legend",
+  "role": "synthetic_regression",
+  "description": "Figure label 100 µm vs legend 'Scale bars, 50 µm' → P-SCALE-BAR-LEGEND-MISMATCH.",
+  "root_relative": "fixtures/synthetic/scale_bar_legend",
+  "docker_root": "/app/fixtures/synthetic/scale_bar_legend",
+  "canonical_paths": {
+    "manuscript": "manuscript.docx",
+    "figure": "Fig1.pdf"
+  },
+  "ignore_globs": [],
+  "eval_command": {
+    "gold": "python -m pre_peer_checker.eval.gold_eval --case scale_bar_legend --run --input fixtures/synthetic/scale_bar_legend"
+  }
+}

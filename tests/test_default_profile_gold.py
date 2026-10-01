@@ -1,7 +1,7 @@
 """配布ホスト向けプロファイルでも必須ゴールド required_recall=1.0.
 
-- Mac / MLX あり → ``qwen2.5-7b-mlx``
-- MLX 無し（Linux / CUDA 等）→ ``qwen2.5-7b-hf`` + prefer=cuda（規則フォールバックしない）
+- Mac / MLX あり → ``qwen2.5-32b-mlx``
+- MLX 無し（Linux / CUDA 等）→ ``qwen2.5-32b-hf`` + prefer=cuda（規則フォールバックしない）
 
 全 matrix の LLM 通しは重いので、既定は代表ケース。
 フルは ``PRE_PEER_CHECKER_FULL_DIST_GOLD=1``。
@@ -75,24 +75,24 @@ def _ci_required_gold_entries() -> list[dict]:
 
 def test_distribution_default_profiles():
     profiles, default_llm, default_vlm = load_registry()
-    assert default_llm == "qwen2.5-7b-mlx"
+    assert default_llm == "qwen2.5-32b-mlx"
     assert default_vlm == "qwen2.5-vl-7b"
-    assert "qwen2.5-7b-hf" in profiles
+    assert "qwen2.5-32b-hf" in profiles
     assert "qwen2.5-vl-7b" in profiles
 
 
 def test_effective_llm_profile_host_aware():
-    """MLX 無しなら CUDA 本線 7b-hf（prefer=none にしない）."""
+    """MLX 無しなら CUDA 本線 32b-hf（prefer=none にしない）."""
     eff = effective_llm_profile_id()
     kw = distribution_legend_llm_kwargs()
     assert kw["legend_llm"] is True
     assert kw["legend_llm_prefer"] != "none"
     if MLXBackend.available():
-        assert eff == "qwen2.5-7b-mlx"
-        assert kw["legend_llm_profile"] == "qwen2.5-7b-mlx"
+        assert eff == "qwen2.5-32b-mlx"
+        assert kw["legend_llm_profile"] == "qwen2.5-32b-mlx"
     else:
-        assert eff == "qwen2.5-7b-hf"
-        assert kw["legend_llm_profile"] == "qwen2.5-7b-hf"
+        assert eff == "qwen2.5-32b-hf"
+        assert kw["legend_llm_profile"] == "qwen2.5-32b-hf"
         assert kw["legend_llm_prefer"] == "cuda"
 
 

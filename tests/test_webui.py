@@ -138,9 +138,9 @@ def test_web_api_llm_status() -> None:
     assert "backends" in body
     assert "text_profiles" in body
     assert "vision_profiles" in body
-    assert body["default_llm_profile"] == "qwen2.5-7b-mlx"
+    assert body["default_llm_profile"] == "qwen2.5-32b-mlx"
     assert "effective_llm_profile" in body
-    assert body["effective_llm_profile"] in {"qwen2.5-7b-mlx", "qwen2.5-7b-hf"}
+    assert body["effective_llm_profile"] in {"qwen2.5-32b-mlx", "qwen2.5-32b-hf"}
     assert any(p["id"] == "qwen2.5-7b-hf" for p in body["text_profiles"])
     assert not any(str(p.get("id", "")).startswith("gemma") for p in body["text_profiles"])
 

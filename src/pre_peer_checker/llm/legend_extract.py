@@ -63,8 +63,8 @@ LEGEND_LLM_MODES = ("off", "auto", "on")
 def normalize_legend_llm_mode(value: Any) -> str:
     """``off`` / ``auto`` / ``on`` from a mode string or the legacy bool flag.
 
-    auto: rules first; the LLM reads only figures whose legend states a sample size
-    the rules did not pick up (the model is not loaded when every figure was read).
+    auto: rules first; the LLM only assigns to panels the sample sizes a legend states
+    that the rules did not pick up (the model is not loaded when every figure was read).
     """
     if value is True:
         return "on"
@@ -518,6 +518,7 @@ def extract_legend_json_hybrid(
     llm_generate: Callable[[str], str] | None = None,
     prefer_llm: bool = False,
     only_if_unread: bool = False,
+    assign_generate: Callable[[str], str] | None = None,
 ) -> LegendFigureJSON:
     """Rules first; optional LLM fill/override when prefer_llm and callable given.
 
@@ -534,6 +535,7 @@ def extract_legend_json_hybrid(
         prefer_llm=prefer_llm,
         legend_only_prompt=True,
         only_if_unread=only_if_unread,
+        assign_generate=assign_generate,
     )
 
 
@@ -547,14 +549,22 @@ def extract_check_items_from_chunk(
     guards: frozenset[str] = ALL_GUARDS,
     prompt_variant: str = "full",
     only_if_unread: bool = False,
+    assign_generate: Callable[[str], str] | None = None,
 ) -> LegendFigureJSON:
     """Rules fallback; when prefer_llm, LLM panels take priority by default.
 
     Without the ``rule_fill`` guard an LLM failure yields no panels instead of
     the rules result, so ablations measure the LLM path alone.
     only_if_unread: skip the LLM when the rules already read every stated n.
+    assign_generate: free-text generator; with only_if_unread the LLM then only assigns
+    the stated n the rules left unread to panels (``legend_assign``) instead of
+    re-reading the whole legend.
     """
     base = _rules_from_chunk(chunk)
+    if only_if_unread and assign_generate is not None:
+        from pre_peer_checker.llm.legend_assign import assign_unread_ns
+
+        return assign_unread_ns(chunk.figure_id or base.figure, chunk.legend or "", base, assign_generate)
     if not prefer_llm or llm_generate is None:
         return base
     if only_if_unread and not legend_needs_llm(chunk, base):
@@ -596,11 +606,13 @@ def extract_legends_json_from_docx(
     panel_label_meta: dict | None = None,
     on_item: Callable[[int, int, str], None] | None = None,
     llm_only_unread: bool = False,
+    assign_generate: Callable[[str], str] | None = None,
 ) -> tuple[list[LegendFigureJSON], list[FigureChunk]]:
     """Extract check-item JSON per figure; returns (items, chunks used).
 
     on_item(done, total, figure_label) is called before each figure and once at the end.
     llm_only_unread: call the LLM only for figures the rules could not fully read.
+    assign_generate: see ``extract_check_items_from_chunk``.
     """
 
     def _notify(done: int, total: int, label: str) -> None:
@@ -635,6 +647,7 @@ def extract_legends_json_from_docx(
                     llm_generate=llm_generate,
                     prefer_llm=prefer_llm,
                     only_if_unread=llm_only_unread,
+                    assign_generate=assign_generate,
                 )
             )
         _notify(len(legs), len(legs), "")
@@ -651,6 +664,7 @@ def extract_legends_json_from_docx(
                 legend_only_prompt=False,
                 llm_primary=True,
                 only_if_unread=llm_only_unread,
+                assign_generate=assign_generate,
             )
         )
     _notify(len(chunks), len(chunks), "")
@@ -740,6 +754,10 @@ def extract_legends_with_backend(
         json_modes.append(mode)
         return text
 
+    def _free(prompt: str) -> str:
+        json_modes.append("free")
+        return backend.generate(prompt, max_tokens=768)
+
     items, chunks = extract_legends_json_from_docx(
         path,
         prefer_llm=True,
@@ -749,6 +767,7 @@ def extract_legends_with_backend(
         panel_label_meta=panel_label_meta,
         on_item=on_item,
         llm_only_unread=mode == "auto",
+        assign_generate=_free if mode == "auto" else None,
     )
     meta["n_llm_calls"] = len(json_modes)
     meta["n_figures"] = len(items)

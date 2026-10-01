@@ -170,6 +170,36 @@ def test_panel_ref_after_n_closes_the_run_before_it() -> None:
     assert rows == {("C", 5), ("D", 8)}
 
 
+def test_figure_level_n_skips_image_panels_only() -> None:
+    text = (
+        "Figure 6. Title. A, Representative images of the region. B, Expression per cell. "
+        "C, Capillary area. For all panels, blue represents control. MDD, n = 6; control, n = 4."
+    )
+    rows = {(r.panel, r.n) for r in parse_panel_ns("Figure 6", text)}
+    assert rows == {(p, n) for p in "BC" for n in (6, 4)}
+
+
+def test_block_opener_is_followed_by_its_own_panels() -> None:
+    text = (
+        "Figure 2. Title. A–C, Cells were transfected in the presence of lactate. A: Western blot "
+        "quantified on the right (n = 3). B, a kit detected iron (n = 5). C, representative images. "
+        "D:The ratio was measured (n = 6)."
+    )
+    rows = {(r.panel, r.n) for r in parse_panel_ns("Figure 2", text)}
+    assert rows == {("A", 3), ("B", 5), ("D", 6)}
+
+
+def test_worded_counts_that_are_references_are_skipped() -> None:
+    text = (
+        "(A) Dot plots. Representative image of one replicate experiment. (B) Overlap in all three "
+        "samples. (C) Immunoblots. Two independent biological replicates (R1 and R2) are shown. "
+        "(D) Ratio for mitochondria from five vehicle-treated versus five drug-treated animals. "
+        "(E) Survival (n = 128 and 151 animals, respectively)."
+    )
+    rows = {(r.panel, r.n) for r in parse_panel_ns("Figure 6", text)}
+    assert rows == {("C", 2), ("D", 5), ("E", 128), ("E", 151)}
+
+
 def test_extended_data_keys() -> None:
     assert figure_num_key("Extended Data Fig. 3") == "ED3"
     assert figure_num_key("Extended Data Figure 10") == "ED10"

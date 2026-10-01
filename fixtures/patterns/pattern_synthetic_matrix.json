@@ -258,6 +258,20 @@
       "ci_required": true,
       "harness": "unit",
       "unit": "source_data_synthetic"
+    },
+    {
+      "pattern_id": "P-SCALE-BAR-LEGEND-MISMATCH",
+      "ci_required": true,
+      "harness": "gold_eval",
+      "case_id": "scale_bar_legend",
+      "gold_item_id": "G15"
+    },
+    {
+      "pattern_id": "P-ANTIBODY-HOST-MISMATCH",
+      "ci_required": true,
+      "harness": "gold_eval",
+      "case_id": "antibody_host",
+      "gold_item_id": "G16"
     }
   ]
 }

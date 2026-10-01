@@ -38,8 +38,10 @@ PubPeer コメント・手元 PDF・個人経験（例: 自論文への指摘）
 | 比・正規化由来の値が有効桁を超える桁数（1/3→0.3333 等） | `P-DERIVED-VALUE-PRECISION` |
 | 生存率×固定 N が非整数個体数 | `P-SURVIVAL-COUNT-NONINTEGER` |
 | Methods 主張 ↔ 図・表メタの矛盾 | `P-METHODS-CLAIM-MISMATCH` |
+| 図中スケールバー表記 ↔ Legend のスケールバー長の不一致 | `P-SCALE-BAR-LEGEND-MISMATCH` |
+| 抗体の宿主動物種の原稿内矛盾（品番体系・二次抗体・同一品番） | `P-ANTIBODY-HOST-MISMATCH` |
 | 記載 n より多いソース行で除外基準なし；統計再計算不一致 | `P-EXCLUSION-UNDECLARED`, `P-STATS-RECALC-MISMATCH` |
-| 試薬／抗体特異性のみ（原稿＋データから機械照合不可） | カタログ対象外（メモのみ） |
+| 試薬／抗体特異性のみ（原稿＋データから機械照合不可） | カタログ対象外（メモのみ。宿主の原稿内矛盾は上の `P-ANTIBODY-HOST-MISMATCH`） |
 
 手元参照の件数目安: PubPeer 由来 PDF 十数件＋説明資料（いずれも git 外）。
 
@@ -166,7 +168,7 @@ PubPeer と同等以上の網羅性を、**規約に抵触しない公式・オ�
 | | （補助）SEM/SD | 誤差棒種別 vs 再計算 | `P-ERRORBAR-SEM-SD-MISMATCH` | 実装済（初期） |
 | **E. 表記・参照** | E1 パネル参照食い違い | 本文 Fig ID vs PDF ラベル | `P-REF-LABEL-MISMATCH` | 実装済 |
 | | E2 遺伝型・条件の表記揺れ | 本文／Fig／YAML／表 | `P-CONFIG-ANNOTATION-MISMATCH`, `P-REF-LABEL-MISMATCH` | 実装済 |
-| | E3 Methods／本文主張と図・数値の矛盾 | 主張スパーン × 表／図メタ | `P-METHODS-CLAIM-MISMATCH` | 実装済（初期 ratio） |
+| | E3 Methods／本文主張と図・数値の矛盾 | 主張スパーン × 表／図メタ | `P-METHODS-CLAIM-MISMATCH`, `P-ANTIBODY-HOST-MISMATCH` | 実装済（初期 ratio／抗体宿主） |
 | | E4 参考文献メタ整合 | 本文 cite ↔ References；ユーザー提供 PDF メタ | `P-REF-MISSING-ENTRY`, `P-REF-DUPLICATE-KEY`, `P-REF-META-INCONSISTENT`, `P-REF-PDF-META-MISMATCH`（`P-REF-ORPHAN-ENTRY` は情報寄り・既定 OFF） | 実装済（初期） |
 | | E5 引用主張↔論文内容 | 引用文 × ユーザー提供 PDF 根拠チャンク | `P-REF-CLAIM-CONTRADICTION`（根拠レビューは情報カード） | 実装済（初期） |
 | **F. ソースデータ指紋** | F1 独立標本の完全同一値 | 表内・群間の厳密一致頻度 | `P-SOURCE-DUPLICATE-VALUES` | 実装済（初期） |
@@ -303,6 +305,29 @@ Bik et al. Category I≈A1、II≈A2、III≈A3 に対応づける。F 系は **
 - **合成 fixture**: `fixtures/synthetic/scale_mag` + gold `scale_mag`（G7）。
 - **sources**: literature (microscopy integrity)
 
+#### G15. 図中スケールバー表記と Legend の不一致 — P1 — `P-SCALE-BAR-LEGEND-MISMATCH` — **実装済（初期）**
+
+- **典型**: 図中のスケールバー横に「100 µm」とあるのに、Legend は「Scale bars, 50 µm」。
+- **読む**: 図ファイル（`Fig1.pdf` / `Fig1.png` 等、または論文 PDF から切り出した Figure）のスケール表記。PDF のテキスト層を優先し、無い図だけラスタ OCR（Florence / Apple Vision）。Legend 側は「Scale bar(s)」「Bars,」の節にある長さ（µm / nm / mm）。
+- **比べる**: 図番号ごとに、図中の長さが Legend の値のどれとも一致しなければ Warning（`engine/scale_bar_legend.py`）。Symbol フォントの µ が「m」で抜ける「50 mm」は 50 µm とみなす。OCR 由来は `needs_review`。
+- **not_sufficient**: Legend が「unless otherwise indicated」「as indicated」等で図ごとの値を許容；図中に長さ表記が無い（Nature 系は値を Legend だけに書くことが多い）；Word に埋め込まれた図（図番号との対応が取れない）。
+- **無効化**: `PRE_PEER_CHECKER_SCALE_BAR_OCR=0` で OCR フォールバックを止める（テキスト層の照合は残る）。
+- **合成 fixture**: `fixtures/synthetic/scale_bar_legend` + gold `scale_bar_legend`（G15）。
+- **sources**: literature, curated_pubpeer
+
+#### G16. 抗体の宿主動物種の記載矛盾 — P1 — `P-ANTIBODY-HOST-MISMATCH` — **実装済（初期）**
+
+- **典型**: 実際はマウス抗体なのにウサギと書く／その逆。
+- **読む**: Methods・Key Resources Table の抗体記載（`rabbit anti-X`、`anti-X (rabbit polyclonal)`、`derived from murine origin` 等）、二次抗体（`goat anti-rabbit IgG …`）、品番・RRID。短い行の連続（KRT の行）は 1 ブロックにまとめる。
+- **比べる**（`engine/antibody_host.py`、原稿内で閉じる照合のみ）:
+  - 品番体系が宿主を決める抗体の宿主記載違い（Atlas `HPA` 品番＝ウサギ、`AMAb`＝マウス、CST `XP®`＝ウサギ）
+  - 二次抗体 anti-X に対応する宿主 X の一次抗体が同じ記載ブロックに無い（ブロック内の一次抗体の宿主がすべて読めた場合のみ。原稿全体での判定は `needs_review`）
+  - 同じ品番・RRID で宿主が違う／1 つの記載の中で宿主が食い違う／二次抗体の宿主＝標的動物種
+- **not_sufficient**: 宿主が書かれていない一次抗体が同じブロックにある；`anti-human …` などの抗原種指定（二次抗体扱いしない）。
+- **未実装**: RRID・メーカーカタログへの外部照会（品番から宿主を引く）。品番ルールは上の 3 つだけ。
+- **合成 fixture**: `fixtures/synthetic/antibody_host` + gold `antibody_host`（G16）。
+- **sources**: literature, curated_pubpeer
+
 #### G8. カウント系 n — P2 — `P-COUNT-N-MISMATCH` — **実装済（初期）**
 
 - **典型**: ゲート後／コロニーカウント n と Legend n。
@@ -432,8 +457,8 @@ DINOv2 は **預訓練のまま推論**（追加学習不要）。閾値は fixt
 
 | 役割                         | 選定                                     | 実行場所                                  | メモリ目安  |
 | -------------------------- | -------------------------------------- | ------------------------------------- | ------ |
-| Legend→JSON（**配布・生徒**） | **Qwen2.5-7B-Instruct 4-bit**（`qwen2.5-7b-mlx`） | Mac: **MLX** / DGX: `qwen2.5-7b-hf` | ~5–16GB |
-| Legend→JSON（**開発・教師**） | **Qwen2.5-32B-Instruct**（`qwen2.5-32b-hf`） | DGX Spark / CUDA | ~64GB+ |
+| Legend→JSON（**配布既定**） | **Qwen2.5-32B-Instruct**（`qwen2.5-32b-mlx` 4-bit / `qwen2.5-32b-hf`） | Mac: **MLX** / DGX・CUDA: transformers | Mac ~20GB / HF ~64GB |
+| Legend→JSON（**軽量**） | **Qwen2.5-7B-Instruct 4-bit**（`qwen2.5-7b-mlx` / `qwen2.5-7b-hf`） | Mac: **MLX** / DGX: CUDA | ~5–16GB |
 | Fig 接地（**配布用本命**） | **Qwen2.5-VL-7B Instruct** | Mac: **mlx-vlm** / DGX: CUDA | 16GB Mac 想定 |
 | Fig 接地（**開発・教師用本命**） | **Qwen2.5-VL-32B Instruct** | DGX Docker（CUDA） | ~64GB+ |
 

@@ -145,6 +145,31 @@ def test_figure_continued_on_next_page_resumes_the_legend(tmp_path: Path) -> Non
     assert {(pn.panel, pn.n) for pn in legends[0].panel_ns} == {("A", 7), ("B", 3)}
 
 
+def test_legend_tail_after_next_figure_legend_returns_to_its_figure(tmp_path: Path) -> None:
+    doc = pymupdf.open()
+    page = doc.new_page(width=600, height=800)
+    y = _box(page, 60.0, "Results", size=12, height=30)
+    y = _box(page, y, _BODY)
+    _box(page, y, "Figure 1. Kidney injury. A, Study design. B, Blot quantification (n = 6).", size=8, height=40)
+    page = doc.new_page(width=600, height=800)
+    y = _box(page, 60.0, _BODY.replace("[1]", "[2]"))
+    y = _box(
+        page, y, "Figure 2. Lactylation. A, CoIP of lysates (n = 3). B, Blot (n = 3). C, Schematic. D, Blot (n = 4).",
+        size=8, height=40,
+    )
+    _box(page, y, "C, quantification of tubular injury (n = 7). D, kidney weight (n = 7).", size=8, height=40)
+    for _ in range(2):
+        page = doc.new_page(width=600, height=800)
+        _box(page, 60.0, _BODY)
+    pdf = tmp_path / "tail.pdf"
+    doc.save(str(pdf))
+    doc.close()
+
+    by_fig = {leg.figure: {(pn.panel, pn.n) for pn in leg.panel_ns} for leg in extract_structured_legends(pdf)}
+    assert by_fig["Figure 1"] == {("B", 6), ("C", 7), ("D", 7)}
+    assert by_fig["Figure 2"] == {("A", 3), ("B", 3), ("D", 4)}
+
+
 def test_superscript_citations_become_brackets() -> None:
     body = {"size": 8.0, "flags": 4}
     sup = {"size": 5.0, "flags": 5}

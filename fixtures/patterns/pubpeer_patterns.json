@@ -1042,6 +1042,68 @@
         "E4"
       ],
       "enabled": true
+    },
+    {
+      "id": "P-SCALE-BAR-LEGEND-MISMATCH",
+      "status": "implemented",
+      "phase": "5",
+      "priority": "P1",
+      "source_kinds": [
+        "literature",
+        "curated_pubpeer"
+      ],
+      "warning_tags": [
+        "Warning [設定・アノテーション不整合]"
+      ],
+      "abstract_rule": "図中に描かれたスケールバーの長さ表記（例: 100 µm）が、同じ Figure の Legend に記載されたスケールバー長（例: 50 µm）のどれとも一致しない。",
+      "inputs": [
+        "figure_scale_labels",
+        "legend_scale_bar"
+      ],
+      "not_sufficient": [
+        "Legend が「特記なき限り」「図中に表示」など図ごとの値を許容している",
+        "図中ラベルが OCR のみ（目視確認が必要）"
+      ],
+      "synthetic_fixture_hint": "Fig1.pdf に「100 µm」のテキスト + Legend「Scale bar, 50 µm」の docx",
+      "taxonomy": [
+        "E2"
+      ],
+      "enabled": true,
+      "curation": {
+        "decision": "enabled",
+        "note": "[2026-10-01 initial engine + synthetic CI]"
+      }
+    },
+    {
+      "id": "P-ANTIBODY-HOST-MISMATCH",
+      "status": "implemented",
+      "phase": "5",
+      "priority": "P1",
+      "source_kinds": [
+        "literature",
+        "curated_pubpeer"
+      ],
+      "warning_tags": [
+        "Warning [設定・アノテーション不整合]"
+      ],
+      "abstract_rule": "抗体の宿主動物種の記載が原稿内で矛盾する（品番体系が決める宿主と違う／二次抗体の標的動物種に対応する一次抗体が無い／同一品番・RRID で宿主が違う／1 記載内で宿主が食い違う）。",
+      "inputs": [
+        "methods_antibodies",
+        "key_resources_table"
+      ],
+      "not_sufficient": [
+        "宿主の記載が無い一次抗体が同じブロックにある",
+        "外部カタログ照会（RRID・メーカー DB）は未実装"
+      ],
+      "synthetic_fixture_hint": "Methods に「anti-X (HPA番号), mouse」+ 二次抗体 anti-rabbit の docx",
+      "taxonomy": [
+        "E3"
+      ],
+      "enabled": true,
+      "curation": {
+        "decision": "enabled",
+        "note": "[2026-10-01 initial engine + synthetic CI]"
+      }
     }
   ]
 }

@@ -1,0 +1,15 @@
+{
+  "schema_version": "1.0",
+  "case_id": "antibody_host",
+  "role": "synthetic_regression",
+  "description": "HPA (rabbit) antibody written as mouse; anti-rat secondary without a rat primary → P-ANTIBODY-HOST-MISMATCH.",
+  "root_relative": "fixtures/synthetic/antibody_host",
+  "docker_root": "/app/fixtures/synthetic/antibody_host",
+  "canonical_paths": {
+    "manuscript": "manuscript.docx"
+  },
+  "ignore_globs": [],
+  "eval_command": {
+    "gold": "python -m pre_peer_checker.eval.gold_eval --case antibody_host --run --input fixtures/synthetic/antibody_host"
+  }
+}

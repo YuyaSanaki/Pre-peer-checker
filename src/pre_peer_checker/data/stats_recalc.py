@@ -135,25 +135,27 @@ def _load_excel_best(path: Path) -> pd.DataFrame:
 
 
 def _load_excel_best_inner(path: Path) -> pd.DataFrame:
+    from pre_peer_checker.data.table_grid import find_header_row, grid_to_frame, read_grids
+
     try:
-        xls = pd.ExcelFile(path)
-        book = xls.parse(sheet_name=None, header=None)
+        grids = read_grids(path)
     except Exception as exc:  # noqa: BLE001
         raise ValueError(f"Excel を読めません: {path.name}: {exc}") from exc
-    if not book:
+    if not grids:
         raise ValueError(f"シートがありません: {path.name}")
 
     best: pd.DataFrame | None = None
     best_score = -1
-    for _name, raw in book.items():
-        if raw is None or raw.empty:
+    for grid in grids:
+        if not grid.rows:
             continue
-        # Default header=0 view of same sheet
-        try:
-            tidy0 = xls.parse(sheet_name=_name)
-        except Exception:  # noqa: BLE001
-            tidy0 = pd.DataFrame()
-        for candidate in (tidy0,):
+        raw = grid_to_frame(grid, None)
+        header_at = find_header_row(grid.rows)
+        tidy0 = grid_to_frame(grid, 0)
+        views = [tidy0]
+        if header_at:
+            views.append(grid_to_frame(grid, header_at))
+        for candidate in views:
             if candidate is None or candidate.empty:
                 continue
             score = _score_dataframe(candidate)
@@ -197,19 +199,37 @@ def _source_data_tidy(path: Path) -> pd.DataFrame | None:
     labels: list[str] = []
     values: list[float] = []
     for b in blocks:
-        for v in b.primary.numeric():
-            labels.append(b.label)
-            values.append(v)
+        if b.layout in {"large", "matrix"}:
+            continue
+        for group, vals in b.groups:
+            key = b.group_key(group)
+            labels.extend([key] * len(vals))
+            values.extend(vals)
     if not values:
         return None
     return pd.DataFrame({"label": labels, "value": values})
 
 
+def _load_text_table(path: Path) -> pd.DataFrame:
+    """CSV / TSV / TXT export; a preamble above the header row is skipped."""
+    from pre_peer_checker.data.table_grid import find_header_row, grid_to_frame, read_grids
+
+    grids = read_grids(path)
+    if not grids or not grids[0].rows:
+        raise ValueError(f"空のファイル: {path.name}")
+    grid = grids[0]
+    header_at = find_header_row(grid.rows)
+    return grid_to_frame(grid, header_at if header_at is not None else 0)
+
+
 def load_table(path: Path | str) -> pd.DataFrame:
+    from pre_peer_checker.data.table_grid import EXCEL_SUFFIXES, TEXT_SUFFIXES, _table_suffix
+
     path = Path(path)
-    if path.suffix.lower() == ".csv":
-        return pd.read_csv(path)
-    if path.suffix.lower() in {".xlsx", ".xls", ".xlsm"}:
+    suf = _table_suffix(path)
+    if suf in TEXT_SUFFIXES:
+        return _load_text_table(path)
+    if suf in EXCEL_SUFFIXES:
         tidy = _source_data_tidy(path)
         if tidy is not None:
             return tidy
@@ -269,6 +289,9 @@ def describe_groups(
         inferred_g, inferred_v = infer_group_and_value(df)
         group_col = group_col or inferred_g
         value_col = value_col or inferred_v
+    if not pd.api.types.is_numeric_dtype(df[value_col]):
+        df = df.copy()
+        df[value_col] = pd.to_numeric(df[value_col], errors="coerce")
 
     groups: list[GroupStats] = []
     if group_col is None:

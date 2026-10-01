@@ -88,7 +88,7 @@ def _cached_registry(path_str: str) -> tuple[dict[str, ModelProfile], str, str]:
             size_hint=str(meta.get("size_hint") or ""),
             notes=str(meta.get("notes") or ""),
         )
-    default_llm = str(data.get("default_llm_profile") or "qwen2.5-7b-mlx")
+    default_llm = str(data.get("default_llm_profile") or "qwen2.5-32b-mlx")
     default_vlm = str(data.get("default_vlm_profile") or "qwen2.5-vl-7b")
     return profiles, default_llm, default_vlm
 
@@ -130,9 +130,9 @@ def default_profile_id(role: Role = "text", *, path: Path | None = None) -> str:
 
 
 def effective_llm_profile_id(*, path: Path | None = None) -> str:
-    """Host-aware text profile: Mac/MLX → 7b-mlx; else CUDA 本線 7b-hf（規則フォールバックしない）.
+    """Host-aware text profile: Mac/MLX → registry default (32b-mlx); else CUDA 本線 32b-hf.
 
-    教師級が欲しければ ``PRE_PEER_CHECKER_LLM_PROFILE=qwen2.5-32b-hf`` を指定。
+    軽量にしたければ ``PRE_PEER_CHECKER_LLM_PROFILE=qwen2.5-7b-mlx``（または ``-hf``）を指定。
     """
     env = (os.environ.get("PRE_PEER_CHECKER_LLM_PROFILE") or "").strip()
     if env:
@@ -146,8 +146,8 @@ def effective_llm_profile_id(*, path: Path | None = None) -> str:
         pass
     # Non-Mac / MLX 無し: マシンパワーを活かす CUDA・HF 本線
     profiles, _, _ = load_registry(path)
-    if "qwen2.5-7b-hf" in profiles:
-        return "qwen2.5-7b-hf"
+    if "qwen2.5-32b-hf" in profiles:
+        return "qwen2.5-32b-hf"
     return default_profile_id("text", path=path)
 
 
@@ -173,8 +173,8 @@ def effective_vlm_profile_id(*, path: Path | None = None) -> str:
 def distribution_legend_llm_kwargs(*, path: Path | None = None) -> dict[str, Any]:
     """Legend LLM kwargs for shipping / gold gates (always prefer real inference when possible).
 
-    - MLX あり → ``qwen2.5-7b-mlx`` + prefer auto
-    - それ以外 → ``qwen2.5-7b-hf`` + prefer cuda（高精度。prefer=none にはしない）
+    - MLX あり → ``qwen2.5-32b-mlx`` + prefer auto
+    - それ以外 → ``qwen2.5-32b-hf`` + prefer cuda（高精度。prefer=none にはしない）
     """
     pid = effective_llm_profile_id(path=path)
     profile = get_profile(pid, path=path)

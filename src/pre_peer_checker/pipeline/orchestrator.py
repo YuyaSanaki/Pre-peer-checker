@@ -52,7 +52,9 @@ from pre_peer_checker.engine.source_values import (
 )
 from pre_peer_checker.engine.numeric_crossref import warnings_from_numeric_crossref
 from pre_peer_checker.engine.derived_precision import warnings_from_derived_precision
+from pre_peer_checker.engine.antibody_host import warnings_from_antibody_hosts
 from pre_peer_checker.engine.methods_claim import warnings_from_methods_claims
+from pre_peer_checker.engine.scale_bar_legend import warnings_from_scale_bar_legend
 from pre_peer_checker.engine.errorbar_sem_sd import warnings_from_errorbar_sem_sd
 from pre_peer_checker.engine.multiplicity import warnings_from_multiplicity_gap
 from pre_peer_checker.engine.survival_count import warnings_from_survival_counts
@@ -910,15 +912,20 @@ def run_verification(
     from pre_peer_checker.engine.shared_control import shared_control_disclosure
 
     claim_texts: list[str] = []
+    legend_pairs: list[tuple[str, str]] = []
+    manuscript_paras: list[str] = []
     for p in manuscripts:
         try:
             for leg in extract_structured_legends(p):
                 claim_texts.append(leg.text)
+                legend_pairs.append((leg.figure, leg.text))
         except Exception:
             continue
         # Methods / Results 本文も主張スパーン用に取り込む（Figure Legend 以外）
         try:
-            claim_texts.extend(manuscript_paragraphs(p))
+            paras = manuscript_paragraphs(p)
+            claim_texts.extend(paras)
+            manuscript_paras.extend(paras)
         except Exception:
             continue
     for ch in figure_chunks_art:
@@ -1011,6 +1018,11 @@ def run_verification(
         warnings_from_numeric_crossref(claim_texts, plot_vectors)
     )
     result.warnings.extend(warnings_from_methods_claims(claim_texts))
+    result.warnings.extend(
+        warnings_from_antibody_hosts(
+            manuscript_paras, sources=[str(p) for p in manuscripts]
+        )
+    )
 
     # --- P1/P2: errorbar / multiplicity / survival / count-n ---
     result.warnings.extend(
@@ -1618,6 +1630,22 @@ def run_verification(
         result.warnings.extend(
             warnings_from_scale_mag(claim_texts, blot_imgs[:36])
         )
+        tracker.update(detail="図中のスケールバー表記と Legend を照合中")
+
+        def _on_scale_fig(done: int, total: int, label: str) -> None:
+            if label:
+                tracker.update(detail=f"図中のスケールバー表記を読み取り中: {label}（{done + 1}/{total}）")
+
+        try:
+            scale_warns, scale_art = warnings_from_scale_bar_legend(
+                legend_pairs, fig_files, on_item=_on_scale_fig
+            )
+            result.warnings.extend(scale_warns)
+            result.artifacts["scale_bar_legend"] = scale_art
+        except Exception as exc:  # noqa: BLE001
+            result.artifacts["scale_bar_legend"] = {"error": str(exc)}
+        finally:
+            unload_raster_ocr_models()
         # LIF/CZI acquisition meta × Legend（顕微鏡接地・内部照合）
         tracker.update(detail="顕微鏡の取得メタデータと Legend を照合中")
         micro_paths = (

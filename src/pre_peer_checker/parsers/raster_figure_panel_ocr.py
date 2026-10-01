@@ -37,6 +37,9 @@ _FLORENCE_ID = "florence-community/Florence-2-large"
 _lock = threading.Lock()
 _florence: Any = None
 _vlm: Any = None
+# Same rendered figure is OCR'd for panel letters and again for scale-bar labels.
+_ocr_memo: dict[str, tuple[list[dict], str, list[dict]]] = {}
+_OCR_MEMO_MAX = 64
 
 
 def unload_raster_ocr_models() -> None:
@@ -369,6 +372,8 @@ class RasterPanelOcrResult:
     inferred: set[str] = field(default_factory=set)
     not_labels: set[str] = field(default_factory=set)
     vlm_answers: dict[str, Any] = field(default_factory=dict)
+    # every OCR detection ({"text", "box"} in image pixels), e.g. scale-bar labels
+    texts: list[dict] = field(default_factory=list)
 
     @property
     def engine_label(self) -> str:
@@ -459,15 +464,25 @@ def _run_ocr(full, engines: list[str]) -> tuple[list[dict], str, list[dict]]:
 def _cached_ocr(full, engines: list[str]) -> tuple[list[dict], str, list[dict]]:
     """``PRE_PEER_CHECKER_RASTER_OCR_CACHE=<dir>`` (evaluation only) reuses OCR per image,
     so changes after OCR can be compared on identical detections."""
-    cache_dir = (os.environ.get("PRE_PEER_CHECKER_RASTER_OCR_CACHE") or "").strip()
-    if not cache_dir:
-        return _run_ocr(full, engines)
     import hashlib
     import json
 
     h = hashlib.sha256(full.tobytes())
     h.update(f"{full.size}|{'+'.join(engines)}|{_MAX_SIDE}".encode())
-    path = Path(cache_dir) / f"{h.hexdigest()[:24]}.json"
+    digest = h.hexdigest()[:24]
+    cache_dir = (os.environ.get("PRE_PEER_CHECKER_RASTER_OCR_CACHE") or "").strip()
+    if not cache_dir:
+        with _lock:
+            hit = _ocr_memo.get(digest)
+        if hit is not None:
+            return hit
+        res = _run_ocr(full, engines)
+        with _lock:
+            _ocr_memo[digest] = res
+            while len(_ocr_memo) > _OCR_MEMO_MAX:
+                _ocr_memo.pop(next(iter(_ocr_memo)))
+        return res
+    path = Path(cache_dir) / f"{digest}.json"
     if path.is_file():
         d = json.loads(path.read_text(encoding="utf-8"))
         return d["crops"], d["case"], d["dets"]
@@ -487,6 +502,7 @@ def raster_panel_analysis_from_rgb(full, *, engines: list[str] | None = None) ->
         return result
     crops, case, dets = _cached_ocr(full, engines)
     result.crops = crops
+    result.texts = [{"text": d.get("text", ""), "box": d.get("box")} for d in dets]
 
     if dets:
         case = _infer_panel_case(dets)

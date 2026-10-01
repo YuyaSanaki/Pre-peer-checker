@@ -656,3 +656,40 @@ rules:
   - check_reference
   not_sufficient:
   - 同一画像パネルに複数条件が実際に含まれる
+- id: ERR_P_SCALE_BAR_LEGEND_MISMATCH
+  pattern_id: P-SCALE-BAR-LEGEND-MISMATCH
+  category: Warning [設定・アノテーション不整合]
+  description: '図中に描かれたスケールバーの長さ表記（例: 100 µm）が、同じ Figure の Legend に記載されたスケールバー長（例: 50 µm）のどれとも一致しない。'
+  status: implemented
+  priority: P1
+  target:
+  - figure_scale_labels
+  - legend_scale_bar
+  severity: Warning
+  taxonomy:
+  - E2
+  source_kinds:
+  - literature
+  - curated_pubpeer
+  not_sufficient:
+  - Legend が「特記なき限り」「図中に表示」など図ごとの値を許容している
+  - 図中ラベルが OCR のみ（目視確認が必要）
+- id: ERR_P_ANTIBODY_HOST_MISMATCH
+  pattern_id: P-ANTIBODY-HOST-MISMATCH
+  category: Warning [設定・アノテーション不整合]
+  description: 抗体の宿主動物種の記載が原稿内で矛盾する（品番体系が決める宿主と違う／二次抗体の標的動物種に対応する一次抗体が無い／同一品番・RRID で宿主が違う／1 
+    記載内で宿主が食い違う）。
+  status: implemented
+  priority: P1
+  target:
+  - methods_antibodies
+  - key_resources_table
+  severity: Warning
+  taxonomy:
+  - E3
+  source_kinds:
+  - literature
+  - curated_pubpeer
+  not_sufficient:
+  - 宿主の記載が無い一次抗体が同じブロックにある
+  - 外部カタログ照会（RRID・メーカー DB）は未実装

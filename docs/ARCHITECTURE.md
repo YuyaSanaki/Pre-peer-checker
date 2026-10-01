@@ -37,9 +37,9 @@
 
 ### モデル方針
 
-- 配布本線は **7B**（text: `qwen2.5-7b-mlx` / `qwen2.5-7b-hf`、VLM: `qwen2.5-vl-7b`）。開発既定と配布既定は分離し、配布既定をいきなり大型モデルにしない。
-- 32B は難しい span のラベル作り用の任意教師。教師ラベルは人手確認必須（生の 32B 出力をそのまま蒸留に使わない）。
-- LoRA／蒸留は製品必須にしない。7B がスキーマ強制＋規則でも新しい論文種で繰り返し破綻したときだけ検討する。
+- Text の配布既定は **32B**（`qwen2.5-32b-mlx`＝Mac 4-bit、約 20 GB／CUDA は `qwen2.5-32b-hf`）。Legend の `auto` で n をパネルへ割り当てる精度が 7B では足りなかったため（dev で recall 約 0.6 対 0.83）。7B（`qwen2.5-7b-mlx` / `-hf`）は軽量な代替。VLM の既定は `qwen2.5-vl-7b` のまま。
+- 32B の生出力を教師ラベルとして蒸留に使うときは人手確認必須。
+- LoRA／蒸留は製品必須にしない。
 - モデルプロファイル（`llm/model_registry.yaml`）には Apache-2.0 のモデルだけを載せる。
 
 ### やらないこと
@@ -93,7 +93,7 @@
 - DINOv2 (ViT-B/14) + LightGlue（PyTorch CUDA / MPS）
 
 ### 意味抽出層（読む＝LLM/VLM 本線）
-- LLM: Qwen2.5-7B-Instruct（プロファイル選択可）— Legend / Figチャンク → チェック項目 JSON
+- LLM: Qwen2.5-32B-Instruct（プロファイル選択可）— Legend の n のパネル割り当て（auto）／ Figチャンク → チェック項目 JSON（on）
 - VLM: **Qwen2.5-VL-7B**（配布）／**32B**（DGX 教師）— パネル境界・軸ラベル・グラフ種別の視覚コンテキスト（PyMuPDF ベクター分割を優先）
 - 規則パーサ: LLM 未導入・失敗時のフォールバックのみ
 
@@ -103,7 +103,8 @@
 |----|------|
 | 切出し | 出版 PDF は **`pdftotext -raw`**（段の順）。layout 抽出の左右混線は使わない |
 | 規則 | 括弧の中身でパネル／群を分類。出版 4 型（パネル単位 `N=` / 時点リスト / 共有小文字 / 後置 `(n=)`）を `legend_struct` が先に取る |
-| 7B | 規則が空だった文だけ埋める。**規則行は上書きしない**（空 group・同一パネルの別 n も残す） |
+| LLM（auto） | 汎用の正規表現が Legend 中の n をすべて拾って印を付け、規則がどのパネルにも付けなかった値だけ、LLM にパネル・群を割り当てさせる（`llm/legend_assign.py`）。値は本文から取るので LLM は n を作れない。Legend にパネル参照として現れない文字は捨てる。**規則行は上書きしない** |
+| LLM（on） | Legend 全体を LLM がスキーマ強制 JSON で読み、ガード付きで規則とマージ（従来方式） |
 | 採点 | dev は hard-span gold、holdout は全件 gold（`coverage: exhaustive`）の `(figure, panel, group, n)`。holdout では余分行も precision で数える |
 
 回帰の入口: **`scripts/dev_generalization_eval.py`**（`--task legend|panel_ocr`）。case は `split: dev | holdout` を持ち、dev（ルール作りに使った論文）と holdout（未見論文、ブラインドで gold 確定・凍結）を分けて集計する。構成は `rules_only` / `llm_minimal`（最小プロンプト＋根拠照合のみ）/ `prompt_minimal` / `current` / `current-minus-<guard>`（`legend_extract.ALL_GUARDS` を 1 つずつ外す）。変更の採否は `--gate`（dev 非悪化・holdout 許容幅内）、各ガード・プロンプト規則の holdout 寄与は `fixtures/gold/rule_ledger.json`（`--update-ledger`）。holdout の個別の誤りは `--reveal` でのみ表示し、そのケースは dev に移る。手順: [fixtures/gold/panel_extract/HUMAN_REVIEW.md](../fixtures/gold/panel_extract/HUMAN_REVIEW.md)「holdout（汎化評価）」。dev の個別確認は従来どおり `scripts/dev_panel_extract_paper_eval.py`（dev case のみ受け付ける）。出版 PDF 向けにプロンプトを足して既存ケースの括弧分類を崩さないこと。

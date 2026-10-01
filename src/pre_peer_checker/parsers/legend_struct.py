@@ -126,7 +126,7 @@ _UPPER_OPEN_RE = re.compile(
     r"(?:^|(?<=[.;] ))(For\s+)?"
     r"(" + _UPPER_LETTER + r"(?:\s*[–—-]\s*" + _UPPER_LETTER + r")?"
     r"(?:(?:\s*,\s*|\s+and\s+)" + _UPPER_LETTER + r"(?:\s*[–—-]\s*" + _UPPER_LETTER + r")?)*)"
-    r"\s*[,:]\s+(?=\S)"
+    r"\s*(?:,\s+|:\s*)(?=\S)"
 )
 _UNIT_WORD_RE = re.compile(
     r"^(?:dishes?|images?|rois?|sarcomere\s+fi[bp](?:er|re)s?|aggregates?|fi[bp]ers?|"
@@ -359,7 +359,7 @@ def _upper_letter_openers(text: str) -> list[tuple[int, list[str]]]:
 
     Two or more openers in alphabetical order, starting at ``A``, mark the style; a later
     ``For B-D:`` sentence re-opens panels already named. A lone ``A, `` is not enough, a lone
-    ``A, B, `` is.
+    ``A, B, `` is. A block opener ``A–E,`` may be followed by ``A:`` … ``E,`` of its own.
     """
     kept: list[tuple[int, list[str]]] = []
     back: list[tuple[int, list[str]]] = []
@@ -372,7 +372,8 @@ def _upper_letter_openers(text: str) -> list[tuple[int, list[str]]]:
             back.append((m.start(), panels))
         elif (not kept and panels[0] == "A") or (kept and panels[0] > last):
             kept.append((m.start(), panels))
-            last = panels[-1]
+            # ``A–E, <shared setup>. A: … B, …``: a block opener is followed by its own panels
+            last = chr(ord(panels[0]) - 1) if len(panels) > 1 else panels[-1]
     if len(kept) < 2 and not (kept and len(kept[0][1]) >= 2):
         return []
     named = {p for _, ps in kept for p in ps}
@@ -717,16 +718,25 @@ _NUM_TOKEN = (
     r"(?:\d{1,3}|(?:" + "|".join(_TENS_WORDS) + r")(?:[\s-](?:one|two|three|four|five|six|seven"
     r"|eight|nine)\b)?|(?:" + "|".join(sorted(_NUMBER_WORDS, key=len, reverse=True)) + r")\b)"
 )
+_WORDED_UNIT = (
+    r"(?:experiments?|replicates?|repeats?|repetitions|mice|animals|rats|flies|larvae|embryos|"
+    r"samples|patients|donors|cultures|litters|brains|preparations|organoids|fish|individuals|"
+    r"subjects|participants|biopsies|tumou?rs|cells|neurons|wells|clones|(?:cell\s+)?lines)\b"
+)
 # ``three independent experiments`` / ``3 mice per group`` / ``four to twenty four independent …``
 _WORDED_N_RE = re.compile(
     r"(?<![\w.,=≥≤<>/–—-])(" + _NUM_TOKEN + r")"
     r"(?:\s*(?:[–—-]|to)\s*(" + _NUM_TOKEN + r"))?\s+"
     r"(?:(?:biologically|biological|technical|independent|separate|individual|different|"
     r"distinct|experimental|independently)\s+){0,2}"
-    r"(?:experiments?|replicates?|repeats?|repetitions|mice|animals|rats|flies|larvae|embryos|"
-    r"samples|patients|donors|cultures|litters|brains|preparations|organoids|fish|individuals|"
-    r"subjects|participants|biopsies|tumou?rs|cells|neurons|wells|clones|(?:cell\s+)?lines)\b"
-    r"(?!\s*t[-\s]?tests?)",
+    + _WORDED_UNIT
+    + r"(?!\s*t[-\s]?tests?)",
+    re.I,
+)
+# ``five vehicle-treated versus five K21-treated animals`` / ``four WT and six KO mice``
+_WORDED_PAIR_RE = re.compile(
+    r"(?<![\w.,=≥≤<>/–—-])(" + _NUM_TOKEN + r")\s+([\w+/-]+(?:\s[\w+/-]+)?)\s+(?:versus|vs\.?|and)\s+"
+    r"(" + _NUM_TOKEN + r")\s+([\w+/-]+(?:\s[\w+/-]+)?)\s+" + _WORDED_UNIT,
     re.I,
 )
 _RESPECTIVELY_GROUPS_RE = re.compile(
@@ -743,19 +753,17 @@ _LABEL_STOP_RE = re.compile(
 
 
 _STATS_BOILERPLATE_RE = re.compile(
-    r"\b(?:Statistical\s+(?:significance|analys[ie]s|tests?)|"
+    r"\b(?:Statistical(?:ly)?\s+(?:significan\w+|analys[ie]s|tests?)|"
+    r"For\s+all\s+(?:plots|panels|graphs|bar\s+graphs)|"
     r"Data\s+(?:are|were)\s+(?:presented|shown|expressed|represented)\s+as|"
     r"Error\s+bars\s+(?:represent|indicate|show|denote))",
     re.I,
 )
-_DATA_STRONG_RE = re.compile(
-    r"\b(?:quantif\w*|densit(?:y|ies)|numbers?\s+of|curves?|summary|percentages?|proportions?|"
-    r"histograms?)\b",
+_DATA_STRONG_RE = re.compile(r"\b(?:quantif\w*|densit(?:y|ies)|numbers?\s+of|curves?|summary)\b", re.I)
+_NOT_DATA_RE = re.compile(
+    r"\b(?:representative|images?|micrographs?|photographs?|schematics?|illustrations?|traces?|"
+    r"diagrams?|prepared|overview|workflow|timeline|experimental\s+design)\b",
     re.I,
-)
-_DATA_WEAK_RE = re.compile(r"\b(?:mean|average\w*|frequenc\w*|plots?|graphs?|levels?|ratios?)\b", re.I)
-_IMAGE_RE = re.compile(
-    r"\b(?:representative|images?|micrographs?|photographs?|schematics?|illustrations?|traces?)\b", re.I
 )
 
 
@@ -781,10 +789,8 @@ def _measure_panels(body: str, section_panels: list[str], names: str) -> list[st
 
 
 def _is_data_section(text: str) -> bool:
-    """A section that plots measurements (``Quantification of …``), not images or traces."""
-    return bool(_DATA_STRONG_RE.search(text)) or (
-        bool(_DATA_WEAK_RE.search(text)) and not _IMAGE_RE.search(text)
-    )
+    """A section that plots measurements, not images, traces or a schematic."""
+    return bool(_DATA_STRONG_RE.search(text)) or not _NOT_DATA_RE.search(text)
 
 
 def _group_label_before(pre: str) -> str:
@@ -866,7 +872,12 @@ def _generic_clause_ns(figure: str, text: str, found: list[PanelN]) -> list[Pane
         for start, end, values, kind in _clause_mentions(chunk, breaks):
             sent_start = max([b for b in breaks if b <= start], default=0)
             ctx = chunk[max(0, start - 40) : end + 20]
-            if re.match(r"\s*(?:\(\s*[A-Za-z][^)]{0,40}\)|,\s*[A-Z]\b)", chunk[end:]):
+            own_list = (
+                r"\s*(?:\(\s*[A-Z](?:\s*(?:,|and|[-–—])\s*[A-Z])*\s*\)|,\s*[A-Z]\b)"
+                if kind == "worded"
+                else r"\s*(?:\(\s*[A-Za-z][^)]{0,40}\)|,\s*[A-Z]\b)"
+            )
+            if re.match(own_list, chunk[end:]):
                 prev[sent_start] = (end, prev.get(sent_start, (0, section_panels))[1])
                 continue
             n0, n_max0, _ = values[0]
@@ -962,13 +973,20 @@ def _clause_mentions(
         if m is mentions[-1] and not m.group(2) and len(singles) >= 3 and 2 * lo == sum(singles):
             continue
         n_sentences.add(sentence(m.start())[0])
+        tail = chunk[m.end() : sentence(m.start())[1]]
+        pair = re.match(r"\s+and\s+(\d+)\b", tail)
+        if not m.group(2) and pair and re.search(r"\brespectively\b", tail, re.I):
+            # ``n = 128 and 151 animals, respectively``
+            g = _RESPECTIVELY_GROUPS_RE.search(tail)
+            labels = (_short_label(g.group(1)), _short_label(g.group(2))) if g else ("", "")
+            out.append((m.start(), m.end(), [(lo, None, labels[0]), (int(pair.group(1)), None, labels[1])], "split"))
+            continue
         if not m.group(2):
             out.append((m.start(), m.end(), [(lo, None, None)], "n"))
             continue
         hi = int(m.group(2))
         if hi <= lo:
             continue
-        tail = chunk[m.end() : sentence(m.start())[1]]
         if re.search(r"\brespectively\b", tail, re.I):
             g = _RESPECTIVELY_GROUPS_RE.search(tail)
             labels = (_short_label(g.group(1)), _short_label(g.group(2))) if g else ("", "")
@@ -976,8 +994,12 @@ def _clause_mentions(
         else:
             out.append((m.start(), m.end(), [(lo, hi, None)], "range"))
     last_worded: dict[int, int] = {}
+    pairs = [] if n_sentences else list(_WORDED_PAIR_RE.finditer(chunk))
+    for m in pairs:
+        values = [(_number_value(m.group(1)), None, m.group(2)), (_number_value(m.group(3)), None, m.group(4))]
+        out.append((m.start(), m.end(), values, "split"))
     for m in _WORDED_N_RE.finditer(chunk):
-        if n_sentences:
+        if n_sentences or any(p.start() <= m.start() < p.end() for p in pairs):
             continue
         s, _ = sentence(m.start())
         prior = last_worded.get(s)
@@ -985,6 +1007,11 @@ def _clause_mentions(
         if prior is not None and re.fullmatch(r"\s*from\s+", chunk[prior : m.start()], re.I):
             continue
         lo = _number_value(m.group(1))
+        # ``Representative image of one replicate`` / ``in all three samples``: not a sample size
+        if (lo == 1 and re.search(r"\brepresentative\b", chunk[s : m.start()], re.I)) or re.search(
+            r"\b(?:all|these|those|both)\s+$", chunk[s : m.start()], re.I
+        ):
+            continue
         hi = _number_value(m.group(2)) if m.group(2) else None
         if hi is not None and hi <= lo:
             continue

@@ -1,12 +1,23 @@
 # LLM / VLM プロファイル（開発〜配布）。WebUI / CLI で選択する。
-# 配布既定は 7B（*mlx）。32B は DGX 開発・教師用。
+# Text の既定は 32B（Mac は 4bit MLX）。Legend の auto で n をパネルへ割り当てる精度が
+# 7B では足りないため（dev で recall 約 0.6 対 0.83）。7B は軽量な代替。
 # 掲載は Apache-2.0 のモデルに限る（研究用・独自ライセンスのモデルは載せない）。
 version: 1
-default_llm_profile: qwen2.5-7b-mlx
+default_llm_profile: qwen2.5-32b-mlx
 default_vlm_profile: qwen2.5-vl-7b
 
 profiles:
   # --- Text (Legend / Methods → JSON) ---
+  qwen2.5-32b-mlx:
+    family: qwen
+    role: text
+    label: Qwen2.5-32B Instruct (MLX 4-bit)
+    model_id: mlx-community/Qwen2.5-32B-Instruct-4bit
+    prefer: mlx
+    recommended_vram_gb: 24
+    size_hint: 32B
+    notes: Mac 配布・既定。メモリ 32 GB 以上の Apple Silicon を推奨。
+
   qwen2.5-7b-mlx:
     family: qwen
     role: text
@@ -15,7 +26,7 @@ profiles:
     prefer: mlx
     recommended_vram_gb: 8
     size_hint: 7B
-    notes: Mac 配布・既定。既存 MLX 経路。
+    notes: Mac 軽量版。メモリの少ない機種向け（auto の割り当て精度は 32B より低い）。
 
   qwen2.5-7b-hf:
     family: qwen
@@ -35,7 +46,7 @@ profiles:
     prefer: transformers
     recommended_vram_gb: 64
     size_hint: 32B
-    notes: DGX 教師候補。難しい legend で 7B より文脈を拾う。蒸留／LoRA の正解は 32B 生出力ではなく人手確認ゴールドを正とする。
+    notes: CUDA / transformers の既定（DGX Spark 等）。蒸留／LoRA の正解は 32B 生出力ではなく人手確認ゴールドを正とする。
 
   # --- Vision (Fig パネル接地) ---
   qwen2.5-vl-7b:

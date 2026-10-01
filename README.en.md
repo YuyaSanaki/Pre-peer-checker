@@ -39,10 +39,11 @@ Deciding whether something is inconsistent is not left to AI. AI (LLM / VLM) is 
 | Error bars | The Legend says SEM, but the values computed from raw data are SD (or vice versa) |
 | Transcribed numbers | Means or p values in the text do not match those in tables or figures |
 | Image duplication / reuse | The same image appears in different panels of the paper, or in your own past papers (missing source attribution) / rotated, cropped, or rescaled images, or blot lanes, are reused |
-| Magnification / scale | The same image is labeled with different magnifications or scale bars in different panels |
+| Magnification / scale | The same image is labeled with different magnifications or scale bars in different panels / the scale-bar length drawn in a figure (e.g., 100 µm) does not match the legend (e.g., 50 µm) |
 | Shared controls | The same control is used in several panels without being stated / a subset of a shared control (with some points removed) is presented as an independent experiment |
 | Source data values | Values that should come from independent samples are exactly identical / values from different conditions are exact integer multiples / survival rate × number of animals is not an integer |
 | Consistency with Methods | Ratios or conditions stated in the Methods do not match the values in the figures |
+| Antibody descriptions | An antibody's host species contradicts its catalog numbering (e.g., an HPA rabbit antibody described as mouse) / a secondary antibody (anti-rabbit, etc.) has no primary antibody from that species / the same catalog number or RRID is given different hosts |
 | Notation / references | "Fig. 1C" in the text does not match the actual panel / missing or duplicate references / a citing sentence contradicts the cited paper |
 | Number formatting | Values derived from ratios or normalization keep excessive digits (e.g., 1/3 → 0.3333) |
 
@@ -276,11 +277,11 @@ LLM / VLM assistance:
 # pip install -e ".[llm-json]"     # Outlines (enforces JSON schema; without it: free + coerce)
 # pip install -e ".[vlm-mlx]"      # Mac: panel-map assistance (mlx-vlm)
 # pip install -e ".[vlm-cuda]"     # Linux GPU: Qwen2.5-VL
-# Legend LLM defaults to auto (the LLM reads only figures whose n the rules could not fully read)
+# Legend LLM defaults to auto (the LLM assigns to panels only the n the rules left unread)
 pre-peer-checker ... --legend-llm        # on: every figure through the LLM (minutes per figure)
 pre-peer-checker ... --legend-llm off    # rules only
 pre-peer-checker ... --vlm-assist --vlm-prefer auto --vlm-profile qwen2.5-vl-7b-mlx
-# Explicit example: --legend-llm-prefer cuda --llm-profile qwen2.5-7b-hf
+# Explicit example: --legend-llm-prefer cuda --llm-profile qwen2.5-32b-hf (lighter: qwen2.5-7b-mlx / qwen2.5-7b-hf)
 # Acceptance scripts (Mac):
 #   python scripts/dev_legend_json_mode_verify.py --prefer mlx --require-outlines
 #   python scripts/dev_vlm_panel_map_verify.py --prefer mlx --synthetic --require-vlm
@@ -289,7 +290,8 @@ pre-peer-checker ... --vlm-assist --vlm-prefer auto --vlm-profile qwen2.5-vl-7b-
 #   python scripts/dev_vlm_panel_map_verify.py --prefer cuda --profile qwen2.5-vl-7b --synthetic --require-vlm
 ```
 
-- `--legend-llm auto` (default, also in the WebUI): when the rules picked up every sample size a legend states (`n = …`, `N independent experiments`, …) the LLM is not called and the model is not loaded; only figures with unread n go to the LLM.
+- `--legend-llm auto` (default, also in the WebUI): when the rules picked up every sample size a legend states (`n = …`, `N independent experiments`, …) the LLM is not called and the model is not loaded. Otherwise every stated n is tagged in the legend and the LLM assigns only the values the rules left unread to panels and groups (values come from the text, so the LLM cannot invent an n).
+- The default text LLM is Qwen2.5-32B (on Mac, MLX 4-bit at about 20 GB; Apple Silicon with 32 GB or more recommended). On machines with less memory use `--llm-profile qwen2.5-7b-mlx` (lower assignment accuracy).
 - `--legend-llm-prefer auto`: Mac → MLX; a GPU usable from PyTorch (NVIDIA CUDA / AMD ROCm / Intel XPU) → transformers (GPU). Even with the default MLX profile, GPU hosts fall back to HF. GPU detection lives in `pre_peer_checker/accel.py` (shared by LLM / VLM / DINOv2 / LightGlue).
 - `PRE_PEER_CHECKER_DEVICE=cuda|xpu|mps|cpu` forces the compute device.
 - `PRE_PEER_CHECKER_GPU_MAX_MEMORY_GB=8` caps the GPU memory used by the LLM / VLM and keeps the rest in system memory — also handy for reproducing a small-GPU machine on a large GPU.
@@ -404,9 +406,9 @@ The source code of this software (`pre-peer-checker`) itself is licensed under *
 
 | Role                                   | Model                                                                           | License                                                                        | Notes                                                                    |
 | -------------------------------------- | ------------------------------------------------------------------------------- | ------------------------------------------------------------------------------ | ------------------------------------------------------------------------ |
-| Legend → JSON etc. (Mac main path)     | Qwen2.5-7B-Instruct (MLX 4-bit, e.g. `mlx-community/Qwen2.5-7B-Instruct-4bit`)  | Apache 2.0                                                                     | Alibaba Cloud / Qwen                                                     |
+| Legend → JSON etc. (default)           | Qwen2.5-32B-Instruct (on Mac MLX 4-bit: `mlx-community/Qwen2.5-32B-Instruct-4bit`) | Apache 2.0                                                                     | Alibaba Cloud / Qwen                                                     |
+| Legend → JSON etc. (lighter)           | Qwen2.5-7B-Instruct (MLX 4-bit: `mlx-community/Qwen2.5-7B-Instruct-4bit`)  | Apache 2.0                                                                     | Alibaba Cloud / Qwen                                                     |
 | Figure grounding (primary for distribution) | Qwen2.5-VL-7B-Instruct (mlx-vlm)                                           | Apache 2.0                                                                     | Panel boundaries, axis labels, chart types                               |
-| Legend → JSON etc. (development / teacher) | Qwen2.5-32B-Instruct                                                        | Apache 2.0                                                                     | For creating gold data on DGX                                            |
 | Figure grounding (development / teacher) | Qwen2.5-VL-32B-Instruct                                                       | Apache 2.0                                                                     | For DGX gold data and 7B distillation / LoRA                             |
 | Image-similarity screening             | DINOv2 (e.g. `dinov2_vits14`)                                                   | Apache 2.0                                                                     | Meta. Standard weights. Derived checkpoints may have different licenses  |
 | Precise image-pair matching (optional) | LightGlue + SuperPoint or ALIKED                                                | LightGlue: Apache 2.0 / SuperPoint: Magic Leap (non-commercial research) / ALIKED: BSD-3 | Switched by the usage category in install.sh (see above)       |

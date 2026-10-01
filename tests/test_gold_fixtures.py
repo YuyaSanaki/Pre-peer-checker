@@ -53,6 +53,8 @@ def test_patterns_cover_demo_and_example_pattern_ids():
         ROOT / "fixtures/gold/multiplicity/gold_warnings.json",
         ROOT / "fixtures/gold/survival_noninteger/gold_warnings.json",
         ROOT / "fixtures/gold/scale_mag/gold_warnings.json",
+        ROOT / "fixtures/gold/scale_bar_legend/gold_warnings.json",
+        ROOT / "fixtures/gold/antibody_host/gold_warnings.json",
         ROOT / "fixtures/gold/count_n/gold_warnings.json",
         ROOT / "fixtures/gold/private_benchmark/gold_warnings.example.json",
     ]:

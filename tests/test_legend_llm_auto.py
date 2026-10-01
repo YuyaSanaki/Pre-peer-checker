@@ -47,6 +47,8 @@ def _two_figure_docx(path: Path) -> Path:
 def _fake_llm(calls: list[str]):
     def fn(prompt: str) -> str:
         calls.append(prompt)
+        if "[#1]" in prompt:  # auto: assignment of the tagged n
+            return json.dumps({"tags": [{"id": 1, "n": 12, "panels": ["A"], "group": ""}]})
         return json.dumps(
             {"figure": "Figure 2", "panels": [{"panel": "A", "n": 12, "groups": [], "notes": ""}]}
         )

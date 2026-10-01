@@ -19,6 +19,8 @@ from pre_peer_checker.data.source_data_blocks import (
     FigureRef,
     SourceColumn,
     SourceDataBlock,
+    content_signature,
+    match_group,
 )
 from pre_peer_checker.parsers.legend_struct import PanelN
 from pre_peer_checker.warnings import WarningItem, WarningTag
@@ -361,16 +363,35 @@ def match_source_block_for_panel(
     ]
     if not fig_blocks:
         return None, False
-    panel_blocks = [b for b in fig_blocks if b.figure.panel == ref.panel] or [
-        b for b in fig_blocks if not b.figure.panel
+    panel_blocks = [b for b in fig_blocks if ref.panel and ref.panel in b.all_panels] or [
+        b for b in fig_blocks if not b.all_panels
     ]
     if not panel_blocks:
         return None, True
     group = (pn.group or "").strip().lower()
     cands = [b for b in panel_blocks if _image_ref(b) == group] if group else panel_blocks
+    if group and not cands:
+        cands = [b for b in panel_blocks if match_group(b, pn.group)]
+    cands = _distinct(cands)
     if len(cands) > 1:
-        cands = [b for b in cands if b.n == pn.n]
+        by_group_n = [
+            b for b in cands if b.n_comparable and any(len(v) == pn.n for _, v in b.groups)
+        ]
+        cands = _distinct(by_group_n or [b for b in cands if b.n == pn.n])
     return (cands[0] if len(cands) == 1 else None), True
+
+
+def _distinct(blocks: list[SourceDataBlock]) -> list[SourceDataBlock]:
+    """Drop copies of the same table (a file duplicated under two names)."""
+    seen: set[tuple] = set()
+    out: list[SourceDataBlock] = []
+    for b in blocks:
+        sig = content_signature(b)
+        if sig in seen:
+            continue
+        seen.add(sig)
+        out.append(b)
+    return out
 
 
 def warnings_from_source_data_panels(
@@ -381,9 +402,11 @@ def warnings_from_source_data_panels(
     out: list[WarningItem] = []
 
     by_panel: dict[tuple[str, bool, str], list[SourceDataBlock]] = defaultdict(list)
-    for b in blocks:
-        if b.figure is not None and b.figure.panel:
-            by_panel[(b.figure.number, b.figure.extended, b.figure.panel)].append(b)
+    for b in _distinct(blocks):
+        if b.figure is None:
+            continue
+        for p in b.all_panels:
+            by_panel[(b.figure.number, b.figure.extended, p)].append(b)
 
     for key, bs in by_panel.items():
         groups = legend.get(key, {})
@@ -437,10 +460,20 @@ def warnings_from_source_data_panels(
                 pn = groups.get(letter)
             elif len(bs) == 1 and len(groups) == 1:
                 pn = next(iter(groups.values()))
-            if pn is None or pn.n == b.n:
+            if pn is None:
+                continue
+            group_name = "" if letter is not None else (pn.group or "")
+            data_n = b.legend_n_conflict(pn.n, group_name)
+            if data_n is None:
                 continue
             fig = b.figure.label() if b.figure else pn.figure
             group_txt = f" ({pn.group})" if pn.group else ""
+            bgroups = b.groups
+            per_group = (
+                "（群別: " + "、".join(f"{g} n={len(v)}" for g, v in bgroups[:8]) + "）"
+                if len(bgroups) > 1
+                else ""
+            )
             out.append(
                 WarningItem(
                     tag=WarningTag.SAMPLE_SIZE,
@@ -448,14 +481,14 @@ def warnings_from_source_data_panels(
                     location=f"{b.location}「{b.title}」",
                     reason=(
                         f"Legend は n={pn.n}（{pn.context.strip()[:80]}）ですが、"
-                        f"Source Data の該当ブロックは {b.n} 行です。"
+                        f"Source Data の該当ブロックは {data_n} 行です{per_group}。"
                         "正の n は生データ群の有効行数です。除外した個体があれば Legend に明記してください。"
                     ),
                     sources=[str(b.path)],
                     metadata={
                         "pattern_id": "P-SOURCE-DATA-LEGEND-N",
                         "legend_n": pn.n,
-                        "data_n": b.n,
+                        "data_n": data_n,
                         "n_authority": "raw_data_nrows",
                     },
                 )

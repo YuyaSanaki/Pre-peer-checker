@@ -39,6 +39,10 @@ _LEGEND_HEAD_RE = re.compile(
     re.IGNORECASE,
 )
 _PANEL_OPEN_RE = re.compile(r"^\([A-Z]\d?(?:\s*(?:[-–,]|and)\s*[A-Z]\d?)*\)")
+_PANEL_START_RE = re.compile(r"^\(?([A-Z])(?![\w′'])(?:\s*[-–—]\s*[A-Z](?![\w′']))?(?:\)|\s*[,:])")
+_PANEL_MARK_RE = re.compile(
+    r"(?:^|(?<=[.;)] ))\(?([A-Z])(?![\w′'])(?:\s*[-–—]\s*([A-Z])(?![\w′']))?(?:\)|\s*[,:])"
+)
 _BRACKET_CITE_RE = re.compile(r"\[\d{1,3}(?:\s*[,–\-]\s*\d{1,3})*\]")
 _SENT_END_RE = re.compile(r"[.!?:;)\]]$")
 _LEGEND_CONT_RE = re.compile(r"^\(?(?:figure\s+)?legend\s+continued.*\)?$", re.I)
@@ -242,6 +246,26 @@ def _split_reference_entries(text: str) -> list[str]:
     return [p.strip() for p in parts if p.strip()]
 
 
+def _last_panel(blocks: list[_Block]) -> str:
+    marks = [m.group(2) or m.group(1) for b in blocks for m in _PANEL_MARK_RE.finditer(b.text)]
+    return max(marks, default="")
+
+
+def _resumed_legend(b: _Block, legends: list[list[_Block]]) -> list[_Block] | None:
+    """``C, …`` placed after the next figure's legend continues the earlier legend that ended at B."""
+    m = _PANEL_START_RE.match(b.text)
+    if not m or len(legends) < 2:
+        return None
+    start = m.group(1)
+    current = _last_panel(legends[-1])
+    if not current or start > current:
+        return None
+    for leg in reversed(legends[:-1]):
+        if leg[-1].page >= b.page - 1 and _last_panel(leg) == chr(ord(start) - 1):
+            return leg
+    return None
+
+
 def _assemble(pages: list[list[_Block]]) -> tuple[list[str], int]:
     running = _running_keys(pages)
     kept: list[_Block] = []
@@ -288,6 +312,12 @@ def _assemble(pages: list[list[_Block]]) -> tuple[list[str], int]:
             last_was_legend = True
             continue
         if open_leg is not None and abs(b.size - open_leg[0].size) <= 0.3 and not _is_heading(b.text):
+            earlier = _resumed_legend(b, legends)
+            if earlier is not None:
+                earlier.append(b)
+                open_leg = earlier
+                last_was_legend = True
+                continue
             last = open_leg[-1]
             follows = last_was_legend and b.page == last.page
             panel_cont = b.page in (last.page, last.page + 1) and _PANEL_OPEN_RE.match(b.text)

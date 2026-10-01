@@ -368,6 +368,7 @@ def legend_predictions(
             guards=cfg.guards,
             prompt_variant=cfg.prompt,
             only_if_unread=cfg.only_if_unread,
+            assign_generate=getattr(llm_generate, "free", None) if cfg.only_if_unread else None,
         )
         for p in item.panels:
             if p.n is None:
@@ -556,25 +557,35 @@ def make_llm_generate(
     if backend is None:
         return None
     info = backend.info()
-    tag = f"{info.name}:{info.model_id}:{max_tokens}"
     mem: dict[str, str] = {}
     if cache_dir is not None:
         cache_dir.mkdir(parents=True, exist_ok=True)
 
-    def gen(prompt: str) -> str:
-        key = hashlib.sha256(f"{tag}\0{prompt}".encode()).hexdigest()
-        if key in mem:
-            return mem[key]
-        path = cache_dir / f"{key}.txt" if cache_dir is not None else None
-        if path is not None and path.is_file():
-            text = path.read_text(encoding="utf-8")
-        else:
-            text, _meta = structured_legend_generate(backend, prompt, max_tokens=max_tokens)
-            if path is not None:
-                path.write_text(text, encoding="utf-8")
-        mem[key] = text
-        return text
+    def cached(tag: str, run: Callable[[str], str]) -> Callable[[str], str]:
+        def gen(prompt: str) -> str:
+            key = hashlib.sha256(f"{tag}\0{prompt}".encode()).hexdigest()
+            if key in mem:
+                return mem[key]
+            path = cache_dir / f"{key}.txt" if cache_dir is not None else None
+            if path is not None and path.is_file():
+                text = path.read_text(encoding="utf-8")
+            else:
+                text = run(prompt)
+                if path is not None:
+                    path.write_text(text, encoding="utf-8")
+            mem[key] = text
+            return text
 
+        return gen
+
+    gen = cached(
+        f"{info.name}:{info.model_id}:{max_tokens}",
+        lambda p: structured_legend_generate(backend, p, max_tokens=max_tokens)[0],
+    )
+    # ``auto`` asks for free text (chat template, lenient JSON) — see llm.legend_assign.
+    gen.free = cached(  # type: ignore[attr-defined]
+        f"free:{info.name}:{info.model_id}:768", lambda p: backend.generate(p, max_tokens=768)
+    )
     gen.backend_info = dict(info.__dict__)  # type: ignore[attr-defined]
     return gen
 

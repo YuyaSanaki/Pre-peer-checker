@@ -37,10 +37,11 @@
 | 誤差棒          | Legend では SEM と書いているのに、生データから計算すると SD になっている（またはその逆）                         |
 | 数値の転記        | 本文に書いた平均値や p 値が、表や Figure の値と合わない                                            |
 | 画像の重複・再利用    | 論文内の別パネル、または自分たちの過去の論文と同じ画像が使われている（出典の書き忘れ）／回転・トリミング・拡大縮小した画像やブロットのレーンの使い回し |
-| 倍率・スケール      | 同じ画像なのに、倍率やスケールバーの記載がパネルごとに異なる                                             |
+| 倍率・スケール      | 同じ画像なのに、倍率やスケールバーの記載がパネルごとに異なる／図中に描かれたスケールバーの長さ（例: 100 µm）が Legend の記載（例: 50 µm）と合わない |
 | コントロール群の共有   | 複数のパネルで同じコントロールを使っているのに記載がない／共有コントロールから一部の点を抜いたものを、独立した実験として示している       |
 | ソースデータの値     | 独立したサンプルのはずなのに値が完全に一致する／別条件の値がちょうど整数倍になっている／生存率 × 個体数が整数にならない              |
 | Methods との整合 | Methods に書いた比率・条件と、Figure の値が合わない                                             |
+| 抗体の記載        | 抗体の宿主動物種が品番と合わない（HPA 品番＝ウサギなのに mouse と記載など）／二次抗体（anti-rabbit 等）に対応する一次抗体の宿主がない／同じ品番・RRID で宿主が違う |
 | 表記・参照        | 本文の「Fig. 1C」と実際のパネルが合わない／参考文献リストの抜け・重複／引用文が引用先論文の内容と矛盾する                   |
 | 数値の表示        | 比や正規化から計算した値が、必要以上の桁数のまま（1/3 → 0.3333 など）                                  |
 
@@ -296,11 +297,11 @@ LLM / VLM 補助:
 # pip install -e ".[llm-json]"     # Outlines（JSON schema 強制。未導入時は free+coerce）
 # pip install -e ".[vlm-mlx]"      # Mac: パネル地図補助（mlx-vlm）
 # pip install -e ".[vlm-cuda]"     # Linux GPU: Qwen2.5-VL
-# Legend LLM は既定で auto（規則で n を読み切れなかった Figure だけ LLM で読む）
+# Legend LLM は既定で auto（規則が読み残した n だけ、LLM がパネルへ割り当てる）
 pre-peer-checker ... --legend-llm        # on: 全 Figure を LLM で読む（1 Figure 数分）
 pre-peer-checker ... --legend-llm off    # 規則のみ
 pre-peer-checker ... --vlm-assist --vlm-prefer auto --vlm-profile qwen2.5-vl-7b-mlx
-# 明示例: --legend-llm-prefer cuda --llm-profile qwen2.5-7b-hf
+# 明示例: --legend-llm-prefer cuda --llm-profile qwen2.5-32b-hf（軽量: qwen2.5-7b-mlx / qwen2.5-7b-hf）
 # 受入スクリプト（Mac）:
 #   python scripts/dev_legend_json_mode_verify.py --prefer mlx --require-outlines
 #   python scripts/dev_vlm_panel_map_verify.py --prefer mlx --synthetic --require-vlm
@@ -309,7 +310,8 @@ pre-peer-checker ... --vlm-assist --vlm-prefer auto --vlm-profile qwen2.5-vl-7b-
 #   python scripts/dev_vlm_panel_map_verify.py --prefer cuda --profile qwen2.5-vl-7b --synthetic --require-vlm
 ```
 
-- `--legend-llm auto`（既定・WebUI も同じ）: 各 Figure の Legend に書かれた n（`n = …`、`N independent experiments` 等）を規則が全部拾えていれば LLM を呼ばず、モデルも読み込みません。拾えていない Figure だけ LLM に回します。
+- `--legend-llm auto`（既定・WebUI も同じ）: 各 Figure の Legend に書かれた n（`n = …`、`N independent experiments` 等）を規則が全部拾えていれば LLM を呼ばず、モデルも読み込みません。拾えていない n があれば、Legend 中の n に印を付けて LLM に渡し、規則が読み残した値だけをどのパネル・群のものか割り当てさせます（n の値は本文から取るので LLM が値を作ることはありません）。
+- Text LLM の既定は Qwen2.5-32B（Mac は MLX 4-bit でメモリ約 20 GB、32 GB 以上の Apple Silicon 推奨）。メモリが足りない機種は `--llm-profile qwen2.5-7b-mlx`（割り当て精度は下がります）。
 - `--legend-llm-prefer auto`: Mac → MLX、PyTorch から GPU（NVIDIA CUDA / AMD ROCm / Intel XPU）を利用可 → transformers（GPU）。MLX 既定プロファイルでも GPU ホストでは HF にフォールバックします。GPU の判定は `pre_peer_checker/accel.py` に集約しています（LLM / VLM / DINOv2 / LightGlue 共通）。
 - `PRE_PEER_CHECKER_DEVICE=cuda|xpu|mps|cpu` で演算デバイスを強制できます。
 - `PRE_PEER_CHECKER_GPU_MAX_MEMORY_GB=8` のように指定すると、LLM / VLM が使う GPU メモリを上限までに抑え、残りを PC のメモリに置きます。大きな GPU 上で GPU メモリの少ない環境を再現する検証にも使えます。
@@ -437,9 +439,9 @@ PDF のテキスト・図の抽出に使う **PyMuPDF（`fitz`）はコア依存
 
 | 役割                    | モデル                                                                        | ライセンス                                                                 | 備考                               |
 | --------------------- | -------------------------------------------------------------------------- | --------------------------------------------------------------------- | -------------------------------- |
-| Legend→JSON 等（Mac 本線） | Qwen2.5-7B-Instruct（MLX 4-bit 例: `mlx-community/Qwen2.5-7B-Instruct-4bit`） | Apache 2.0                                                            | Alibaba Cloud / Qwen             |
+| Legend→JSON 等（既定）     | Qwen2.5-32B-Instruct（Mac は MLX 4-bit: `mlx-community/Qwen2.5-32B-Instruct-4bit`） | Apache 2.0                                                            | Alibaba Cloud / Qwen             |
+| Legend→JSON 等（軽量）     | Qwen2.5-7B-Instruct（MLX 4-bit: `mlx-community/Qwen2.5-7B-Instruct-4bit`） | Apache 2.0                                                            | Alibaba Cloud / Qwen             |
 | Fig 接地（配布本命）          | Qwen2.5-VL-7B-Instruct（mlx-vlm）                                            | Apache 2.0                                                            | パネル境界・軸ラベル・グラフ種別                 |
-| Legend→JSON 等（開発・教師）  | Qwen2.5-32B-Instruct                                                       | Apache 2.0                                                            | DGX ゴールド作成用                      |
 | Fig 接地（開発・教師）         | Qwen2.5-VL-32B-Instruct                                                    | Apache 2.0                                                            | DGX ゴールド・7B 蒸留／LoRA 用            |
 | 画像類似スクリーニング           | DINOv2（例: `dinov2_vits14`）                                                 | Apache 2.0                                                            | Meta。標準重み。派生チェックポイントは別ライセンスの場合あり |
 | 画像ペア精密照合（任意）          | LightGlue + SuperPoint または ALIKED                                          | LightGlue: Apache 2.0 / SuperPoint: Magic Leap（非商用研究） / ALIKED: BSD-3 | install.sh の利用区分で切替（上記）          |

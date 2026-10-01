@@ -106,6 +106,8 @@ class EntityLink:
     score: int = 0
     reason: str = ""
     fingerprint: DataFingerprint | None = None
+    # False when the linked rows are time points / genes / cells, not samples
+    n_comparable: bool = True
 
     @property
     def table_link(self) -> TableLink | None:
@@ -658,7 +660,9 @@ def _tier3_via_normalized_keys(
 def _source_data_link(pn: PanelN, vectors: list[GroupVector]) -> EntityLink | None:
     """Link via Source Data block headings (Fig. 4h / (Fig. 4b)); None if no such workbook."""
     from pre_peer_checker.data.source_data_blocks import (
+        LAYOUT_JA,
         is_source_data_workbook,
+        match_group,
         parse_source_data_blocks,
     )
     from pre_peer_checker.engine.source_data_checks import match_source_block_for_panel
@@ -683,23 +687,42 @@ def _source_data_link(pn: PanelN, vectors: list[GroupVector]) -> EntityLink | No
             tier=LinkTier.NONE,
             reason=f"Source Data に {pn.figure} のブロックなし",
         )
+    groups = block.groups
+    chosen = match_group(block, pn.group) if pn.group else None
+    if chosen is None and groups:
+        chosen = groups[0]
+        if block.n_comparable:
+            # a group whose n differs from the legend is what the n check must see
+            chosen = next((g for g in groups if len(g[1]) != pn.n), groups[0])
+    key = block.group_key(chosen[0]) if chosen else block.label
     vec = next(
-        (
-            v
-            for v in sd_vectors
-            if v.source.resolve() == block.path and v.group_key == block.label
-        ),
+        (v for v in sd_vectors if v.source.resolve() == block.path and v.group_key == key),
         None,
     )
+    if vec is None and chosen is not None:
+        vec = GroupVector(
+            source=block.path,
+            group_key=key,
+            values=tuple(sorted(chosen[1])),
+            n=len(chosen[1]),
+        )
     if vec is None:
         return None
+    reason = f"Source Data 見出し · {block.label}"
+    if len(groups) > 1:
+        reason += " · 群別 n: " + "、".join(f"{g}={len(v)}" for g, v in groups[:6])
+        if len(groups) > 6:
+            reason += f" ほか {len(groups) - 6} 群"
+    if not block.n_comparable:
+        reason += f" · {LAYOUT_JA.get(block.layout, block.layout)}: n は比較対象外"
     return EntityLink(
         status=LinkStatus.LINKED,
         tier=LinkTier.TIER1,
         vector=vec,
         score=100,
-        reason=f"Source Data 見出し · {block.label}",
+        reason=reason,
         fingerprint=fingerprint_from_vector(vec),
+        n_comparable=block.n_comparable,
     )
 
 

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 import warnings
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -40,6 +41,36 @@ def _dedupe_columns(names: list[str]) -> list[str]:
         n = seen.get(base, 0)
         seen[base] = n + 1
         out.append(base if n == 0 else f"{base}.{n}")
+    return out
+
+
+# tidy lab sheets name their group column; ``label`` is often a numeric code for the genotype
+_GROUP_COLUMN_NAMES = (
+    "genotype", "geotype", "group", "condition", "treatment", "strain", "label", "lable",
+)
+_NOT_MEASURE_RE = re.compile(r"^(?:id|index|unnamed: ?\d+|date|data|object|label|lable|no\.?)$", re.I)
+
+
+def explicit_group_column(df: pd.DataFrame) -> Any | None:
+    """A named group column (``genotype`` / ``label`` …) that splits the rows into 2–30 groups."""
+    cols = {str(c).strip().lower(): c for c in df.columns}
+    for name in _GROUP_COLUMN_NAMES:
+        col = cols.get(name)
+        if col is None:
+            continue
+        k = df[col].nunique(dropna=True)
+        if 2 <= k <= 30 and k < len(df):
+            return col
+    return None
+
+
+def _measure_columns(df: pd.DataFrame, group_col: Any | None) -> list[Any]:
+    out = []
+    for c in df.columns:
+        if c == group_col or _NOT_MEASURE_RE.match(str(c).strip()):
+            continue
+        if pd.to_numeric(df[c], errors="coerce").notna().sum() >= 3:
+            out.append(c)
     return out
 
 
@@ -159,10 +190,11 @@ def _load_excel_best_inner(path: Path) -> pd.DataFrame:
             if candidate is None or candidate.empty:
                 continue
             score = _score_dataframe(candidate)
-            # Already-tidy value/label sheets win over wide imaging layouts
-            cols = {str(c).lower() for c in candidate.columns}
-            if "value" in cols and cols & {"label", "genotype", "group"}:
-                score += 100
+            # Already-tidy sheets (a named group column + a measurement) win over
+            # wide imaging layouts and per-group ratio sheets
+            group_col = explicit_group_column(candidate)
+            if group_col is not None and _measure_columns(candidate, group_col):
+                score += 200
             if score > best_score:
                 best_score = score
                 best = candidate
@@ -250,9 +282,14 @@ def infer_group_and_value(
                 return cols_l[g], value_col
         return None, value_col
 
+    named = explicit_group_column(df)
     ratio_cols = [c for c in df.columns if "ratio" in str(c).lower()]
     if ratio_cols:
-        return None, ratio_cols[0]
+        return named, ratio_cols[0]
+    if named is not None:
+        measures = _measure_columns(df, named)
+        if measures:
+            return named, measures[0]
 
     numeric = [c for c in df.columns if pd.api.types.is_numeric_dtype(df[c])]
     # Columns that become numeric after coercion

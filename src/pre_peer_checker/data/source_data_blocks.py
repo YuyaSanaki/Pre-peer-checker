@@ -31,12 +31,13 @@ from __future__ import annotations
 import re
 from collections import OrderedDict
 from dataclasses import dataclass, field, replace
-from functools import lru_cache
+from functools import cached_property, lru_cache
 from pathlib import Path
 from typing import Any
 
 from openpyxl.utils import get_column_letter
 
+from pre_peer_checker.data.curve_n import alive_count_cohort, km_cohort_size
 from pre_peer_checker.data.figure_refs import (
     FigureLabel,
     figure_from_filename,
@@ -87,6 +88,12 @@ _REPLICATE_RE = re.compile(
     r"^\s*(?:(?:independent\s+|biological\s+|technical\s+)?(?:experiment|replicate)s?|"
     r"exp\.?|expt\.?|rep\.?|batch|trial|run|round|set|cohort|plate|donor|litter)"
     r"\s*[#no.]*\s*\d{1,3}\s*$",
+    re.IGNORECASE,
+)
+
+# survival-type curves (cohort recoverable) vs other time courses (no sample n)
+_SURVIVAL_RE = re.compile(
+    r"surviv|life\s*span|longevity|mortality|death|dead|alive|kaplan|resistan",
     re.IGNORECASE,
 )
 
@@ -204,8 +211,51 @@ class SourceDataBlock:
 
     @property
     def n_comparable(self) -> bool:
-        """Whether row counts are sample counts a legend n can be checked against."""
-        return self.layout in {"long", "wide", "single"}
+        """Whether the block yields a sample n a legend n can be checked against."""
+        return self.layout in {"long", "wide", "single"} or self.curve_ns is not None
+
+    @cached_property
+    def curve_ns(self) -> list[tuple[str, int, bool]] | None:
+        """Survival curves: (group, cohort n, exact) when every curve reconstructs.
+
+        Kaplan–Meier percentages give the number at risk at the first death, a
+        lower bound (animals censored earlier leave the curve unchanged); columns
+        of animals alive per time point give n exactly.
+        """
+        if self.layout != "xy":
+            return None
+        context = " ".join([self.title, self.sheet, *(c.header or "" for c in self.columns)])
+        if not _SURVIVAL_RE.search(context):
+            return None
+        ys = self.columns if self.curve else self.columns[1:]
+        out: list[tuple[str, int, bool]] = []
+        for c in ys:
+            vals = c.numeric()
+            if not vals:
+                continue
+            km = km_cohort_size(vals) if max(vals) <= 100.0 + 1e-9 else None
+            if km is not None:
+                out.append((c.header, km, False))
+                continue
+            alive = alive_count_cohort(vals)
+            if alive is None:
+                return None
+            out.append((c.header, alive, True))
+        return out or None
+
+    @property
+    def group_ns(self) -> list[tuple[str, int, bool]]:
+        """(group, n, exact) — row counts for sample tables, cohorts for survival curves."""
+        curves = self.curve_ns
+        if curves is not None:
+            return curves
+        return [(g, len(v), True) for g, v in self.groups]
+
+    def group_n(self, group: str) -> tuple[int, bool] | None:
+        hit = _match_group([(g, []) for g, _, _ in self.group_ns], group)
+        if hit is None:
+            return None
+        return next((n, ex) for g, n, ex in self.group_ns if g == hit[0])
 
     @property
     def groups(self) -> list[tuple[str, list[float]]]:
@@ -236,14 +286,17 @@ class SourceDataBlock:
         """Row count that disagrees with ``legend_n`` (None when consistent / not comparable)."""
         if not self.n_comparable:
             return None
-        groups = self.groups
         if group:
-            g = _match_group(groups, group)
-            if g is not None:
-                return None if len(g[1]) == legend_n else len(g[1])
-        ns = [len(v) for _, v in groups] or [self.n]
-        bad = [n for n in ns if n != legend_n]
+            hit = self.group_n(group)
+            if hit is not None:
+                return None if _n_agrees(legend_n, *hit) else hit[0]
+        ns = [(n, ex) for _, n, ex in self.group_ns] or [(self.n, True)]
+        bad = [n for n, ex in ns if not _n_agrees(legend_n, n, ex)]
         return bad[0] if bad else None
+
+
+def _n_agrees(legend_n: int, data_n: int, exact: bool) -> bool:
+    return legend_n == data_n if exact else legend_n >= data_n
 
 
 def _norm(s: str) -> str:
@@ -348,6 +401,32 @@ def _fmt_category(kind: str, v: Any) -> str | None:
     if kind == "num":
         return str(int(v)) if float(v).is_integer() else str(v)
     return str(v)
+
+
+def _numeric_header_labels(grid: list[list[tuple[str, Any]]]) -> list[list[tuple[str, Any]]]:
+    """Header rows where a label such as ``100%`` was stored as the number 100.
+
+    A number flanked by string headers that both head numeric columns, with a
+    non-numeric cell above it, is a column label rather than a data value.
+    """
+    out = grid
+    for r, row in enumerate(grid):
+        if sum(1 for k, _ in row if k == "str") < 2:
+            continue
+        for c in range(1, len(row) - 1):
+            if row[c][0] != "num" or row[c - 1][0] != "str" or row[c + 1][0] != "str":
+                continue
+            if _cell(grid, r - 1, c)[0] == "num":
+                continue
+            if not all(_cell(grid, r + 1, j)[0] == "num" for j in (c - 1, c, c + 1)):
+                continue
+            if out is grid:
+                out = list(grid)
+            if out[r] is row:
+                out[r] = list(row)
+            v = row[c][1]
+            out[r][c] = ("str", f"{v:g}" if isinstance(v, float) else str(v))
+    return out
 
 
 def _header_runs(grid: list[list[tuple[str, Any]]], r: int) -> list[tuple[int, int]]:
@@ -573,7 +652,7 @@ def _parse_uncached(path: Path) -> list[SourceDataBlock]:
         return []
     file_label = _file_label(path)
     short_ok = file_label is not None or workbook_uses_short_sheet_names(
-        [name for name, _, _ in grids]
+        [name for name, _, _ in grids], series_guard=not looks_like_source_data_file(path)
     )
     blocks: list[SourceDataBlock] = []
     for sheet, grid, truncated in grids:
@@ -581,6 +660,7 @@ def _parse_uncached(path: Path) -> list[SourceDataBlock]:
         if sheet_label is None:
             sheet_label = file_label
         implicit = file_label is None and parse_figure_label(sheet) is None
+        grid = _numeric_header_labels(grid)
         for r in range(len(grid)):
             prev: SourceDataBlock | None = None
             for c0, c1 in _header_runs(grid, r):

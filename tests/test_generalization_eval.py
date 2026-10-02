@@ -205,6 +205,18 @@ def test_holdout_gold_must_be_confirmed_and_exhaustive(tmp_path: Path, coverage:
         gz.run_generalization("legend", ["rules_only"], _cases(tmp_path))
 
 
+def test_holdout_scores_are_logged_and_once_refuses_rescoring(roots: Path) -> None:
+    first = gz.run_generalization("legend", ["rules_only"], _cases(roots), once=True)
+    assert all(n == 0 for n in first["holdout_wear"].values())
+    manifest = json.loads((roots / "gold" / "ho_a" / "case_manifest.json").read_text())
+    assert len(manifest["scores"]) == 1 and manifest["scores"][0]["task"] == "legend"
+    with pytest.raises(gz.GoldPolicyError):
+        gz.run_generalization("legend", ["rules_only"], _cases(roots), once=True)
+    again = gz.run_generalization("legend", ["rules_only"], _cases(roots))
+    assert again["holdout_wear"]["ho_a"] == 1
+    assert "holdout worn" in gz.format_report(again)
+
+
 def test_reveal_shows_errors_and_burns_case(roots: Path) -> None:
     report = gz.run_generalization("legend", ["rules_only"], _cases(roots), reveal=["ho_a"])
     view = report["results"]["rules_only"]["cases"]["ho_a"]

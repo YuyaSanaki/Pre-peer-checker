@@ -315,6 +315,9 @@ def evaluate(
     gold = load_gold(case_id)
     warnings = load_warnings(warnings_path)
     ctx = _extract_eval_context(warnings_path, warnings)
+    # candidate cards list tables to check; they are not findings and score neither way
+    info_cards = [w for w in warnings if (w.get("metadata") or {}).get("info_card")]
+    warnings = [w for w in warnings if not (w.get("metadata") or {}).get("info_card")]
     coverage = ctx["coverage"]
     artifacts = ctx["artifacts"]
     results: list[MatchResult] = []
@@ -383,6 +386,7 @@ def evaluate(
         "case_id": case_id,
         "warnings_path": str(warnings_path),
         "n_warnings_emitted": len(warnings),
+        "n_info_cards": len(info_cards),
         "required_recall": None if not required else req_hit / len(required),
         "required_hit": req_hit,
         "required_total": len(required),

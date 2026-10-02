@@ -120,11 +120,140 @@ Legend ({figure}):
 """
 
 
-def build_assign_prompt(figure: str, text: str, mentions: list[NMention]) -> str:
-    tags = ", ".join(
+# Same task, worded clause-first: a second reading for self-consistency voting.
+ASSIGN_PROMPT_ALT = """Below is a figure legend. Each sample size is marked [#k] right after the number.
+
+Work tag by tag. First find the legend part the tag sits in and the panel letters that open that part (a part may open with several letters such as "c,d" or "(C-E)"; then it covers each of them). If the sample size is written once for the whole figure, it covers every panel with quantified data but no representative images or schematics. Several numbers after one "n =" share the same panels.
+Then give the group the number counts (genotype / condition / time point as written in the legend; "" if it counts the whole panel).
+Mark "skip": true for numbers that are not sample sizes of plotted data (sums of other tagged numbers, doses, times, male/female breakdowns, counts of representative images).
+
+Tags: {tags}
+
+Reply with JSON only, one entry per tag in order, repeating its number as "n":
+{{"tags": [{{"id": 1, "n": 8, "panels": ["C"], "group": "WT", "skip": false}}, ...]}}
+
+Legend ({figure}):
+{legend}
+"""
+
+VERIFY_PROMPT = """Figure legend from a biomedical paper; each stated sample size is tagged [#k] after the number.
+A first reader proposed which panels each tag counts. Check every proposal against the legend text.
+
+Proposals:
+{proposals}
+
+For each proposal answer "ok": true if the legend states that sample size for exactly those panels (and group), otherwise "ok": false and give the correct "panels" (use [] if the number is not a sample size of plotted data).
+
+Answer with JSON only, one entry per proposal in the same order:
+{{"tags": [{{"id": 1, "n": 8, "ok": true, "panels": ["C"]}}, ...]}}
+
+Legend ({figure}):
+{legend}
+"""
+
+ASSIGN_STRATEGIES = ("single", "verify", "vote")
+ASSIGN_STRATEGY_ENV = "PRE_PEER_CHECKER_ASSIGN_STRATEGY"
+
+
+def _tag_list(mentions: list[NMention]) -> str:
+    return ", ".join(
         f"#{i} = {m.n}" + (f"-{m.n_max}" if m.n_max else "") for i, m in enumerate(mentions, 1)
     )
-    return ASSIGN_PROMPT.format(figure=figure, legend=_tagged(text, mentions), tags=tags)
+
+
+def build_assign_prompt(
+    figure: str, text: str, mentions: list[NMention], *, template: str = ASSIGN_PROMPT
+) -> str:
+    return template.format(figure=figure, legend=_tagged(text, mentions), tags=_tag_list(mentions))
+
+
+def build_verify_prompt(
+    figure: str, text: str, mentions: list[NMention], proposals: list[tuple[NMention, list[str], str]]
+) -> str:
+    lines = []
+    for i, (m, panels, group) in enumerate(proposals, 1):
+        tag = mentions.index(m) + 1
+        g = f", group {group!r}" if group else ""
+        lines.append(f"{i}. tag #{tag} (n = {m.n}) -> panels {', '.join(panels)}{g}")
+    return VERIFY_PROMPT.format(
+        figure=figure, legend=_tagged(text, mentions), proposals="\n".join(lines)
+    )
+
+
+def apply_verdicts(
+    raw: str, proposals: list[tuple[NMention, list[str], str]]
+) -> list[tuple[NMention, list[str], str]]:
+    """Keep confirmed proposals; a rejected one takes the checker's panels (none drops it).
+
+    A proposal the checker did not answer is kept: silence is not a rejection.
+    """
+    verdicts: dict[int, dict] = {}
+    for entry in _entries(raw):
+        try:
+            idx = int(entry.get("id")) - 1
+        except (TypeError, ValueError):
+            continue
+        if 0 <= idx < len(proposals) and idx not in verdicts:
+            verdicts[idx] = entry
+    out = []
+    for i, (m, panels, group) in enumerate(proposals):
+        v = verdicts.get(i)
+        if v is None or v.get("ok") is True or str(v.get("ok")).lower() == "true":
+            out.append((m, panels, group))
+            continue
+        fixed = v.get("panels") or []
+        if isinstance(fixed, str):
+            fixed = re.findall(r"[A-Za-z]\d?", fixed)
+        letters = list(dict.fromkeys(str(p).strip().upper() for p in fixed))
+        letters = [p for p in letters if re.fullmatch(r"[A-Z]\d?", p)]
+        if letters:
+            out.append((m, letters, group))
+    return out
+
+
+def vote(
+    a: list[tuple[NMention, list[str], str]], b: list[tuple[NMention, list[str], str]]
+) -> list[tuple[NMention, list[str], str]]:
+    """Panels both readings gave the same tag; the rest goes back to the rules."""
+    other = {m: (set(panels), group) for m, panels, group in b}
+    out = []
+    for m, panels, group in a:
+        if m not in other:
+            continue
+        shared = [p for p in panels if p in other[m][0]]
+        if shared:
+            out.append((m, shared, group if group == other[m][1] else ""))
+    return out
+
+
+def assign_strategy() -> str:
+    import os
+
+    s = os.environ.get(ASSIGN_STRATEGY_ENV, "").strip().lower()
+    return s if s in ASSIGN_STRATEGIES else "single"
+
+
+def assign_mentions(
+    figure: str,
+    text: str,
+    mentions: list[NMention],
+    generate: Callable[[str], str],
+    *,
+    strategy: str = "single",
+) -> list[tuple[NMention, list[str], str]]:
+    """LLM panel/group assignment for tagged mentions, by ``strategy``.
+
+    ``single``: one reading. ``verify``: the reading is checked by a second pass that only
+    confirms or corrects proposals. ``vote``: two differently worded readings, kept where
+    they agree.
+    """
+    first = parse_assign_response(generate(build_assign_prompt(figure, text, mentions)), mentions)
+    if strategy == "verify" and first:
+        return apply_verdicts(generate(build_verify_prompt(figure, text, mentions, first)), first)
+    if strategy == "vote":
+        alt = build_assign_prompt(figure, text, mentions, template=ASSIGN_PROMPT_ALT)
+        return vote(first, parse_assign_response(generate(alt), mentions))
+    return first
 
 
 def _entries(raw: str) -> list[dict]:
@@ -187,7 +316,11 @@ def parse_assign_response(raw: str, mentions: list[NMention]) -> list[tuple[NMen
 
 def unread_mentions(text: str, rules: LegendFigureJSON) -> list[NMention]:
     """Stated n values the rules attached to no panel."""
+    from pre_peer_checker.parsers.legend_struct import OPEN_N_MAX
+
     read = {(p.n, p.n_max) for p in rules.panels if p.n is not None}
+    # the rules read ``n ≥ 2`` as an open range; the mention regex sees just its 2
+    read |= {(p.n, None) for p in rules.panels if p.n is not None and p.n_max == OPEN_N_MAX}
     return [m for m in stated_n_mentions(text) if (m.n, m.n_max) not in read]
 
 
@@ -196,17 +329,22 @@ def assign_unread_ns(
     legend: str,
     rules: LegendFigureJSON,
     generate: Callable[[str], str],
+    *,
+    strategy: str | None = None,
 ) -> LegendFigureJSON:
     """``rules`` plus LLM-assigned rows for the stated n values the rules left unread.
 
     ``generate`` takes the prompt and returns free text (JSON is parsed leniently).
+    ``strategy`` defaults to ``PRE_PEER_CHECKER_ASSIGN_STRATEGY`` (``single``).
     """
     text = clean_legend_text(legend or "")
     if not unread_mentions(text, rules):
         return rules
     mentions = stated_n_mentions(text)
     try:
-        assigned = parse_assign_response(generate(build_assign_prompt(figure, text, mentions)), mentions)
+        assigned = assign_mentions(
+            figure, text, mentions, generate, strategy=strategy or assign_strategy()
+        )
     except Exception:
         return rules
     unread = set(unread_mentions(text, rules))

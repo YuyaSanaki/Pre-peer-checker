@@ -232,32 +232,37 @@
     {
       "pattern_id": "P-SOURCE-DATA-CROSS-FIGURE-REUSE",
       "ci_required": true,
-      "harness": "unit",
-      "unit": "source_data_synthetic"
+      "harness": "gold_eval",
+      "case_id": "source_data",
+      "gold_item_id": "SD1"
     },
     {
       "pattern_id": "P-SOURCE-DATA-SUMMARY-MISMATCH",
       "ci_required": true,
-      "harness": "unit",
-      "unit": "source_data_synthetic"
+      "harness": "gold_eval",
+      "case_id": "source_data",
+      "gold_item_id": "SD3"
     },
     {
       "pattern_id": "P-SOURCE-DATA-POPULATION-SD",
       "ci_required": true,
-      "harness": "unit",
-      "unit": "source_data_synthetic"
+      "harness": "gold_eval",
+      "case_id": "source_data",
+      "gold_item_id": "SD2"
     },
     {
       "pattern_id": "P-SOURCE-DATA-LEGEND-N",
       "ci_required": true,
-      "harness": "unit",
-      "unit": "source_data_synthetic"
+      "harness": "gold_eval",
+      "case_id": "source_data",
+      "gold_item_id": "SD5"
     },
     {
       "pattern_id": "P-SOURCE-DATA-PANEL-REF-DUP",
       "ci_required": true,
-      "harness": "unit",
-      "unit": "source_data_synthetic"
+      "harness": "gold_eval",
+      "case_id": "source_data",
+      "gold_item_id": "SD4"
     },
     {
       "pattern_id": "P-SCALE-BAR-LEGEND-MISMATCH",

@@ -78,6 +78,8 @@ fixtures/gold/panel_extract/*/panel_extract_draft.json
 fixtures/gold/panel_extract/*/panel_labels_gold.json
 fixtures/gold/panel_extract/*/panel_boxes_gold.json
 fixtures/gold/panel_extract/*/case_manifest.json
+# Legend n ↔ data n gold for input/data extract papers (real paths and n).
+fixtures/gold/data_extract/*/legend_data_gold.json
 
 # Optional local case notes derived from private manuscripts
 docs/private/

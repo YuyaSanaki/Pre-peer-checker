@@ -39,6 +39,16 @@ def test_comma_openers_and_postfix_n_with_units() -> None:
     assert {("D", "", 12), ("E", "", 12), ("F", "", 12)} <= rows
 
 
+def test_space_openers_without_comma() -> None:
+    text = (
+        "Fig. 1 | Diet extends lifespan. a, b Lifespans of strain A (a) and strain B (b) flies. "
+        "c, d Fecundity of strain A (c) and strain B (d) flies. n = 10. g H2O2 resistance. "
+        "h Diagram of the pathway. i–m Quantification of metabolites in whole body. n = 6."
+    )
+    rows = {(r.panel, r.n) for r in parse_panel_ns("Figure 1", text)}
+    assert rows == {("C", 10), ("D", 10)} | {(p, 6) for p in "IJKLM"}
+
+
 def test_bare_and_labelled_n_bind_to_their_sentence_panels() -> None:
     text = (
         "(A,B) Images of a control disc (A) and a treated disc (B). "

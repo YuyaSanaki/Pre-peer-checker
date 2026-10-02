@@ -73,6 +73,10 @@ def test_panel_runs():
 def test_short_sheet_names():
     assert workbook_uses_short_sheet_names(["2a", "2bf", "2c"])
     assert not workbook_uses_short_sheet_names(["Sheet1", "raw", "2a"])
+    # lab numbering: dose series and zero-padded plate numbers are not panels
+    assert not workbook_uses_short_sheet_names(["Sheet1", "1x", "2x", "3x", "4x"])
+    assert not workbook_uses_short_sheet_names(["sum", "1P", "09P", "08P", "07P"])
+    assert workbook_uses_short_sheet_names(["1c", "2c", "3c"], series_guard=False)
     lbl = sheet_figure_label("3bf", file_label=None, short_names_ok=True)
     assert lbl is not None and lbl.number == "3" and lbl.panels == ("b", "f")
     assert sheet_figure_label("3bf", file_label=None, short_names_ok=False) is None
@@ -159,6 +163,56 @@ def test_time_course_is_not_sample_n(tmp_path):
     assert b.legend_n_conflict(6) is None
 
 
+def _km_percent(n: int, events: list[tuple[int, int]]) -> list[float]:
+    """Percent survival after each (deaths, censored-after) step, 6 decimals like Prism."""
+    at_risk, s, out = n, 1.0, [100.0]
+    for deaths, censored in events:
+        if deaths:
+            s *= 1 - deaths / at_risk
+        at_risk -= deaths + censored
+        out.append(round(s * 100, 6))
+    return out
+
+
+def test_km_cohort_recovers_n_with_censoring():
+    from pre_peer_checker.data.curve_n import km_cohort_size
+
+    events = [(0, 0), (2, 0), (1, 1), (3, 0), (0, 2), (5, 0), (4, 1), (8, 0), (6, 0), (4, 0)]
+    assert km_cohort_size(_km_percent(37, events)) == 37
+    # censoring before the first death leaves the curve unchanged: n is a minimum
+    assert km_cohort_size(_km_percent(40, [(0, 3), *events])) == 37
+
+
+def test_survival_curve_gives_analysis_n(tmp_path):
+    ctrl = _km_percent(37, [(0, 0), (2, 0), (1, 1), (3, 0), (5, 0), (8, 2), (10, 0), (5, 0)])
+    metr = _km_percent(41, [(0, 0), (1, 0), (2, 0), (4, 1), (6, 0), (9, 0), (10, 2), (6, 0)])
+    rows = [["Fig. 2b"], ["Lifespan"], ["days", "Ctrl", "MetR"]]
+    rows += [[d * 7, c, m] for d, (c, m) in enumerate(zip(ctrl, metr))]
+    b = parse_source_data_blocks(_save(tmp_path / "sd.xlsx", {"Fig.2b": rows}))[0]
+    assert b.layout == "xy" and b.n_comparable
+    assert b.group_ns == [("Ctrl", 37, False), ("MetR", 41, False)]
+    assert b.legend_n_conflict(30, "Ctrl") == 37
+    assert b.legend_n_conflict(39, "Ctrl") is None
+    pn = PanelN(figure="Fig. 2", panel="b", n=30, context="n = 30 flies", group="Ctrl")
+    ws = warnings_from_source_data_panels([b], [pn])
+    assert len(ws) == 1 and ws[0].metadata["n_authority"] == "survival_curve_min_cohort"
+
+
+def test_alive_counts_give_exact_n(tmp_path):
+    rows = [["Fig. 3a"], ["Survival"], ["day", "WT", "KO"]]
+    rows += [[d, a, b] for d, (a, b) in enumerate([(20, 18), (20, 15), (17, 11), (12, 4), (5, 0)])]
+    b = parse_source_data_blocks(_save(tmp_path / "sd.xlsx", {"S": rows}))[0]
+    assert b.group_ns == [("WT", 20, True), ("KO", 18, True)]
+    assert b.legend_n_conflict(19, "WT") == 20
+
+
+def test_numeric_header_label_is_a_column(tmp_path):
+    rows = [["Fig. 2j"], ["Lifespan"], ["days", 100, "Early 10%", "Lifelong 10%"]]
+    rows += [[d, 100 - d, 100 - 2 * d, 100 - 3 * d] for d in range(0, 30, 5)]
+    b = parse_source_data_blocks(_save(tmp_path / "sd.xlsx", {"S": rows}))[0]
+    assert [c.header for c in b.columns] == ["days", "100", "Early 10%", "Lifelong 10%"]
+
+
 def test_replicate_rows_pool_into_stacked_header_groups(tmp_path):
     rows = [
         ["Fig. 4d"],
@@ -237,3 +291,30 @@ def test_legend_n_warning_per_group(tmp_path):
     pn = PanelN(panel="C", n=3, figure="Figure 1", context="n = 3 per genotype")
     warns = warnings_from_source_data_panels(blocks, [pn])
     assert len(warns) == 1 and warns[0].metadata["data_n"] == 2
+
+
+def test_count_table_sums_counts_per_group(tmp_path):
+    from pre_peer_checker.data.group_vectors import extract_group_vectors
+
+    header = ["Genotype", "Class", "label", "number", "percent"]
+    path = _save(tmp_path / "phenotype.xlsx", {
+        "eye": [header, ["cont", "I", 1, 53, 100], ["cont", "II", 2, 0, 0],
+                ["mut", "I", 3, 10, 18], ["mut", "II", 4, 45, 82]],
+        "wing": [header, ["cont", "I", 1, 130, 93], ["cont", "II", 2, 10, 7],
+                 ["mut", "I", 3, 34, 39], ["mut", "II", 4, 54, 61]],
+    })
+    got = {(v.sheet, v.group_key, v.n) for v in extract_group_vectors(path)}
+    assert got == {("eye", "cont", 53), ("eye", "mut", 55), ("wing", "cont", 140), ("wing", "mut", 88)}
+
+
+def test_tidy_group_sheet_wins_over_ratio_sheet(tmp_path):
+    from pre_peer_checker.data.group_vectors import extract_group_vectors
+
+    tidy = [["id", "clone_vol", "label", "genotype", "date"]]
+    tidy += [[i, 5.0 + i, 1, "ctrl", 20200101] for i in range(4)]
+    tidy += [[i, 9.0 + i, 2, "mut", 20200101] for i in range(4, 10)]
+    ratio = [[None] * 4, ["disc ID", "pixel count", "clone", "ratio (%)"]]
+    ratio += [[i, 1000.0, 50.0 + i, 5.0 + i] for i in range(4)]
+    path = _save(tmp_path / "CloneRatio.xlsx", {"Sheet1": tidy, "ctrl": ratio})
+    got = {(v.group_key, v.n) for v in extract_group_vectors(path)}
+    assert got == {("ctrl", 4), ("mut", 6)}

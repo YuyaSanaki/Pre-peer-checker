@@ -9,10 +9,14 @@ from pathlib import Path
 from pre_peer_checker.data.group_vectors import GroupVector, path_experiment_tokens
 from pre_peer_checker.engine.case_profile import get_case_profile
 from pre_peer_checker.engine.entity_link import (
+    DIGITIZED_CONFIDENCE,
     EntityLink,
     LinkStatus,
+    link_by_n_profile,
+    link_confidence,
     link_plot_for_panel,
     link_raw_for_panel,
+    min_mismatch_confidence,
 )
 from pre_peer_checker.engine.n_and_names import (
     _panel_side,
@@ -32,13 +36,23 @@ class NCell:
     detail: str = ""
     link_status: str = ""
     link_tier: str = ""
+    # n is a minimum (survival cohort at the first death), not an exact count
+    n_lower_bound: bool = False
+    # link_confidence of the evidence behind ``n``; below the threshold n is shown only
+    confidence: float = 0.0
+
+    def counts_for_mismatch(self, legend_n: int | None, threshold: float) -> bool:
+        if self.n is None or self.confidence < threshold:
+            return False
+        # a lower bound at or below the legend n is consistent with it
+        return not (self.n_lower_bound and legend_n is not None and legend_n >= self.n)
 
     def display(self) -> str:
         if self.n is None and not self.file and not self.detail:
             return "—"
         bits: list[str] = []
         if self.n is not None:
-            bits.append(f"n={self.n}")
+            bits.append(f"n≥{self.n}" if self.n_lower_bound else f"n={self.n}")
         shown = self.file_display or (Path(self.file).name if self.file else None)
         if shown:
             bits.append(shown)
@@ -111,7 +125,7 @@ def _cell_from_path(
 
 def _cell_from_link(link: EntityLink, roots: list[Path] | None) -> NCell:
     if link.status == LinkStatus.LINKED and link.vector is not None:
-        return _cell_from_path(
+        cell = _cell_from_path(
             n=link.vector.n if link.n_comparable else None,
             path=link.vector.source,
             detail=link.reason,
@@ -119,6 +133,9 @@ def _cell_from_link(link: EntityLink, roots: list[Path] | None) -> NCell:
             link_status=link.status.value,
             link_tier=link.tier.value,
         )
+        cell.n_lower_bound = link.n_comparable and link.n_lower_bound
+        cell.confidence = link_confidence(link)
+        return cell
     return NCell(
         detail=link.reason,
         link_status=link.status.value,
@@ -263,6 +280,17 @@ def _script_hint_for_panel(
     return _cell_from_path(n=None, path=best[1], detail=best[2], roots=roots)
 
 
+def _profile_beats(link: EntityLink) -> bool:
+    """A statement-level n profile outranks single-n links, not value fingerprints or Source Data."""
+    from pre_peer_checker.data.source_data_blocks import is_source_data_workbook
+
+    if link.status != LinkStatus.LINKED or link.vector is None:
+        return True
+    if link.reason.startswith("指紋一致") or "script三角" in link.reason:
+        return False
+    return not is_source_data_workbook(link.vector.source)
+
+
 def build_n_matrix(
     panel_ns: list[PanelN],
     vectors: list[GroupVector],
@@ -287,6 +315,9 @@ def build_n_matrix(
     for pn in panel_ns:
         key = (pn.figure, pn.panel.upper(), getattr(pn, "group", "") or "")
         by_key.setdefault(key, pn)
+
+    profile_links = link_by_n_profile(list(by_key.values()), vectors)
+    threshold = min_mismatch_confidence()
 
     rows: list[NMatrixRow] = []
     for (_fig, _panel, _grp), pn in sorted(
@@ -340,6 +371,9 @@ def build_n_matrix(
             legend_hints=hints,
             key_alias_map=alias_map,
         )
+        profiled = profile_links.get((_fig, _panel, _grp))
+        if profiled is not None and _profile_beats(raw_link):
+            raw_link = profiled
         # If raw linked via fingerprint and plot still soft/missing, re-link plot to raw
         if (
             raw_link.status == LinkStatus.LINKED
@@ -379,6 +413,7 @@ def build_n_matrix(
                 link_status=LinkStatus.LINKED.value,
                 link_tier="digitized",
             )
+            plot.confidence = DIGITIZED_CONFIDENCE
         else:
             plot = _cell_from_link(plot_link, roots)
 
@@ -393,37 +428,47 @@ def build_n_matrix(
         )
         stats = _script_hint_for_panel(pn, stats_table, script_artifacts, roots=roots)
 
-        def _linked_n() -> int | None:
-            for link in (raw_link, plot_link):
-                if link.status == LinkStatus.LINKED and link.vector:
-                    return link.vector.n if link.n_comparable else None
-            return None
+        table_link = next(
+            (lk for lk in (raw_link, plot_link) if lk.status == LinkStatus.LINKED and lk.vector),
+            None,
+        )
 
+        def _linked_n() -> int | None:
+            if table_link is None:
+                return None
+            return table_link.vector.n if table_link.n_comparable else None
+
+        table_conf = link_confidence(table_link) if table_link is not None else 0.0
         if stats.file is None and stats_table is not None:
-            n_stats = _linked_n()
             stats = _cell_from_path(
-                n=n_stats,
+                n=_linked_n(),
                 path=stats_table,
                 detail="表から再集計（スクリプト未検出）",
                 roots=roots,
             )
+            stats.confidence = table_conf
         elif stats.file is not None and stats.n is None:
-            n_stats = _linked_n()
             stats = NCell(
-                n=n_stats,
+                n=_linked_n(),
                 file=stats.file,
                 file_display=stats.file_display,
                 detail=stats.detail or "script",
+                confidence=table_conf,
             )
+        elif stats.n is not None:
+            stats.confidence = 1.0
 
         input_gap = raw_link.status == LinkStatus.DATA_MISSING
         # n 不一致は「紐付いたセル同士」だけ比較（未投入は不一致扱いにしない）
         linked_ns = [manuscript.n] if manuscript.n is not None else []
-        if data.link_status == LinkStatus.LINKED.value and data.n is not None:
-            linked_ns.append(data.n)
-        if plot.link_status == LinkStatus.LINKED.value and plot.n is not None:
-            linked_ns.append(plot.n)
-        if stats.n is not None and stats_table is not None and not input_gap:
+        for cell in (data, plot):
+            if cell.link_status == LinkStatus.LINKED.value and cell.counts_for_mismatch(
+                manuscript.n, threshold
+            ):
+                linked_ns.append(cell.n)
+        if stats_table is not None and not input_gap and stats.counts_for_mismatch(
+            manuscript.n, threshold
+        ):
             linked_ns.append(stats.n)
         mismatch = len(set(linked_ns)) > 1
 
@@ -490,6 +535,9 @@ def attach_fig_pdf_counts(
                     "file": str(art.get("path") or "") or None,
                     "file_display": _rel_display(art.get("path"), roots),
                     "page": art.get("page"),
+                    "kind": p.get("kind"),
+                    "mark_source": p.get("mark_source"),
+                    "n_lower_bound": bool(p.get("n_lower_bound")),
                 },
             )
     for r in rows:
@@ -497,7 +545,12 @@ def attach_fig_pdf_counts(
         panel = str(r.get("panel") or "").upper()
         cell = by_key.get((fkey, panel)) if fkey else None
         r["fig_pdf"] = cell
+        r["panel_kind"] = cell.get("kind") if cell else None
         if cell and cell["group_ns"]:
-            r["fig_pdf_display"] = " / ".join(str(n) for n in cell["group_ns"])
+            # overlapping marks hide each other: the visible count is a minimum
+            prefix = "≥" if cell["n_lower_bound"] else ""
+            r["fig_pdf_display"] = " / ".join(f"{prefix}{n}" for n in cell["group_ns"])
+        elif cell and cell.get("kind") in {"image", "blot"}:
+            r["fig_pdf_display"] = "画像パネル"
         else:
             r["fig_pdf_display"] = "—"

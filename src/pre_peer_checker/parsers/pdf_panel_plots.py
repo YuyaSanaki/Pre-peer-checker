@@ -33,6 +33,15 @@ class PanelPlot:
     label_xy: tuple[float, float]
     groups: list[PanelPointGroup] = field(default_factory=list)
     n_markers: int = 0
+    kind: str = "unknown"
+    # ``vector`` filled markers feed identity checks; ``hollow`` / ``raster`` are display only
+    mark_source: str = "vector"
+    n_lower_bound: bool = False
+    marks: dict = field(default_factory=dict)
+
+    @property
+    def identity_groups(self) -> list[PanelPointGroup]:
+        return self.groups if self.mark_source == "vector" else []
 
 
 @dataclass
@@ -71,14 +80,39 @@ def _bold_panel_labels(spans: list[tuple[str, float, float, float, bool]]) -> di
     return {k: v for k, v in best.items() if k in run}
 
 
+_CAPTION_HEAD_RE = re.compile(r"^\s*(?:Extended\s+Data\s+|Supplementary\s+)?Fig(?:ure)?\.?\s*S?\d+\s*[|.:]", re.I)
+
+
+def caption_top(page: fitz.Page) -> float:
+    """Top of the figure caption on the page (``Fig. 2 |`` / ``Figure 2.``); page bottom if none.
+
+    Bold section letters of the caption (``a, … b, …``) are not panel labels.
+    """
+    best = float(page.rect.y1)
+    for block in page.get_text("dict").get("blocks", []):
+        if block.get("type") != 0:
+            continue
+        block_len = sum(len(s.get("text", "")) for ln in block.get("lines", []) for s in ln.get("spans", []))
+        for line in block.get("lines", []):
+            text = "".join(s.get("text", "") for s in line.get("spans", []))
+            if _CAPTION_HEAD_RE.match(text):
+                y0 = float(line["bbox"][1])
+                # a short head near the very top is a running header; a long block is the caption
+                if y0 > page.rect.y0 + 0.15 * page.rect.height or block_len > 150:
+                    best = min(best, y0)
+    return best
+
+
 def _panel_labels(page: fitz.Page, *, min_size: float = 10.0) -> dict[str, tuple[float, float, float]]:
     """Map panel letter -> (font_size, cx, cy), keeping the largest span per letter.
 
     Large uppercase letters are preferred; otherwise bold single letters of a common
-    size (lowercase journal labels) are used, keyed in uppercase.
+    size (lowercase journal labels) are used, keyed in uppercase. Letters at or below
+    the caption head are skipped.
     """
     best: dict[str, tuple[float, float, float]] = {}
     singles: list[tuple[str, float, float, float, bool]] = []
+    bottom = caption_top(page)
     data = page.get_text("dict")
     for block in data.get("blocks", []):
         if block.get("type") != 0:
@@ -92,6 +126,8 @@ def _panel_labels(page: fitz.Page, *, min_size: float = 10.0) -> dict[str, tuple
                 bbox = span["bbox"]
                 cx = (bbox[0] + bbox[2]) / 2.0
                 cy = (bbox[1] + bbox[3]) / 2.0
+                if cy >= bottom:
+                    continue
                 singles.append((text, size, cx, cy, _is_bold(span)))
                 if not text.isupper() or size < min_size:
                     continue
@@ -195,13 +231,25 @@ def extract_figure_page_plots(
     path: Path,
     page_index: int,
 ) -> FigurePagePlots:
+    from pre_peer_checker.parsers.plot_marks import read_panel_marks
+
     labels = _panel_labels(page)
     markers = _marker_centroids(page)
+    try:
+        marks = read_panel_marks(page, labels) if len(labels) >= 2 else {}
+    except Exception:  # noqa: BLE001
+        marks = {}
     panels: list[PanelPlot] = []
     for letter, (_size, lx, ly) in sorted(labels.items()):
         near = _markers_near(lx, ly, markers)
         groups = _group_ys(near)
-        if not groups:
+        pm = marks.get(letter)
+        source = "vector"
+        if not groups and pm is not None and pm.dots and (pm.hollow or pm.source == "raster"):
+            groups = _group_ys(pm.dots)
+            near = pm.dots
+            source = "raster" if pm.source == "raster" else "hollow"
+        if not groups and pm is None:
             continue
         panels.append(
             PanelPlot(
@@ -210,6 +258,10 @@ def extract_figure_page_plots(
                 label_xy=(lx, ly),
                 groups=groups,
                 n_markers=len(near),
+                kind=pm.kind if pm is not None else "plot",
+                mark_source=source,
+                n_lower_bound=bool(pm and pm.n_lower_bound),
+                marks=pm.to_dict() if pm is not None else {},
             )
         )
     return FigurePagePlots(
@@ -264,10 +316,10 @@ def match_panel_groups(
     """Greedy match of groups between two panels; return scores >= min_score."""
     used: set[int] = set()
     scores: list[float] = []
-    for ga in a.groups:
+    for ga in a.identity_groups:
         best_i: int | None = None
         best_s = min_score
-        for i, gb in enumerate(b.groups):
+        for i, gb in enumerate(b.identity_groups):
             if i in used:
                 continue
             s = standardized_group_score(ga.ys, gb.ys)

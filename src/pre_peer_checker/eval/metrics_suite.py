@@ -15,10 +15,17 @@ from typing import Any
 from pre_peer_checker.eval.gold_eval import (
     FIXTURES,
     REPO_ROOT,
+    load_gold,
     load_manifest,
+    load_warnings,
     resolve_case_focus_inputs,
     run_and_evaluate,
+    warning_supports_item,
 )
+
+PATTERNS_PATH = FIXTURES / "patterns" / "pubpeer_patterns.json"
+MATRIX_PATH = FIXTURES / "patterns" / "pattern_synthetic_matrix.json"
+CLEAN_SUMMARY_PATH = REPO_ROOT / "outputs" / "clean_corpus" / "summary.json"
 
 
 def _case_available(case_id: str) -> bool:
@@ -125,6 +132,118 @@ DEFAULT_CASES = (
 )
 
 
+def all_gold_cases() -> list[str]:
+    """Every case with a committed ``gold_warnings.json``."""
+    return sorted(
+        p.parent.name for p in (FIXTURES / "gold").glob("*/gold_warnings.json") if p.is_file()
+    )
+
+
+def _pid(warning: dict[str, Any]) -> str:
+    meta = warning.get("metadata") or {}
+    return str(meta.get("pattern_id") or warning.get("pattern_id") or "unknown")
+
+
+def pattern_dashboard(
+    case_reports: list[dict[str, Any]],
+    *,
+    out_dir: Path,
+    clean_summary: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Per-``pattern_id`` recall / precision across gold cases + clean-corpus FP.
+
+    - recall: required gold items of that pattern matched / total
+    - precision: emitted warnings of that pattern that support any gold item of their case
+    - clean_fp: unexplained active warnings on the clean corpus (false-positive candidates)
+    """
+    catalog = json.loads(PATTERNS_PATH.read_text(encoding="utf-8")).get("patterns") or []
+    matrix = {
+        e["pattern_id"]: e
+        for e in json.loads(MATRIX_PATH.read_text(encoding="utf-8")).get("entries") or []
+    }
+    rows: dict[str, dict[str, Any]] = {
+        p["id"]: {
+            "required_hit": 0,
+            "required_total": 0,
+            "tp_warnings": 0,
+            "fp_warnings": 0,
+            "cases": [],
+            "harness": (matrix.get(p["id"]) or {}).get("harness"),
+        }
+        for p in catalog
+    }
+
+    def row(pid: str) -> dict[str, Any]:
+        return rows.setdefault(
+            pid,
+            {"required_hit": 0, "required_total": 0, "tp_warnings": 0, "fp_warnings": 0,
+             "cases": [], "harness": None},
+        )
+
+    for rep in case_reports:
+        if rep.get("status") != "ok":
+            continue
+        cid = rep["case_id"]
+        gold_items = load_gold(cid).get("items") or []
+        by_id = {i["id"]: i for i in gold_items}
+        for it in rep.get("items") or []:
+            gi = by_id.get(it["id"]) or {}
+            pid = gi.get("pattern_id")
+            if not pid or it.get("severity") not in {"required", "required_when_corpus_present"}:
+                continue
+            r = row(pid)
+            r["required_total"] += 1
+            r["required_hit"] += int(bool(it.get("matched")))
+            if cid not in r["cases"]:
+                r["cases"].append(cid)
+        wpath = out_dir / f"{cid}_warnings.json"
+        if not wpath.is_file():
+            continue
+        active = [
+            i for i in gold_items
+            if i.get("severity", "required") in {"required", "required_when_corpus_present", "desirable"}
+        ]
+        for w in load_warnings(wpath):
+            r = row(_pid(w))
+            if any(warning_supports_item(i, w) for i in active):
+                r["tp_warnings"] += 1
+            else:
+                r["fp_warnings"] += 1
+
+    clean = (clean_summary or {}).get("summary", clean_summary or {})
+    clean_fp = clean.get("unexplained_by_pattern") or {}
+    out: dict[str, Any] = {}
+    for pid, r in sorted(rows.items()):
+        emitted = r["tp_warnings"] + r["fp_warnings"]
+        out[pid] = {
+            **r,
+            "recall": round(r["required_hit"] / r["required_total"], 3) if r["required_total"] else None,
+            "precision": round(r["tp_warnings"] / emitted, 3) if emitted else None,
+            "clean_fp": int(clean_fp.get(pid, 0)),
+        }
+    gaps = sorted(pid for pid, r in out.items() if r["required_total"] == 0)
+    return {
+        "patterns": out,
+        "no_gold_patterns": gaps,
+        "clean_corpus_cases": clean.get("n_cases"),
+    }
+
+
+def format_dashboard(dash: dict[str, Any]) -> str:
+    def f(x: float | None) -> str:
+        return "  -  " if x is None else f"{x:5.2f}"
+
+    lines = [f"{'pattern_id':<42} {'recall':>6} {'prec':>6} {'tp':>4} {'fp':>4} {'clean':>5}"]
+    for pid, r in dash["patterns"].items():
+        lines.append(
+            f"{pid:<42} {f(r['recall']):>6} {f(r['precision']):>6} "
+            f"{r['tp_warnings']:>4} {r['fp_warnings']:>4} {r['clean_fp']:>5}"
+        )
+    if dash.get("no_gold_patterns"):
+        lines.append("no gold: " + ", ".join(dash["no_gold_patterns"]))
+    return "\n".join(lines)
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         description="Record gold-relative precision/recall for available benchmark cases"
@@ -162,9 +281,19 @@ def main(argv: list[str] | None = None) -> int:
         default="auto",
         help="auto|mlx|cuda|none (CI without MLX: use none)",
     )
+    parser.add_argument(
+        "--all",
+        action="store_true",
+        help="Run every case with a committed gold_warnings.json and print the pattern dashboard",
+    )
     args = parser.parse_args(argv)
 
-    cases = list(args.case) if args.case else list(DEFAULT_CASES)
+    if args.all:
+        cases = all_gold_cases()
+        if "private_benchmark" not in cases and _case_available("private_benchmark"):
+            cases.append("private_benchmark")
+    else:
+        cases = list(args.case) if args.case else list(DEFAULT_CASES)
     out_dir = args.output.parent
     llm_profile = args.llm_profile
     if args.legend_llm and not llm_profile:
@@ -193,10 +322,31 @@ def main(argv: list[str] | None = None) -> int:
         )
 
     suite = build_suite_report(reports)
+    clean = (
+        json.loads(CLEAN_SUMMARY_PATH.read_text(encoding="utf-8"))
+        if CLEAN_SUMMARY_PATH.is_file()
+        else None
+    )
+    suite["pattern_dashboard"] = pattern_dashboard(reports, out_dir=out_dir, clean_summary=clean)
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(json.dumps(suite, ensure_ascii=False, indent=2), encoding="utf-8")
     print(json.dumps(suite["summary"], ensure_ascii=False, indent=2))
+    print(format_dashboard(suite["pattern_dashboard"]))
     print(f"Wrote {args.output}")
+
+    from pre_peer_checker.eval.history import append_history
+
+    dash = suite["pattern_dashboard"]["patterns"]
+    append_history(
+        "pattern_dashboard",
+        {
+            "n_cases_ok": suite["summary"]["n_cases_ok"],
+            "recall": {k: v["recall"] for k, v in dash.items() if v["recall"] is not None},
+            "precision": {k: v["precision"] for k, v in dash.items() if v["precision"] is not None},
+            "clean_fp": {k: v["clean_fp"] for k, v in dash.items() if v["clean_fp"]},
+        },
+        config={"cases": cases, "legend_llm": bool(args.legend_llm), "profile": llm_profile},
+    )
 
     # Trackable example: synthetic cases only (no private paths/numbers beyond public fixtures)
     if args.example_out:

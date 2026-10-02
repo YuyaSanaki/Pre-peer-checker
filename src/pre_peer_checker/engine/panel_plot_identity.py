@@ -52,6 +52,10 @@ def warnings_from_figure_panel_identity(
                             "n_markers": p.n_markers,
                             "n_groups": len(p.groups),
                             "group_ns": [g.n for g in p.groups],
+                            "kind": p.kind,
+                            "mark_source": p.mark_source,
+                            "n_lower_bound": p.n_lower_bound,
+                            "marks": p.marks,
                         }
                         for p in page.panels
                     ],

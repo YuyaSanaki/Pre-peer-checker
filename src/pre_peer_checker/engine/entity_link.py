@@ -108,6 +108,8 @@ class EntityLink:
     fingerprint: DataFingerprint | None = None
     # False when the linked rows are time points / genes / cells, not samples
     n_comparable: bool = True
+    # vector.n is a minimum (survival cohort reconstructed from a curve)
+    n_lower_bound: bool = False
 
     @property
     def table_link(self) -> TableLink | None:
@@ -686,32 +688,43 @@ def _source_data_link(pn: PanelN, vectors: list[GroupVector]) -> EntityLink | No
             reason=f"Source Data に {pn.figure} のブロックなし",
         )
     groups = block.groups
+    group_ns = {g: (n, ex) for g, n, ex in block.group_ns}
     chosen = match_group(block, pn.group) if pn.group else None
     if chosen is None and groups:
         chosen = groups[0]
         if block.n_comparable:
             # a group whose n differs from the legend is what the n check must see
-            chosen = next((g for g in groups if len(g[1]) != pn.n), groups[0])
+            chosen = next(
+                (g for g in groups if g[0] in group_ns and not _n_fits(pn.n, *group_ns[g[0]])),
+                groups[0],
+            )
     key = block.group_key(chosen[0]) if chosen else block.label
+    n_chosen, exact = group_ns.get(chosen[0], (len(chosen[1]), True)) if chosen else (0, True)
+    curve = block.curve_ns is not None
     vec = next(
         (v for v in sd_vectors if v.source.resolve() == block.path and v.group_key == key),
         None,
     )
-    if vec is None and chosen is not None:
+    if chosen is not None and (vec is None or curve):
         vec = GroupVector(
             source=block.path,
             group_key=key,
             values=tuple(sorted(chosen[1])),
-            n=len(chosen[1]),
+            n=n_chosen,
         )
     if vec is None:
         return None
     reason = f"Source Data 見出し · {block.label}"
-    if len(groups) > 1:
-        reason += " · 群別 n: " + "、".join(f"{g}={len(v)}" for g, v in groups[:6])
-        if len(groups) > 6:
-            reason += f" ほか {len(groups) - 6} 群"
-    if not block.n_comparable:
+    if len(group_ns) > 1:
+        shown = list(group_ns.items())
+        reason += " · 群別 n: " + "、".join(
+            f"{g}={'≥' if not ex else ''}{n}" for g, (n, ex) in shown[:6]
+        )
+        if len(shown) > 6:
+            reason += f" ほか {len(shown) - 6} 群"
+    if curve:
+        reason += " · 生存曲線から再構成した解析 n" + ("（最初の死亡時点の at-risk 数＝下限）" if not exact else "")
+    elif not block.n_comparable:
         reason += f" · {LAYOUT_JA.get(block.layout, block.layout)}: n は比較対象外"
     return EntityLink(
         status=LinkStatus.LINKED,
@@ -721,7 +734,206 @@ def _source_data_link(pn: PanelN, vectors: list[GroupVector]) -> EntityLink | No
         reason=reason,
         fingerprint=fingerprint_from_vector(vec),
         n_comparable=block.n_comparable,
+        n_lower_bound=block.n_comparable and not exact,
     )
+
+
+LINK_CONFIDENCE_ENV = "PRE_PEER_CHECKER_LINK_MIN_CONFIDENCE"
+# tier3 (notation-normalized keys) is the weakest link still allowed to raise an n mismatch
+DEFAULT_MIN_CONFIDENCE = 0.4
+DIGITIZED_CONFIDENCE = 0.6
+
+
+def link_confidence(link: EntityLink) -> float:
+    """0–1 evidence that the linked vector holds this panel's values.
+
+    Value fingerprints / Source Data headings score near 1, n + group matches ~0.6,
+    normalized-key matches ~0.4. Path / name guesses (soft) score 0: they are shown but
+    never raise a mismatch on their own.
+    """
+    if link.status != LinkStatus.LINKED or link.vector is None:
+        return 0.0
+    if link.tier in (LinkTier.SOFT, LinkTier.NONE):
+        return 0.0
+    return max(0.0, min(1.0, link.score / 100.0))
+
+
+def min_mismatch_confidence() -> float:
+    import os
+
+    raw = os.environ.get(LINK_CONFIDENCE_ENV, "").strip()
+    try:
+        return float(raw) if raw else DEFAULT_MIN_CONFIDENCE
+    except ValueError:
+        return DEFAULT_MIN_CONFIDENCE
+
+
+def _n_fits(legend_n: int | None, data_n: int, exact: bool) -> bool:
+    if legend_n is None:
+        return True
+    return legend_n == data_n if exact else legend_n >= data_n
+
+
+PanelKey = tuple[str, str, str]
+
+
+def _panel_key(pn: PanelN) -> PanelKey:
+    return (pn.figure, pn.panel.upper(), getattr(pn, "group", "") or "")
+
+
+_STATS_TAIL_RE = re.compile(r"\*+\s*p\s*[<=>≤].*$|\bp\s*[<=>≤]\s*0?\.\d.*$", re.I | re.S)
+
+
+def _contexts_overlap(a: str, b: str, min_len: int = 12) -> bool:
+    """Shared text that lists n (``12 (K), 12 (L)``); ``***p<0.001 by`` tails don't count."""
+    from difflib import SequenceMatcher
+
+    a, b = _STATS_TAIL_RE.sub("", a or ""), _STATS_TAIL_RE.sub("", b or "")
+    if not a or not b:
+        return False
+    m = SequenceMatcher(None, a, b, autojunk=False).find_longest_match(0, len(a), 0, len(b))
+    return m.size >= min_len and bool(re.search(r"\d\s*\(", a[m.a : m.a + m.size]))
+
+
+def legend_n_runs(panel_ns: list[PanelN]) -> list[list[PanelN]]:
+    """Legend rows read from one ``n = …`` statement: same figure, overlapping context windows."""
+    by_fig: dict[str, list[PanelN]] = {}
+    for pn in panel_ns:
+        if pn.n is not None and pn.n_max is None:
+            by_fig.setdefault(pn.figure, []).append(pn)
+    runs: list[list[PanelN]] = []
+    for rows in by_fig.values():
+        parent = list(range(len(rows)))
+
+        def find(i: int) -> int:
+            while parent[i] != i:
+                parent[i] = parent[parent[i]]
+                i = parent[i]
+            return i
+
+        for i in range(len(rows)):
+            for j in range(i + 1, len(rows)):
+                if rows[i].context == rows[j].context or _contexts_overlap(
+                    rows[i].context, rows[j].context
+                ):
+                    parent[find(i)] = find(j)
+        groups: dict[int, list[PanelN]] = {}
+        for i, pn in enumerate(rows):
+            groups.setdefault(find(i), []).append(pn)
+        runs.extend(groups.values())
+    return runs
+
+
+def _profile_units(run: list[PanelN]) -> list[list[PanelN]]:
+    """One unit per panel when each panel lists its own groups, else the whole statement."""
+    per_panel: dict[str, list[PanelN]] = {}
+    for pn in run:
+        per_panel.setdefault(pn.panel.upper(), []).append(pn)
+    if all(len(v) >= 2 for v in per_panel.values()) and len(per_panel) > 1:
+        return list(per_panel.values())
+    return [run]
+
+
+def _multiset_hits(legend: list[int], data: list[int]) -> int:
+    from collections import Counter
+
+    return sum((Counter(legend) & Counter(data)).values())
+
+
+def _n_unique_to(
+    src: tuple[Path, str], by_source: dict[tuple[Path, str], list[GroupVector]], legend: list[int]
+) -> bool:
+    """The legend n this source matches occurs in no other file of the figure."""
+    mine = {v.n for v in by_source[src]} & set(legend)
+    others = {v.n for s, vs in by_source.items() if s != src for v in vs}
+    return bool(mine) and not (mine & others)
+
+
+def link_by_n_profile(
+    panel_ns: list[PanelN],
+    vectors: list[GroupVector],
+) -> dict[PanelKey, EntityLink]:
+    """Raw-folder link by the n profile of one legend statement (``n = 10, 12, 12, 10``).
+
+    A single n is rarely unique in a figure folder; the multiset of a statement's n is. The
+    file whose group n agree with all, or all but one (k ≥ 3), of the statement's n — and
+    that no other file matches as well — is linked. The one disagreeing row takes the
+    remaining group, so a real mismatch stays visible instead of being left unlinked.
+    """
+    from pre_peer_checker.data.source_data_blocks import is_source_data_workbook
+
+    pool = [
+        v
+        for v in candidate_vectors(vectors, prefer_plot=False)
+        if not is_source_data_workbook(v.source)
+    ]
+    out: dict[PanelKey, EntityLink] = {}
+    for run in legend_n_runs(panel_ns):
+        fnum = figure_num_from_label(run[0].figure)
+        by_source: dict[tuple[Path, str], list[GroupVector]] = {}
+        for v in _figure_scoped(pool, fnum):
+            by_source.setdefault((v.source, v.sheet), []).append(v)
+        # a copy of the same sheet in another folder is one piece of evidence, not a rival
+        seen_content: set[tuple] = set()
+        for src in sorted(by_source, key=lambda s: (len(str(s[0])), str(s[0]), s[1])):
+            content = tuple(sorted((v.n, v.values) for v in by_source[src]))
+            if content in seen_content:
+                del by_source[src]
+            seen_content.add(content)
+        for unit in _profile_units(run):
+            k = len(unit)
+            if k < 2:
+                continue
+            legend = [pn.n for pn in unit]
+            scored = []
+            for src, vs in by_source.items():
+                m = len(vs)
+                if m < 2:
+                    continue
+                hits = _multiset_hits(legend, [v.n for v in vs])
+                # all but one: the odd row needs a group of its own to be compared with
+                near = hits == k - 1 and m >= k and (
+                    k >= 3 or (m == 2 and _n_unique_to(src, by_source, legend))
+                )
+                if hits == k or near:
+                    scored.append((hits, -abs(m - k), src, vs))
+            if not scored:
+                continue
+            scored.sort(key=lambda t: (t[0], t[1]), reverse=True)
+            best = scored[0]
+            rivals = [
+                s for s in scored[1:]
+                if s[:2] == best[:2]
+                and sorted(v.values for v in s[3]) != sorted(v.values for v in best[3])
+            ]
+            if rivals:
+                continue
+            hits, _, src, vs = best
+            free = list(vs)
+            assigned: dict[int, GroupVector] = {}
+            for i, pn in enumerate(unit):
+                keys = group_keys_for_panel(pn, None)
+                same_n = [v for v in free if v.n == pn.n]
+                pick = next((v for v in same_n if keys and _group_ok(v, keys)), None) or (
+                    same_n[0] if same_n else None
+                )
+                if pick is not None:
+                    assigned[i] = pick
+                    free.remove(pick)
+            left = [i for i in range(k) if i not in assigned]
+            if len(left) == 1 and len(free) == 1:
+                assigned[left[0]] = free[0]
+            for i, v in assigned.items():
+                fp = fingerprint_from_vector(v)
+                out[_panel_key(unit[i])] = EntityLink(
+                    status=LinkStatus.LINKED,
+                    tier=LinkTier.TIER2,
+                    vector=v,
+                    score=75,
+                    reason=f"n プロファイル一致 · {hits}/{k} · group={v.group_key} · n={fp.n}",
+                    fingerprint=fp,
+                )
+    return out
 
 
 def _without_source_data(

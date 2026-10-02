@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from itertools import combinations
 from pathlib import Path
@@ -18,6 +19,7 @@ class GroupVector:
     group_key: str
     values: tuple[float, ...]
     n: int
+    sheet: str = ""
 
     def rounded(self, decimals: int = 6) -> tuple[float, ...]:
         return tuple(round(v, decimals) for v in self.values)
@@ -38,8 +40,55 @@ def group_key_from_path(path: Path) -> str:
     return "all"
 
 
+_COUNT_COL_RE = re.compile(r"^(?:number|count|counts|n|freq|frequency|no\.? of .+|number of .+)$", re.I)
+
+
+def count_table_vectors(path: Path) -> list[GroupVector]:
+    """Contingency sheets (``Genotype | Class | number``): n per group is the summed count.
+
+    Each row counts animals of one group in one category, so the rows are not samples.
+    One vector per group and sheet; empty when no sheet has that shape.
+    """
+    from pre_peer_checker.data.stats_recalc import explicit_group_column
+    from pre_peer_checker.data.table_grid import EXCEL_SUFFIXES, _table_suffix, find_header_row, grid_to_frame, read_grids
+
+    if _table_suffix(path) not in EXCEL_SUFFIXES:
+        return []
+    out: list[GroupVector] = []
+    for grid in read_grids(path):
+        if not grid.rows:
+            continue
+        df = grid_to_frame(grid, find_header_row(grid.rows) or 0)
+        if df is None or df.empty:
+            continue
+        group_col = explicit_group_column(df)
+        count_col = next((c for c in df.columns if _COUNT_COL_RE.match(str(c).strip())), None)
+        if group_col is None or count_col is None:
+            continue
+        counts = pd.to_numeric(df[count_col], errors="coerce")
+        body = df[counts.notna()]
+        counts = counts[counts.notna()]
+        if len(counts) < 3 or (counts < 0).any() or not (counts % 1 == 0).all():
+            continue
+        others = [
+            c for c in df.columns
+            if c not in {group_col, count_col} and not pd.api.types.is_numeric_dtype(body[c])
+            and body[c].nunique(dropna=True) >= 2
+        ]
+        # every group split over the same categories (a contingency table, not one row per sample)
+        if not others or body.groupby(group_col)[others[0]].nunique().min() < 2:
+            continue
+        for key, part in counts.groupby(body[group_col], sort=False):
+            vals = tuple(float(x) for x in part.tolist())
+            out.append(GroupVector(path, str(key), vals, int(sum(vals)), grid.sheet))
+    return out
+
+
 def extract_group_vectors(path: Path | str) -> list[GroupVector]:
     path = Path(path)
+    counted = count_table_vectors(path)
+    if counted:
+        return counted
     df = load_table(path)
     # Prefer explicit schema used in biology quant sheets
     cols = {str(c).lower(): c for c in df.columns}

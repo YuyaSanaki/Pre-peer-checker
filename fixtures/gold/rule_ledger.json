@@ -9,7 +9,7 @@
     "no_evidence": "no measurable effect on current holdout (pattern absent or rule inert)",
     "no_data": "not measured yet"
   },
-  "updated_at": null,
+  "updated_at": "2026-10-01T23:56:33+00:00",
   "rules": [
     {
       "id": "llm:qwen_text",
@@ -31,8 +31,17 @@
       "summary": "Critical rules / disambiguation examples in LEGEND_JSON_SYSTEM_PROMPT and FIGURE_CHUNK_SYSTEM_PROMPT (uppercase panel vs lowercase group, section letter, typo k/l, timepoint x genotype, dose list).",
       "baseline_config": "current",
       "ablation_config": "prompt_minimal",
-      "origin_cases": ["private_benchmark"],
-      "origin_difficulty": ["context_typo", "multi_group", "multi_group_timepoint", "four_way_group", "panel_letter", "shared_n"],
+      "origin_cases": [
+        "private_benchmark"
+      ],
+      "origin_difficulty": [
+        "context_typo",
+        "multi_group",
+        "multi_group_timepoint",
+        "four_way_group",
+        "panel_letter",
+        "shared_n"
+      ],
       "decision": "keep",
       "suggestion": "no_data",
       "measured": {}
@@ -45,7 +54,9 @@
       "baseline_config": "current",
       "ablation_config": "current-minus-grounding",
       "origin_cases": [],
-      "origin_difficulty": ["other"],
+      "origin_difficulty": [
+        "other"
+      ],
       "decision": "keep",
       "suggestion": "no_data",
       "measured": {}
@@ -57,8 +68,12 @@
       "summary": "Drop LLM rows that put n on the section letter (K) when evidence names other panels (H, I, J).",
       "baseline_config": "current",
       "ablation_config": "current-minus-section_misattrib",
-      "origin_cases": ["private_benchmark"],
-      "origin_difficulty": ["panel_letter"],
+      "origin_cases": [
+        "private_benchmark"
+      ],
+      "origin_difficulty": [
+        "panel_letter"
+      ],
       "decision": "keep",
       "suggestion": "no_data",
       "measured": {}
@@ -70,8 +85,13 @@
       "summary": "If 1x/4x dose groups sit on panel E or later, drop the same n on panels A-D.",
       "baseline_config": "current",
       "ablation_config": "current-minus-dose_on_wrong",
-      "origin_cases": ["private_benchmark"],
-      "origin_difficulty": ["panel_letter", "multi_group"],
+      "origin_cases": [
+        "private_benchmark"
+      ],
+      "origin_difficulty": [
+        "panel_letter",
+        "multi_group"
+      ],
       "decision": "keep",
       "suggestion": "no_data",
       "measured": {}
@@ -83,8 +103,16 @@
       "summary": "Drop LLM rows that reassign an n already owned by rules on another panel. Risk: common small n (3, 5) on several panels.",
       "baseline_config": "current",
       "ablation_config": "current-minus-stolen_from_rules",
-      "origin_cases": ["private_benchmark", "paper_01", "paper_02"],
-      "origin_difficulty": ["context_typo", "multi_group_timepoint", "shared_n"],
+      "origin_cases": [
+        "private_benchmark",
+        "paper_01",
+        "paper_02"
+      ],
+      "origin_difficulty": [
+        "context_typo",
+        "multi_group_timepoint",
+        "shared_n"
+      ],
       "decision": "keep",
       "suggestion": "no_data",
       "measured": {}
@@ -96,8 +124,14 @@
       "summary": "Rules own the parenthesis class: drop LLM rows whose group contradicts a rule group on the same (panel, n), and strip LLM groups where rules say panel-level n.",
       "baseline_config": "current",
       "ablation_config": "current-minus-group_conflict",
-      "origin_cases": ["private_benchmark", "paper_02"],
-      "origin_difficulty": ["multi_group", "panel_letter"],
+      "origin_cases": [
+        "private_benchmark",
+        "paper_02"
+      ],
+      "origin_difficulty": [
+        "multi_group",
+        "panel_letter"
+      ],
       "decision": "keep",
       "suggestion": "no_data",
       "measured": {}
@@ -109,8 +143,15 @@
       "summary": "Add rule rows the LLM omitted (shared n, published N= styles) and fall back to rules when the LLM output fails to parse.",
       "baseline_config": "current",
       "ablation_config": "current-minus-rule_fill",
-      "origin_cases": ["private_benchmark", "paper_01", "paper_02"],
-      "origin_difficulty": ["shared_n", "multi_group_timepoint"],
+      "origin_cases": [
+        "private_benchmark",
+        "paper_01",
+        "paper_02"
+      ],
+      "origin_difficulty": [
+        "shared_n",
+        "multi_group_timepoint"
+      ],
       "decision": "keep",
       "suggestion": "no_data",
       "measured": {}
@@ -122,7 +163,10 @@
       "summary": "dominant_panel_run: drop OCR letters more than one gap away from the main panel run (axis / legend letters).",
       "baseline_config": "union",
       "ablation_config": "union_no_run_filter",
-      "origin_cases": ["paper_01", "paper_02"],
+      "origin_cases": [
+        "paper_01",
+        "paper_02"
+      ],
       "origin_difficulty": [],
       "decision": "keep",
       "suggestion": "no_data",
@@ -135,7 +179,10 @@
       "summary": "Apple Vision added to Florence crop OCR (union vs Florence only). Mac only.",
       "baseline_config": "union",
       "ablation_config": "florence",
-      "origin_cases": ["paper_01", "paper_02"],
+      "origin_cases": [
+        "paper_01",
+        "paper_02"
+      ],
       "origin_difficulty": [],
       "decision": "keep",
       "suggestion": "no_data",
@@ -148,11 +195,865 @@
       "summary": "Florence crop OCR added to Apple Vision (union vs Vision only).",
       "baseline_config": "union",
       "ablation_config": "vision",
-      "origin_cases": ["paper_01", "paper_02"],
+      "origin_cases": [
+        "paper_01",
+        "paper_02"
+      ],
       "origin_difficulty": [],
       "decision": "keep",
       "suggestion": "no_data",
       "measured": {}
+    },
+    {
+      "id": "parser:upper_openers",
+      "task": "legend",
+      "kind": "parser_rule",
+      "summary": "Uppercase panel openers (A, ... / (A) ...) split a legend into sections.",
+      "baseline_config": "rules_only",
+      "ablation_config": "rules_only-minus-upper_openers",
+      "origin_cases": [
+        "paper_08",
+        "paper_14",
+        "paper_15",
+        "paper_16",
+        "paper_17",
+        "paper_19"
+      ],
+      "origin_difficulty": [],
+      "decision": "keep",
+      "suggestion": "no_evidence",
+      "measured": {
+        "dev": {
+          "contribution_recall": 0.4105,
+          "contribution_precision": 0.0321,
+          "n_cases_changed": 6,
+          "measured_at": "2026-10-01T23:56:33+00:00",
+          "git_rev": "765a493-dirty",
+          "cases_changed": [
+            "paper_08",
+            "paper_14",
+            "paper_15",
+            "paper_16",
+            "paper_17",
+            "paper_19"
+          ]
+        },
+        "holdout": {
+          "contribution_recall": 0.0,
+          "contribution_precision": 0.0,
+          "n_cases_changed": 0,
+          "measured_at": "2026-10-01T23:56:33+00:00",
+          "git_rev": "765a493-dirty"
+        }
+      }
+    },
+    {
+      "id": "parser:single_multi_opener",
+      "task": "legend",
+      "kind": "parser_rule",
+      "summary": "A single opener listing several panels counts as a section split.",
+      "baseline_config": "rules_only",
+      "ablation_config": "rules_only-minus-single_multi_opener",
+      "origin_cases": [
+        "paper_19"
+      ],
+      "origin_difficulty": [],
+      "decision": "keep",
+      "suggestion": "no_evidence",
+      "measured": {
+        "dev": {
+          "contribution_recall": 0.0118,
+          "contribution_precision": 0.0005,
+          "n_cases_changed": 1,
+          "measured_at": "2026-10-01T23:56:33+00:00",
+          "git_rev": "765a493-dirty",
+          "cases_changed": [
+            "paper_19"
+          ]
+        },
+        "holdout": {
+          "contribution_recall": 0.0,
+          "contribution_precision": 0.0,
+          "n_cases_changed": 0,
+          "measured_at": "2026-10-01T23:56:33+00:00",
+          "git_rev": "765a493-dirty"
+        }
+      }
+    },
+    {
+      "id": "parser:block_opener_reset",
+      "task": "legend",
+      "kind": "parser_rule",
+      "summary": "A multi-panel opener resets the expected next letter.",
+      "baseline_config": "rules_only",
+      "ablation_config": "rules_only-minus-block_opener_reset",
+      "origin_cases": [
+        "paper_08"
+      ],
+      "origin_difficulty": [],
+      "decision": "keep",
+      "suggestion": "no_evidence",
+      "measured": {
+        "dev": {
+          "contribution_recall": 0.0034,
+          "contribution_precision": 0.0157,
+          "n_cases_changed": 1,
+          "measured_at": "2026-10-01T23:56:33+00:00",
+          "git_rev": "765a493-dirty",
+          "cases_changed": [
+            "paper_08"
+          ]
+        },
+        "holdout": {
+          "contribution_recall": 0.0,
+          "contribution_precision": 0.0,
+          "n_cases_changed": 0,
+          "measured_at": "2026-10-01T23:56:33+00:00",
+          "git_rev": "765a493-dirty"
+        }
+      }
+    },
+    {
+      "id": "parser:opener_colon_nospace",
+      "task": "legend",
+      "kind": "parser_rule",
+      "summary": "Openers may be followed by a colon without a space.",
+      "baseline_config": "rules_only",
+      "ablation_config": "rules_only-minus-opener_colon_nospace",
+      "origin_cases": [
+        "paper_08"
+      ],
+      "origin_difficulty": [],
+      "decision": "keep",
+      "suggestion": "no_evidence",
+      "measured": {
+        "dev": {
+          "contribution_recall": 0.0017,
+          "contribution_precision": 0.0017,
+          "n_cases_changed": 1,
+          "measured_at": "2026-10-01T23:56:33+00:00",
+          "git_rev": "765a493-dirty",
+          "cases_changed": [
+            "paper_08"
+          ]
+        },
+        "holdout": {
+          "contribution_recall": 0.0,
+          "contribution_precision": 0.0,
+          "n_cases_changed": 0,
+          "measured_at": "2026-10-01T23:56:33+00:00",
+          "git_rev": "765a493-dirty"
+        }
+      }
+    },
+    {
+      "id": "parser:capital_N_replicate",
+      "task": "legend",
+      "kind": "parser_rule",
+      "summary": "Capital N next to a lowercase n in one sentence is the replicate level.",
+      "baseline_config": "rules_only",
+      "ablation_config": "rules_only-minus-capital_N_replicate",
+      "origin_cases": [
+        "paper_17"
+      ],
+      "origin_difficulty": [],
+      "decision": "keep",
+      "suggestion": "no_evidence",
+      "measured": {
+        "dev": {
+          "contribution_recall": 0.0,
+          "contribution_precision": 0.0047,
+          "n_cases_changed": 1,
+          "measured_at": "2026-10-01T23:56:33+00:00",
+          "git_rev": "765a493-dirty",
+          "cases_changed": [
+            "paper_17"
+          ]
+        },
+        "holdout": {
+          "contribution_recall": 0.0,
+          "contribution_precision": 0.0,
+          "n_cases_changed": 0,
+          "measured_at": "2026-10-01T23:56:33+00:00",
+          "git_rev": "765a493-dirty"
+        }
+      }
+    },
+    {
+      "id": "parser:sex_breakdown",
+      "task": "legend",
+      "kind": "parser_rule",
+      "summary": "n = 4 males, 2 females is a breakdown, not separate groups.",
+      "baseline_config": "rules_only",
+      "ablation_config": "rules_only-minus-sex_breakdown",
+      "origin_cases": [
+        "paper_19"
+      ],
+      "origin_difficulty": [],
+      "decision": "keep",
+      "suggestion": "no_evidence",
+      "measured": {
+        "dev": {
+          "contribution_recall": 0.0,
+          "contribution_precision": 0.0216,
+          "n_cases_changed": 1,
+          "measured_at": "2026-10-01T23:56:33+00:00",
+          "git_rev": "765a493-dirty",
+          "cases_changed": [
+            "paper_19"
+          ]
+        },
+        "holdout": {
+          "contribution_recall": 0.0,
+          "contribution_precision": 0.0,
+          "n_cases_changed": 0,
+          "measured_at": "2026-10-01T23:56:33+00:00",
+          "git_rev": "765a493-dirty"
+        }
+      }
+    },
+    {
+      "id": "parser:total_of_groups",
+      "task": "legend",
+      "kind": "parser_rule",
+      "summary": "A closing n equal to the sum of the others is a total.",
+      "baseline_config": "rules_only",
+      "ablation_config": "rules_only-minus-total_of_groups",
+      "origin_cases": [
+        "paper_19"
+      ],
+      "origin_difficulty": [],
+      "decision": "keep",
+      "suggestion": "no_evidence",
+      "measured": {
+        "dev": {
+          "contribution_recall": 0.0,
+          "contribution_precision": 0.0047,
+          "n_cases_changed": 1,
+          "measured_at": "2026-10-01T23:56:33+00:00",
+          "git_rev": "765a493-dirty",
+          "cases_changed": [
+            "paper_19"
+          ]
+        },
+        "holdout": {
+          "contribution_recall": 0.0,
+          "contribution_precision": 0.0,
+          "n_cases_changed": 0,
+          "measured_at": "2026-10-01T23:56:33+00:00",
+          "git_rev": "765a493-dirty"
+        }
+      }
+    },
+    {
+      "id": "parser:shared_n_no_group",
+      "task": "legend",
+      "kind": "parser_rule",
+      "summary": "A shared n stated after several groups is not split per group.",
+      "baseline_config": "rules_only",
+      "ablation_config": "rules_only-minus-shared_n_no_group",
+      "origin_cases": [
+        "paper_19"
+      ],
+      "origin_difficulty": [],
+      "decision": "keep",
+      "suggestion": "no_evidence",
+      "measured": {
+        "dev": {
+          "contribution_recall": 0.0051,
+          "contribution_precision": 0.005,
+          "n_cases_changed": 1,
+          "measured_at": "2026-10-01T23:56:33+00:00",
+          "git_rev": "765a493-dirty",
+          "cases_changed": [
+            "paper_19"
+          ]
+        },
+        "holdout": {
+          "contribution_recall": 0.0,
+          "contribution_precision": 0.0,
+          "n_cases_changed": 0,
+          "measured_at": "2026-10-01T23:56:33+00:00",
+          "git_rev": "765a493-dirty"
+        }
+      }
+    },
+    {
+      "id": "parser:figure_level_n",
+      "task": "legend",
+      "kind": "parser_rule",
+      "summary": "An n after the closing statistics sentence covers the figure.",
+      "baseline_config": "rules_only",
+      "ablation_config": "rules_only-minus-figure_level_n",
+      "origin_cases": [
+        "paper_14",
+        "paper_19"
+      ],
+      "origin_difficulty": [],
+      "decision": "keep",
+      "suggestion": "no_evidence",
+      "measured": {
+        "dev": {
+          "contribution_recall": 0.0963,
+          "contribution_precision": 0.005,
+          "n_cases_changed": 2,
+          "measured_at": "2026-10-01T23:56:33+00:00",
+          "git_rev": "765a493-dirty",
+          "cases_changed": [
+            "paper_14",
+            "paper_19"
+          ]
+        },
+        "holdout": {
+          "contribution_recall": 0.0,
+          "contribution_precision": 0.0,
+          "n_cases_changed": 0,
+          "measured_at": "2026-10-01T23:56:33+00:00",
+          "git_rev": "765a493-dirty"
+        }
+      }
+    },
+    {
+      "id": "parser:figure_level_data_filter",
+      "task": "legend",
+      "kind": "parser_rule",
+      "summary": "A figure-level n covers only quantified (data) sections.",
+      "baseline_config": "rules_only",
+      "ablation_config": "rules_only-minus-figure_level_data_filter",
+      "origin_cases": [
+        "paper_14",
+        "paper_19"
+      ],
+      "origin_difficulty": [],
+      "decision": "keep",
+      "suggestion": "no_evidence",
+      "measured": {
+        "dev": {
+          "contribution_recall": -0.0034,
+          "contribution_precision": 0.0405,
+          "n_cases_changed": 2,
+          "measured_at": "2026-10-01T23:56:33+00:00",
+          "git_rev": "765a493-dirty",
+          "cases_changed": [
+            "paper_14",
+            "paper_19"
+          ]
+        },
+        "holdout": {
+          "contribution_recall": 0.0,
+          "contribution_precision": 0.0,
+          "n_cases_changed": 0,
+          "measured_at": "2026-10-01T23:56:33+00:00",
+          "git_rev": "765a493-dirty"
+        }
+      }
+    },
+    {
+      "id": "parser:qualified_n",
+      "task": "legend",
+      "kind": "parser_rule",
+      "summary": "n (BW and KW/BW) = 12: n of the named measurements.",
+      "baseline_config": "rules_only",
+      "ablation_config": "rules_only-minus-qualified_n",
+      "origin_cases": [
+        "paper_18"
+      ],
+      "origin_difficulty": [],
+      "decision": "keep",
+      "suggestion": "no_evidence",
+      "measured": {
+        "dev": {
+          "contribution_recall": 0.0051,
+          "contribution_precision": 0.0002,
+          "n_cases_changed": 1,
+          "measured_at": "2026-10-01T23:56:33+00:00",
+          "git_rev": "765a493-dirty",
+          "cases_changed": [
+            "paper_18"
+          ]
+        },
+        "holdout": {
+          "contribution_recall": 0.0,
+          "contribution_precision": 0.0,
+          "n_cases_changed": 0,
+          "measured_at": "2026-10-01T23:56:33+00:00",
+          "git_rev": "765a493-dirty"
+        }
+      }
+    },
+    {
+      "id": "parser:measure_panels",
+      "task": "legend",
+      "kind": "parser_rule",
+      "summary": "A qualified n targets the panels showing that measure.",
+      "baseline_config": "rules_only",
+      "ablation_config": "rules_only-minus-measure_panels",
+      "origin_cases": [
+        "paper_18"
+      ],
+      "origin_difficulty": [],
+      "decision": "keep",
+      "suggestion": "no_evidence",
+      "measured": {
+        "dev": {
+          "contribution_recall": 0.0,
+          "contribution_precision": 0.0155,
+          "n_cases_changed": 1,
+          "measured_at": "2026-10-01T23:56:33+00:00",
+          "git_rev": "765a493-dirty",
+          "cases_changed": [
+            "paper_18"
+          ]
+        },
+        "holdout": {
+          "contribution_recall": 0.0,
+          "contribution_precision": 0.0,
+          "n_cases_changed": 0,
+          "measured_at": "2026-10-01T23:56:33+00:00",
+          "git_rev": "765a493-dirty"
+        }
+      }
+    },
+    {
+      "id": "parser:per_animal_times",
+      "task": "legend",
+      "kind": "parser_rule",
+      "summary": "n = 10 units per animal x 4-6 reads the animal count.",
+      "baseline_config": "rules_only",
+      "ablation_config": "rules_only-minus-per_animal_times",
+      "origin_cases": [
+        "paper_18"
+      ],
+      "origin_difficulty": [],
+      "decision": "keep",
+      "suggestion": "no_evidence",
+      "measured": {
+        "dev": {
+          "contribution_recall": 0.0034,
+          "contribution_precision": 0.0017,
+          "n_cases_changed": 1,
+          "measured_at": "2026-10-01T23:56:33+00:00",
+          "git_rev": "765a493-dirty",
+          "cases_changed": [
+            "paper_18"
+          ]
+        },
+        "holdout": {
+          "contribution_recall": 0.0,
+          "contribution_precision": 0.0,
+          "n_cases_changed": 0,
+          "measured_at": "2026-10-01T23:56:33+00:00",
+          "git_rev": "765a493-dirty"
+        }
+      }
+    },
+    {
+      "id": "parser:trailing_panel_ref",
+      "task": "legend",
+      "kind": "parser_rule",
+      "summary": "A panel reference right after the n binds it.",
+      "baseline_config": "rules_only",
+      "ablation_config": "rules_only-minus-trailing_panel_ref",
+      "origin_cases": [
+        "paper_20"
+      ],
+      "origin_difficulty": [],
+      "decision": "keep",
+      "suggestion": "no_evidence",
+      "measured": {
+        "dev": {
+          "contribution_recall": 0.0017,
+          "contribution_precision": 0.0047,
+          "n_cases_changed": 1,
+          "measured_at": "2026-10-01T23:56:33+00:00",
+          "git_rev": "765a493-dirty",
+          "cases_changed": [
+            "paper_20"
+          ]
+        },
+        "holdout": {
+          "contribution_recall": 0.0,
+          "contribution_precision": 0.0,
+          "n_cases_changed": 0,
+          "measured_at": "2026-10-01T23:56:33+00:00",
+          "git_rev": "765a493-dirty"
+        }
+      }
+    },
+    {
+      "id": "parser:either_stopword",
+      "task": "legend",
+      "kind": "parser_rule",
+      "summary": "either / neither are not group labels.",
+      "baseline_config": "rules_only",
+      "ablation_config": "rules_only-minus-either_stopword",
+      "origin_cases": [
+        "paper_20"
+      ],
+      "origin_difficulty": [],
+      "decision": "keep",
+      "suggestion": "no_evidence",
+      "measured": {
+        "dev": {
+          "contribution_recall": 0.0017,
+          "contribution_precision": 0.0017,
+          "n_cases_changed": 1,
+          "measured_at": "2026-10-01T23:56:33+00:00",
+          "git_rev": "765a493-dirty",
+          "cases_changed": [
+            "paper_20"
+          ]
+        },
+        "holdout": {
+          "contribution_recall": 0.0,
+          "contribution_precision": 0.0,
+          "n_cases_changed": 0,
+          "measured_at": "2026-10-01T23:56:33+00:00",
+          "git_rev": "765a493-dirty"
+        }
+      }
+    },
+    {
+      "id": "parser:respectively_pair",
+      "task": "legend",
+      "kind": "parser_rule",
+      "summary": "n = 128 and 151, respectively splits into two groups.",
+      "baseline_config": "rules_only",
+      "ablation_config": "rules_only-minus-respectively_pair",
+      "origin_cases": [
+        "paper_13"
+      ],
+      "origin_difficulty": [],
+      "decision": "keep",
+      "suggestion": "no_evidence",
+      "measured": {
+        "dev": {
+          "contribution_recall": 0.0017,
+          "contribution_precision": 0.0001,
+          "n_cases_changed": 1,
+          "measured_at": "2026-10-01T23:56:33+00:00",
+          "git_rev": "765a493-dirty",
+          "cases_changed": [
+            "paper_13"
+          ]
+        },
+        "holdout": {
+          "contribution_recall": 0.0,
+          "contribution_precision": 0.0,
+          "n_cases_changed": 0,
+          "measured_at": "2026-10-01T23:56:33+00:00",
+          "git_rev": "765a493-dirty"
+        }
+      }
+    },
+    {
+      "id": "parser:worded_reference_skip",
+      "task": "legend",
+      "kind": "parser_rule",
+      "summary": "'one representative' / 'all these' are not worded sample sizes.",
+      "baseline_config": "rules_only",
+      "ablation_config": "rules_only-minus-worded_reference_skip",
+      "origin_cases": [
+        "paper_13"
+      ],
+      "origin_difficulty": [],
+      "decision": "keep",
+      "suggestion": "no_evidence",
+      "measured": {
+        "dev": {
+          "contribution_recall": 0.0,
+          "contribution_precision": 0.0047,
+          "n_cases_changed": 1,
+          "measured_at": "2026-10-01T23:56:33+00:00",
+          "git_rev": "765a493-dirty",
+          "cases_changed": [
+            "paper_13"
+          ]
+        },
+        "holdout": {
+          "contribution_recall": 0.0,
+          "contribution_precision": 0.0,
+          "n_cases_changed": 0,
+          "measured_at": "2026-10-01T23:56:33+00:00",
+          "git_rev": "765a493-dirty"
+        }
+      }
+    },
+    {
+      "id": "parser:worded_pair",
+      "task": "legend",
+      "kind": "parser_rule",
+      "summary": "'three WT and four KO mice' gives two groups.",
+      "baseline_config": "rules_only",
+      "ablation_config": "rules_only-minus-worded_pair",
+      "origin_cases": [
+        "paper_13"
+      ],
+      "origin_difficulty": [],
+      "decision": "keep",
+      "suggestion": "no_evidence",
+      "measured": {
+        "dev": {
+          "contribution_recall": 0.0034,
+          "contribution_precision": 0.0002,
+          "n_cases_changed": 1,
+          "measured_at": "2026-10-01T23:56:33+00:00",
+          "git_rev": "765a493-dirty",
+          "cases_changed": [
+            "paper_13"
+          ]
+        },
+        "holdout": {
+          "contribution_recall": 0.0,
+          "contribution_precision": 0.0,
+          "n_cases_changed": 0,
+          "measured_at": "2026-10-01T23:56:33+00:00",
+          "git_rev": "765a493-dirty"
+        }
+      }
+    },
+    {
+      "id": "parser:worded_own_list_narrow",
+      "task": "legend",
+      "kind": "parser_rule",
+      "summary": "A worded count followed by its own panel list is left to that list.",
+      "baseline_config": "rules_only",
+      "ablation_config": "rules_only-minus-worded_own_list_narrow",
+      "origin_cases": [
+        "paper_13"
+      ],
+      "origin_difficulty": [],
+      "decision": "keep",
+      "suggestion": "no_evidence",
+      "measured": {
+        "dev": {
+          "contribution_recall": 0.0017,
+          "contribution_precision": 0.0001,
+          "n_cases_changed": 1,
+          "measured_at": "2026-10-01T23:56:33+00:00",
+          "git_rev": "765a493-dirty",
+          "cases_changed": [
+            "paper_13"
+          ]
+        },
+        "holdout": {
+          "contribution_recall": 0.0,
+          "contribution_precision": 0.0,
+          "n_cases_changed": 0,
+          "measured_at": "2026-10-01T23:56:33+00:00",
+          "git_rev": "765a493-dirty"
+        }
+      }
+    },
+    {
+      "id": "parser:worded_section_skip",
+      "task": "legend",
+      "kind": "parser_rule",
+      "summary": "Worded counts are read only in sections without n =.",
+      "baseline_config": "rules_only",
+      "ablation_config": "rules_only-minus-worded_section_skip",
+      "origin_cases": [
+        "paper_01",
+        "paper_05",
+        "paper_15",
+        "paper_16",
+        "paper_17",
+        "paper_19",
+        "paper_20"
+      ],
+      "origin_difficulty": [],
+      "decision": "keep",
+      "suggestion": "keep",
+      "measured": {
+        "dev": {
+          "contribution_recall": 0.0,
+          "contribution_precision": 0.0794,
+          "n_cases_changed": 7,
+          "measured_at": "2026-10-01T23:56:33+00:00",
+          "git_rev": "765a493-dirty",
+          "cases_changed": [
+            "paper_01",
+            "paper_05",
+            "paper_15",
+            "paper_16",
+            "paper_17",
+            "paper_19",
+            "paper_20"
+          ]
+        },
+        "holdout": {
+          "contribution_recall": 0.0,
+          "contribution_precision": 0.0407,
+          "n_cases_changed": 2,
+          "measured_at": "2026-10-01T23:56:33+00:00",
+          "git_rev": "765a493-dirty"
+        }
+      }
+    },
+    {
+      "id": "parser:lower_bound_n",
+      "task": "legend",
+      "kind": "parser_rule",
+      "summary": "n >= 2 / n > 10 is read as an open range (not compared, counted for recall).",
+      "baseline_config": "rules_only",
+      "ablation_config": "rules_only-minus-lower_bound_n",
+      "origin_cases": [],
+      "origin_difficulty": [],
+      "decision": "keep",
+      "suggestion": "no_evidence",
+      "measured": {
+        "dev": {
+          "contribution_recall": 0.0,
+          "contribution_precision": 0.0,
+          "n_cases_changed": 0,
+          "measured_at": "2026-10-01T23:56:33+00:00",
+          "git_rev": "765a493-dirty",
+          "cases_changed": []
+        },
+        "holdout": {
+          "contribution_recall": 0.0,
+          "contribution_precision": 0.0,
+          "n_cases_changed": 0,
+          "measured_at": "2026-10-01T23:56:33+00:00",
+          "git_rev": "765a493-dirty"
+        }
+      }
+    },
+    {
+      "id": "parser:n_for_panel_scope",
+      "task": "legend",
+      "kind": "parser_rule",
+      "summary": "n = 4 for d-g covers every panel of the stated range.",
+      "baseline_config": "rules_only",
+      "ablation_config": "rules_only-minus-n_for_panel_scope",
+      "origin_cases": [],
+      "origin_difficulty": [],
+      "decision": "keep",
+      "suggestion": "no_evidence",
+      "measured": {
+        "dev": {
+          "contribution_recall": 0.0,
+          "contribution_precision": 0.0,
+          "n_cases_changed": 0,
+          "measured_at": "2026-10-01T23:56:33+00:00",
+          "git_rev": "765a493-dirty",
+          "cases_changed": []
+        },
+        "holdout": {
+          "contribution_recall": 0.0,
+          "contribution_precision": 0.0,
+          "n_cases_changed": 0,
+          "measured_at": "2026-10-01T23:56:33+00:00",
+          "git_rev": "765a493-dirty"
+        }
+      }
+    },
+    {
+      "id": "parser:legend_unfinished_cont",
+      "task": "legend",
+      "kind": "parser_rule",
+      "summary": "An unfinished legend continues into the next block.",
+      "baseline_config": "rules_only",
+      "ablation_config": "rules_only-minus-legend_unfinished_cont",
+      "origin_cases": [
+        "paper_08",
+        "paper_13",
+        "paper_15",
+        "paper_19",
+        "paper_20"
+      ],
+      "origin_difficulty": [],
+      "decision": "keep",
+      "suggestion": "keep",
+      "measured": {
+        "dev": {
+          "contribution_recall": 0.1115,
+          "contribution_precision": 0.0095,
+          "n_cases_changed": 5,
+          "measured_at": "2026-10-01T23:56:33+00:00",
+          "git_rev": "765a493-dirty",
+          "cases_changed": [
+            "paper_08",
+            "paper_13",
+            "paper_15",
+            "paper_19",
+            "paper_20"
+          ]
+        },
+        "holdout": {
+          "contribution_recall": 0.1237,
+          "contribution_precision": 0.0155,
+          "n_cases_changed": 2,
+          "measured_at": "2026-10-01T23:56:33+00:00",
+          "git_rev": "765a493-dirty"
+        }
+      }
+    },
+    {
+      "id": "parser:legend_fig_continued",
+      "task": "legend",
+      "kind": "parser_rule",
+      "summary": "A smaller block on the resume page continues the legend.",
+      "baseline_config": "rules_only",
+      "ablation_config": "rules_only-minus-legend_fig_continued",
+      "origin_cases": [
+        "paper_21"
+      ],
+      "origin_difficulty": [],
+      "decision": "keep",
+      "suggestion": "no_evidence",
+      "measured": {
+        "dev": {
+          "contribution_recall": 0.0017,
+          "contribution_precision": 0.0001,
+          "n_cases_changed": 1,
+          "measured_at": "2026-10-01T23:56:33+00:00",
+          "git_rev": "765a493-dirty",
+          "cases_changed": [
+            "paper_21"
+          ]
+        },
+        "holdout": {
+          "contribution_recall": 0.0,
+          "contribution_precision": 0.0,
+          "n_cases_changed": 0,
+          "measured_at": "2026-10-01T23:56:33+00:00",
+          "git_rev": "765a493-dirty"
+        }
+      }
+    },
+    {
+      "id": "parser:legend_tail_reroute",
+      "task": "legend",
+      "kind": "parser_rule",
+      "summary": "A legend tail found later is re-attached to its legend.",
+      "baseline_config": "rules_only",
+      "ablation_config": "rules_only-minus-legend_tail_reroute",
+      "origin_cases": [
+        "paper_08"
+      ],
+      "origin_difficulty": [],
+      "decision": "keep",
+      "suggestion": "no_evidence",
+      "measured": {
+        "dev": {
+          "contribution_recall": 0.0101,
+          "contribution_precision": 0.0052,
+          "n_cases_changed": 1,
+          "measured_at": "2026-10-01T23:56:33+00:00",
+          "git_rev": "765a493-dirty",
+          "cases_changed": [
+            "paper_08"
+          ]
+        },
+        "holdout": {
+          "contribution_recall": 0.0,
+          "contribution_precision": 0.0,
+          "n_cases_changed": 0,
+          "measured_at": "2026-10-01T23:56:33+00:00",
+          "git_rev": "765a493-dirty"
+        }
+      }
     }
   ]
 }

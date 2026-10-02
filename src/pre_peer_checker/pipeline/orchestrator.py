@@ -987,7 +987,10 @@ def run_verification(
             "layout": b.layout,
             "n": b.n,
             "n_comparable": b.n_comparable,
-            "groups": [{"name": g, "n": len(v)} for g, v in b.groups[:50]],
+            "groups": [
+                {"name": g, "n": n, **({} if ex else {"n_lower_bound": True})}
+                for g, n, ex in b.group_ns[:50]
+            ],
             "columns": [c.header for c in b.columns],
         }
         for b in source_blocks
@@ -1425,6 +1428,14 @@ def run_verification(
         key_alias_map=key_alias_map,
     )
     result.artifacts["n_matrix"] = n_matrix_to_artifact(n_rows)
+    from pre_peer_checker.engine.link_candidates import (
+        link_candidate_cards,
+        warnings_from_candidate_cards,
+    )
+
+    link_cards = link_candidate_cards(exact_panel_ns, all_vectors, n_rows)
+    result.artifacts["n_link_candidates"] = [c.to_dict() for c in link_cards]
+    result.warnings.extend(warnings_from_candidate_cards(link_cards))
     # Free the text model before the VLM and image models load (unified memory
     # on Mac is shared by all three).
     shared_llm = None
@@ -1446,6 +1457,11 @@ def run_verification(
     result.warnings.extend(panel_warns)
     result.artifacts["figure_panel_plots"] = panel_arts
     attach_fig_pdf_counts(result.artifacts["n_matrix"], panel_arts, roots=case_roots)
+    from pre_peer_checker.engine.panel_kind_filter import demote_picture_panel_warnings
+
+    result.artifacts["picture_panel_demoted"] = demote_picture_panel_warnings(
+        result.warnings, panel_arts
+    )
     # Paths only here; JPEG embed happens when writing HTML (keeps warnings.json small)
     result.artifacts["figure_preview_sources"] = [str(p) for p in fig_files]
     # Phase 6A: vector panel geometry; optional VLM assist when empty

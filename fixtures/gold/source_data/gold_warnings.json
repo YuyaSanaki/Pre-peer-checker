@@ -1,0 +1,51 @@
+{
+  "schema_version": "1.0",
+  "case_id": "source_data",
+  "benchmark_only": false,
+  "generalization": "Synthetic Source Data: one measurement block reused across figures, summary rows computed with STDEVP or on a row subset, two conditions pointing at one panel, and a block with fewer rows than the legend n.",
+  "items": [
+    {
+      "id": "SD1",
+      "pattern_id": "P-SOURCE-DATA-CROSS-FIGURE-REUSE",
+      "expected_tags": ["Warning [データ取り違え]", "Warning [コントロール群共有]"],
+      "severity": "required",
+      "panels": [{"figure": "Fig. 3e"}, {"figure": "Fig. 4h"}],
+      "evidence_paths": ["MOESM41_ESM.xlsx", "MOESM43_ESM.xlsx"]
+    },
+    {
+      "id": "SD2",
+      "pattern_id": "P-SOURCE-DATA-POPULATION-SD",
+      "severity": "required",
+      "evidence_paths": ["MOESM41_ESM.xlsx"]
+    },
+    {
+      "id": "SD3",
+      "pattern_id": "P-SOURCE-DATA-SUMMARY-MISMATCH",
+      "severity": "required",
+      "panels": [{"figure": "Fig. 4p"}],
+      "evidence_paths": ["MOESM43_ESM.xlsx"]
+    },
+    {
+      "id": "SD4",
+      "pattern_id": "P-SOURCE-DATA-PANEL-REF-DUP",
+      "severity": "required",
+      "panels": [{"figure": "Fig. 4h"}],
+      "evidence_paths": ["MOESM43_ESM.xlsx"]
+    },
+    {
+      "id": "SD5",
+      "pattern_id": "P-SOURCE-DATA-LEGEND-N",
+      "expected_tags": ["Warning [サンプルサイズ記載誤記]"],
+      "severity": "required",
+      "panels": [{"figure": "Fig. 5c"}],
+      "evidence_paths": ["MOESM44_ESM.xlsx"]
+    },
+    {
+      "id": "SD6",
+      "pattern_id": "P-SHARED-CONTROL-UNDISCLOSED",
+      "severity": "desirable",
+      "evidence_paths": ["MOESM41_ESM.xlsx", "MOESM43_ESM.xlsx"],
+      "detection_hints": ["Fig. 4d blocks hold strict subsets of the Fig. 3 vectors"]
+    }
+  ]
+}

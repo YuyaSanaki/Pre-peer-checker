@@ -122,3 +122,35 @@ def test_auto_chunk_path_uses_assign_generate(monkeypatch):
     )
     assert len(calls) == 1 and "[#1]" in calls[0]
     assert [(p.panel, p.n) for p in out.panels if p.n == 7] == [("B", 7)]
+
+
+def test_vote_keeps_only_agreed_panels_and_verify_applies_corrections():
+    from pre_peer_checker.llm.legend_assign import (
+        NMention,
+        apply_verdicts,
+        assign_unread_ns,
+        vote,
+    )
+
+    m1, m2, m3 = NMention(0, 1, 8), NMention(5, 6, 9), NMention(9, 10, 4)
+    a = [(m1, ["B", "C"], "WT"), (m2, ["D"], "KO"), (m3, ["E"], "")]
+    b = [(m1, ["C"], "WT"), (m2, ["F"], "KO")]
+    assert vote(a, b) == [(m1, ["C"], "WT")]
+
+    raw = json.dumps({"tags": [{"id": 1, "ok": True}, {"id": 2, "ok": False, "panels": ["F"]},
+                               {"id": 3, "ok": False, "panels": []}]})
+    assert apply_verdicts(raw, a) == [(m1, ["B", "C"], "WT"), (m2, ["F"], "KO")]
+
+    text = "Figure 2. (B) Growth of WT larvae, n = 8 [#1]. (C) Size of KO larvae (n = 9)."
+    rules = LegendFigureJSON(figure="Figure 2", panels=[])
+
+    def gen(prompt: str) -> str:
+        # the two readings disagree on the second tag
+        second = ["C"] if "Work tag by tag" in prompt else ["B"]
+        return json.dumps({"tags": [
+            {"id": 1, "n": 8, "panels": ["B"], "group": "WT", "skip": False},
+            {"id": 2, "n": 9, "panels": second, "group": "KO", "skip": False},
+        ]})
+
+    out = assign_unread_ns("Figure 2", text, rules, gen, strategy="vote")
+    assert {(p.panel, p.n) for p in out.panels} == {("B", 8)}

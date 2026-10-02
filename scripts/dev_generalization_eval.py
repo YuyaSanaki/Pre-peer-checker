@@ -67,6 +67,11 @@ def main(argv: list[str] | None = None) -> int:
         default="product",
         help="product: locate legends like a verification run (default); raw: eval-only pdftotext -raw splitter",
     )
+    ap.add_argument(
+        "--once",
+        action="store_true",
+        help="Refuse holdout cases already scored on this task (the one-shot measurement)",
+    )
     ap.add_argument("-o", "--output", type=Path, default=None)
     args = ap.parse_args(argv)
 
@@ -98,6 +103,7 @@ def main(argv: list[str] | None = None) -> int:
             revise_reason=args.revise_gold,
             bootstrap_iters=args.bootstrap,
             legend_source=args.legend_source,
+            once=args.once,
         )
     except (gz.GoldPolicyError, gz.GoldFrozenError, RuntimeError, ValueError) as exc:
         print(f"error: {exc}", file=sys.stderr)

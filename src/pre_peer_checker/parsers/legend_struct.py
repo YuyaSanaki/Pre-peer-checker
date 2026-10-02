@@ -120,6 +120,13 @@ _COMMA_OPEN_RE = re.compile(
     r"([a-z](?:\s*[–—-]\s*[a-z])?(?:\s*,\s*[a-z](?:\s*[–—-]\s*[a-z])?)*)"
     r",\s+(?=\S)"
 )
+# Nature Communications ``c, d Fecundity …`` / ``i–m Quantification …`` / ``d qRT-PCR …``:
+# a sentence-initial panel run followed by a space (sometimes a comma) and a word.
+_SPACE_OPEN_RE = re.compile(
+    r"(?:^|(?<=[.;|] ))"
+    r"([a-z](?:\s*[–—-]\s*[a-z])?(?:\s*,\s*[a-z](?:\s*[–—-]\s*[a-z])?)*)"
+    r",?\s+(?=[A-Za-z0-9])"
+)
 # Uppercase ``A, Box plots …`` / ``D–F: Plasma …`` / ``G and H: …`` / ``For B-D: …`` at sentence start.
 _UPPER_LETTER = r"[A-Z](?![\w′'])"
 _UPPER_OPEN_RE = re.compile(
@@ -178,6 +185,15 @@ class PanelN:
     group: str = ""
     # legend range ``n = 28–32``: ``n`` is the low end; numeric n checks skip these rows
     n_max: int | None = None
+
+    @property
+    def n_open(self) -> bool:
+        """``n ≥ 2`` / ``n > 10``: a lower bound only (``n_max`` is ``OPEN_N_MAX``)."""
+        return self.n_max == OPEN_N_MAX
+
+
+# ``n_max`` of a legend lower bound (``n ≥ 2``); range-aware code skips it like any range
+OPEN_N_MAX = 10**6
 
 
 @dataclass
@@ -380,6 +396,20 @@ def _upper_letter_openers(text: str) -> list[tuple[int, list[str]]]:
     return kept + [(s, ps) for s, ps in back if set(ps) <= named]
 
 
+def _alphabetical_openers(cands: list[tuple[int, list[str]]]) -> list[tuple[int, list[str]]]:
+    """Openers whose panels advance through the alphabet (a, b … then c, d …).
+
+    A run of letters (``f,g`` after ``h``) is kept out of order; a lone letter is not.
+    """
+    kept: list[tuple[int, list[str]]] = []
+    last = ""
+    for start, panels in cands:
+        if panels and (panels[0] > last or len(panels) >= 2):
+            kept.append((start, panels))
+            last = max(last, panels[-1])
+    return kept
+
+
 def _published_section_spans(
     text: str, *, nature_bare: bool
 ) -> list[tuple[int, int, list[str]]]:
@@ -395,7 +425,17 @@ def _published_section_spans(
         (m.start(1), _expand_panel_token(m.group(1).upper()))
         for m in _COMMA_OPEN_RE.finditer(text)
     ]
-    if len(comma) >= 2:
+    # ``a, b Lifespans`` also reads as a comma opener ``a,``: the style with more openers wins
+    spaced = _alphabetical_openers(
+        [
+            (m.start(1), _expand_panel_token(m.group(1).upper()))
+            for m in _SPACE_OPEN_RE.finditer(text)
+        ]
+    )
+    if len(spaced) >= 2 and len(spaced) > len(comma):
+        opens.extend(spaced)
+        nature_bare = False
+    elif len(comma) >= 2:
         opens.extend((start, panels) for start, panels in comma if panels)
         nature_bare = False
     upper = _upper_letter_openers(text)
@@ -697,6 +737,7 @@ def _postfix_n_assignments(
 _N_MENTION_RE = re.compile(
     r"(?<![A-Za-z])[nN]\s*=\s*(\d+)(?:\s*(?:[–—-]|to|or)\s*(\d+))?(?!\d)(?![.,]\d)"
 )
+_N_LOWER_RE = re.compile(r"(?<![A-Za-z])n\s*(≥|⩾|>=|>)\s*(\d+)(?!\d)(?![.,]\d)")
 _SEX_UNIT_RE = re.compile(r"\s*(?:males?|females?|men|women|boys|girls)\b", re.I)
 # ``n (BW and KW/BW) = 12``: n of the named measurements
 _N_QUALIFIED_RE = re.compile(r"(?<![A-Za-z])n\s*\(([^()=]{1,40})\)\s*=\s*(\d+)(?:\s*[–—-]\s*(\d+))?(?!\d)")
@@ -953,6 +994,10 @@ def _clause_mentions(
         lo, hi = int(m.group(2)), int(m.group(3)) if m.group(3) else None
         n_sentences.add(sentence(m.start())[0])
         out.append((m.start(), m.end(), [(lo, hi if hi and hi > lo else None, None)], "qual:" + m.group(1)))
+    for m in _N_LOWER_RE.finditer(chunk):
+        lo = int(m.group(2)) + (1 if m.group(1) == ">" else 0)
+        n_sentences.add(sentence(m.start())[0])
+        out.append((m.start(), m.end(), [(lo, OPEN_N_MAX, None)], "range"))
     times = list(_N_PER_UNIT_TIMES_RE.finditer(chunk))
     for m in times:
         lo, hi = int(m.group(1)), int(m.group(2)) if m.group(2) else None
@@ -1169,7 +1214,23 @@ def parse_panel_ns(figure: str, text: str) -> list[PanelN]:
             n_max=pn.n_max,
         )
 
+    # 7) ``n = 4 for d–g``: the stated panel scope wins over the section the n sits in
+    for m in _N_FOR_PANELS_RE.finditer(text):
+        n = int(m.group(1))
+        panels = _expand_panel_token(m.group(2).upper())
+        if len(panels) < 2 or any((pn.panel == p and pn.n != n and not pn.group) for pn in found for p in panels):
+            continue
+        ctx = text[max(0, m.start() - 20) : m.end() + 20]
+        for p in panels:
+            _add_pn(found, figure=figure, panel=p, n=n, context=ctx)
+
     return found
+
+
+_N_FOR_PANELS_RE = re.compile(
+    r"(?<![A-Za-z])n\s*=\s*(\d+)\s+(?:each\s+)?for\s+(?:panels?\s+)?"
+    r"([A-Za-z]\s*[–—-]\s*[A-Za-z]|[A-Za-z](?:\s*(?:,|and|,\s*and)\s*[A-Za-z])+)(?=\s*[.;)]|\s*$)"
+)
 
 
 def extract_figure_captions_from_pdf_text(

@@ -196,7 +196,7 @@ def test_extract_legends_with_backend_records_json_mode(tmp_path, monkeypatch):
             )
 
     monkeypatch.setattr(be, "select_backend", lambda *a, **k: FakeBackend())
-    monkeypatch.setattr(be, "probe_backends", lambda: [])
+    monkeypatch.setattr(be, "probe_backends", lambda **k: [])
 
     _items, meta = extract_legends_with_backend(docx, enabled=True, prefer="auto")
     assert meta.get("json_mode") == "free+coerce"

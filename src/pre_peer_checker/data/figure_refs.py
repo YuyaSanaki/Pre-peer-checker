@@ -187,14 +187,31 @@ def sheet_figure_label(
     return FigureLabel(num, panels, extended)
 
 
-def workbook_uses_short_sheet_names(sheets: list[str]) -> bool:
-    """True when most sheets are named like ``2a`` / ``4bc`` (one sheet per panel)."""
+def workbook_uses_short_sheet_names(sheets: list[str], *, series_guard: bool = True) -> bool:
+    """True when most sheets are named like ``2a`` / ``4bc`` (one sheet per panel).
+
+    ``series_guard`` rejects lab numbering (``1x 2x 3x``, ``02P``); turn it off for
+    files already named as Source Data.
+    """
     named = [s for s in sheets if s.strip()]
     if not named:
         return False
-    hits = 0
+    hits: list[tuple[str, tuple[str, ...]]] = []
     for s in named:
         short = parse_short_sheet_label(s)
         if short is not None and short[0] is not None:
-            hits += 1
-    return hits >= max(1, (len(named) + 1) // 2)
+            m = _SHORT_SHEET_RE.match(s)
+            if series_guard and m and m.group("num") and re.match(r"S?0\d", m.group("num"), re.I):
+                return False  # "02P", "09P": plate / sample numbers, not figures
+            hits.append(short)
+    if len(hits) < max(1, (len(named) + 1) // 2):
+        return False
+    # "1x 2x 3x 4x" / "1P 2P 3P": a numbered series of one condition, not panels
+    if (
+        series_guard
+        and len(hits) >= 3
+        and len({p for _, p in hits}) == 1
+        and len({n for n, _ in hits}) == len(hits)
+    ):
+        return False
+    return True

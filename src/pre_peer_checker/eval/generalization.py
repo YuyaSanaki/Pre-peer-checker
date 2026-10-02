@@ -248,6 +248,31 @@ def ensure_frozen(case: Case, task: str, *, revise_reason: str | None = None) ->
     return "revised"
 
 
+def holdout_wear(case: Case, task: str) -> int:
+    """How many earlier runs already scored this holdout case on ``task``."""
+    return sum(1 for s in case.manifest.get("scores") or [] if s.get("task") == task)
+
+
+def record_holdout_score(case: Case, task: str, configs: list[str], git_rev: str | None) -> None:
+    """Every holdout scoring is logged; only the first one is an unbiased estimate."""
+    if case.split != "holdout":
+        return
+    scores = list(case.manifest.get("scores") or [])
+    scores.append({"task": task, "at": _now(), "configs": list(configs), "git": git_rev})
+    case.manifest["scores"] = scores
+    case.save_manifest()
+
+
+def check_score_once(cases: list[Case], task: str) -> None:
+    """``--once``: refuse holdout cases that were already scored on this task."""
+    worn = [c.case_id for c in cases if c.split == "holdout" and holdout_wear(c, task)]
+    if worn:
+        raise GoldPolicyError(
+            f"holdout already scored on {task}: {', '.join(worn)} "
+            "(run without --once to re-measure; the result then counts as worn)"
+        )
+
+
 def burn_case(case: Case, reason: str) -> None:
     """Move a holdout case to dev once its individual errors have been seen."""
     case.manifest["split"] = "dev"
@@ -349,13 +374,14 @@ def legend_predictions(
 ) -> list[dict[str, Any]]:
     from pre_peer_checker.llm.legend_extract import extract_check_items_from_chunk
     from pre_peer_checker.parsers.figure_chunks import FigureChunk
-    from pre_peer_checker.parsers.legend_struct import parse_panel_ns
+    from pre_peer_checker.parsers.legend_struct import OPEN_N_MAX, parse_panel_ns
 
     rows: list[dict[str, Any]] = []
     for fig, text in captions if captions is not None else legend_captions(case, source):
         if not cfg.use_llm:
             for pn in parse_panel_ns(fig, text):
-                rows.append(_legend_row(fig, pn.panel, pn.group or "", pn.n, pn.n_max))
+                if not pn.n_open:
+                    rows.append(_legend_row(fig, pn.panel, pn.group or "", pn.n, pn.n_max))
             continue
         if llm_generate is None:
             raise RuntimeError(f"config {cfg.name!r} needs an LLM backend")
@@ -371,7 +397,8 @@ def legend_predictions(
             assign_generate=getattr(llm_generate, "free", None) if cfg.only_if_unread else None,
         )
         for p in item.panels:
-            if p.n is None:
+            # legend lower bounds (``n ≥ 2``) are not scored by the panel-extract gold
+            if p.n is None or p.n_max == OPEN_N_MAX:
                 continue
             rows.append(
                 _legend_row(fig, p.panel, p.groups[0] if p.groups else "", p.n, p.n_max)
@@ -759,9 +786,13 @@ def run_generalization(
     bootstrap_iters: int = 1000,
     seed: int = 0,
     legend_source: str = "product",
+    once: bool = False,
 ) -> dict[str, Any]:
     if task not in TASKS:
         raise ValueError(f"unknown task {task!r}")
+    if once:
+        check_score_once(cases, task)
+    wear = {c.case_id: holdout_wear(c, task) for c in cases if c.split == "holdout"}
     reveal_set = set(reveal)
     by_id = {c.case_id: c for c in cases}
     for rid in reveal_set:
@@ -804,6 +835,9 @@ def run_generalization(
     )
     if task == "legend":
         report["legend_source"] = legend_source
+    report["holdout_wear"] = wear
+    for c in cases:
+        record_holdout_score(c, task, list(configs), report.get("git_rev"))
     for rid in sorted(reveal_set):
         burn_case(by_id[rid], f"errors revealed in {task} eval {report['created_at']}")
     return report
@@ -831,6 +865,12 @@ def format_report(report: dict[str, Any]) -> str:
         gap = res.get("gap_recall_dev_minus_holdout")
         if gap is not None:
             lines.append(f"  {name:32} gap(dev-holdout recall)={gap:+.3f}")
+    worn = {cid: n for cid, n in (report.get("holdout_wear") or {}).items() if n}
+    if worn:
+        lines.append(
+            f"  holdout worn (scored before; not an unbiased estimate): "
+            + ", ".join(f"{cid}×{n}" for cid, n in sorted(worn.items()))
+        )
     return "\n".join(lines)
 
 

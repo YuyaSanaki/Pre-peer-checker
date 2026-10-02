@@ -1,0 +1,23 @@
+{
+ "schema_version": "legend_data_gold/v1",
+ "slot": "paper_XX",
+ "coverage": "exhaustive",
+ "legend_source": "manuscript legends",
+ "notes": ["Synthetic example; real gold files are gitignored."],
+ "items": [
+  {"figure": "Figure 1", "panel": "B", "group": "", "legend_n": 12,
+   "data": {"file": "Fig1/quant.xlsx", "alt_files": ["copy/quant.xlsx"], "sheet": "graph",
+            "group_col": "genotype", "group_value": "control", "count": "rows", "n": 11},
+   "verdict": "mismatch", "panel_kind": "plot", "review_status": "draft"},
+  {"figure": "Figure 1", "panel": "C", "group": "", "legend_n": 40,
+   "data": {"file": "Fig1/phenotype.xlsx", "sheet": "counts",
+            "group_col": "Genotype", "group_value": "mutant", "count": "sum:number", "n": 40},
+   "verdict": "match", "panel_kind": "plot", "review_status": "draft"},
+  {"figure": "Figure 2", "panel": "A", "group": "Ctrl", "legend_n": 120, "n_source": "figure",
+   "data": {"file": "Source_Data.xlsx", "sheet": "Fig.2a", "column": "Ctrl",
+            "count": "km_cohort", "n": 118, "n_is_lower_bound": true},
+   "verdict": "match", "panel_kind": "survival_curve", "review_status": "draft"},
+  {"figure": "Figure 2", "panel": "D", "group": "", "legend_n": 4, "data": null,
+   "verdict": "data_missing", "panel_kind": "image", "review_status": "draft"}
+ ]
+}

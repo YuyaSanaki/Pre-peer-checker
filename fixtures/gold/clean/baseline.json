@@ -1,0 +1,154 @@
+{
+  "frozen_at": "2026-10-01T15:10:12.767675+00:00",
+  "commit": "765a493",
+  "config": {
+    "legend_llm": "off",
+    "profile": null,
+    "fast": true
+  },
+  "summary": {
+    "n_cases": 22,
+    "unexplained_by_case": {
+      "paper_01": {
+        "P-REF-LABEL-MISMATCH": 1,
+        "P-DATA-SWAP-CROSS-CONDITION": 1
+      },
+      "paper_02": {
+        "P-METHODS-CLAIM-MISMATCH": 1,
+        "P-REF-META-INCONSISTENT": 1,
+        "P-DATA-SWAP-CROSS-CONDITION": 11,
+        "P-IMAGE-DUPLICATE-INTERNAL": 14
+      },
+      "paper_03": {
+        "P-METHODS-CLAIM-MISMATCH": 1,
+        "P-REF-MISSING-ENTRY": 20,
+        "P-DATA-SWAP-CROSS-CONDITION": 2,
+        "P-IMAGE-DUPLICATE-INTERNAL": 7
+      },
+      "paper_04": {
+        "P-METHODS-CLAIM-MISMATCH": 1,
+        "P-DATA-SWAP-CROSS-CONDITION": 2,
+        "P-IMAGE-DUPLICATE-INTERNAL": 5
+      },
+      "paper_05": {
+        "P-REF-META-INCONSISTENT": 3,
+        "P-REF-MISSING-ENTRY": 17,
+        "P-IMAGE-DUPLICATE-INTERNAL": 2
+      },
+      "paper_06": {
+        "P-METHODS-CLAIM-MISMATCH": 1,
+        "P-REF-META-INCONSISTENT": 1,
+        "P-REF-MISSING-ENTRY": 19,
+        "P-DATA-SWAP-CROSS-CONDITION": 195,
+        "P-IMAGE-DUPLICATE-INTERNAL": 37
+      },
+      "paper_07": {
+        "P-METHODS-CLAIM-MISMATCH": 1,
+        "P-REF-MISSING-ENTRY": 10,
+        "P-DATA-SWAP-CROSS-CONDITION": 1,
+        "P-IMAGE-DUPLICATE-INTERNAL": 8
+      },
+      "paper_08": {
+        "P-DATA-SWAP-CROSS-CONDITION": 7,
+        "P-IMAGE-DUPLICATE-INTERNAL": 17
+      },
+      "paper_09": {
+        "P-METHODS-CLAIM-MISMATCH": 1,
+        "P-REF-MISSING-ENTRY": 20,
+        "P-DATA-SWAP-CROSS-CONDITION": 32,
+        "P-IMAGE-DUPLICATE-INTERNAL": 41
+      },
+      "paper_10": {
+        "P-METHODS-CLAIM-MISMATCH": 1,
+        "P-REF-META-INCONSISTENT": 1,
+        "P-REF-MISSING-ENTRY": 19,
+        "P-DATA-SWAP-CROSS-CONDITION": 1,
+        "P-IMAGE-DUPLICATE-INTERNAL": 15
+      },
+      "paper_11": {
+        "P-METHODS-CLAIM-MISMATCH": 1,
+        "P-REF-LABEL-MISMATCH": 1,
+        "P-REF-META-INCONSISTENT": 1,
+        "P-REF-MISSING-ENTRY": 19,
+        "P-DATA-SWAP-CROSS-CONDITION": 170,
+        "P-IMAGE-DUPLICATE-INTERNAL": 37
+      },
+      "paper_12": {
+        "P-METHODS-CLAIM-MISMATCH": 1,
+        "P-REF-MISSING-ENTRY": 20,
+        "P-DATA-SWAP-CROSS-CONDITION": 1,
+        "P-IMAGE-DUPLICATE-INTERNAL": 1
+      },
+      "paper_13": {
+        "P-METHODS-CLAIM-MISMATCH": 1,
+        "P-ANTIBODY-HOST-MISMATCH": 1,
+        "P-REF-META-INCONSISTENT": 1,
+        "P-REF-MISSING-ENTRY": 19,
+        "P-DATA-SWAP-CROSS-CONDITION": 305,
+        "P-IMAGE-DUPLICATE-INTERNAL": 28
+      },
+      "paper_14": {
+        "P-METHODS-CLAIM-MISMATCH": 1,
+        "P-REF-META-INCONSISTENT": 1,
+        "P-REF-MISSING-ENTRY": 9,
+        "P-DATA-SWAP-CROSS-CONDITION": 4,
+        "P-IMAGE-DUPLICATE-INTERNAL": 5
+      },
+      "paper_15": {
+        "P-METHODS-CLAIM-MISMATCH": 3,
+        "P-DATA-SWAP-CROSS-CONDITION": 2,
+        "P-IMAGE-DUPLICATE-INTERNAL": 2
+      },
+      "paper_16": {
+        "P-METHODS-CLAIM-MISMATCH": 1,
+        "P-REF-META-INCONSISTENT": 1,
+        "P-REF-MISSING-ENTRY": 7,
+        "P-DATA-SWAP-CROSS-CONDITION": 2,
+        "P-IMAGE-DUPLICATE-INTERNAL": 2
+      },
+      "paper_17": {
+        "P-METHODS-CLAIM-MISMATCH": 1,
+        "P-REF-DUPLICATE-KEY": 2,
+        "P-IMAGE-DUPLICATE-INTERNAL": 4
+      },
+      "paper_18": {
+        "P-METHODS-CLAIM-MISMATCH": 1,
+        "P-IMAGE-DUPLICATE-INTERNAL": 1
+      },
+      "paper_19": {
+        "P-METHODS-CLAIM-MISMATCH": 1,
+        "P-REF-META-INCONSISTENT": 1,
+        "P-REF-MISSING-ENTRY": 18,
+        "P-DATA-SWAP-CROSS-CONDITION": 1
+      },
+      "paper_20": {
+        "P-METHODS-CLAIM-MISMATCH": 1,
+        "P-IMAGE-DUPLICATE-INTERNAL": 4
+      },
+      "paper_21": {
+        "P-METHODS-CLAIM-MISMATCH": 1,
+        "P-REF-MISSING-ENTRY": 20,
+        "P-DATA-SWAP-CROSS-CONDITION": 3,
+        "P-IMAGE-DUPLICATE-INTERNAL": 1
+      },
+      "private_benchmark": {
+        "P-METHODS-CLAIM-MISMATCH": 1,
+        "P-REF-META-INCONSISTENT": 1,
+        "P-REF-MISSING-ENTRY": 19
+      }
+    },
+    "unexplained_by_pattern": {
+      "P-ANTIBODY-HOST-MISMATCH": 1,
+      "P-DATA-SWAP-CROSS-CONDITION": 740,
+      "P-IMAGE-DUPLICATE-INTERNAL": 231,
+      "P-METHODS-CLAIM-MISMATCH": 21,
+      "P-REF-DUPLICATE-KEY": 2,
+      "P-REF-LABEL-MISMATCH": 2,
+      "P-REF-META-INCONSISTENT": 12,
+      "P-REF-MISSING-ENTRY": 236
+    },
+    "demoted_by_pattern": {},
+    "fp_per_paper": 56.591,
+    "papers_with_fp": 22
+  }
+}

@@ -375,7 +375,7 @@ def match_source_block_for_panel(
     cands = _distinct(cands)
     if len(cands) > 1:
         by_group_n = [
-            b for b in cands if b.n_comparable and any(len(v) == pn.n for _, v in b.groups)
+            b for b in cands if b.n_comparable and any(n == pn.n for _, n, _ in b.group_ns)
         ]
         cands = _distinct(by_group_n or [b for b in cands if b.n == pn.n]) or cands
         if len({_n_profile(b) for b in cands}) > 1:
@@ -385,7 +385,7 @@ def match_source_block_for_panel(
 
 def _n_profile(block: SourceDataBlock) -> tuple:
     """Sub-tables of one panel with the same layout and group sizes give the same n."""
-    return (block.layout, tuple(len(v) for _, v in block.groups))
+    return (block.layout, tuple(n for _, n, _ in block.group_ns))
 
 
 def _distinct(blocks: list[SourceDataBlock]) -> list[SourceDataBlock]:
@@ -475,28 +475,41 @@ def warnings_from_source_data_panels(
                 continue
             fig = b.figure.label() if b.figure else pn.figure
             group_txt = f" ({pn.group})" if pn.group else ""
-            bgroups = b.groups
+            bgroups = b.group_ns
             per_group = (
-                "（群別: " + "、".join(f"{g} n={len(v)}" for g, v in bgroups[:8]) + "）"
+                "（群別: "
+                + "、".join(f"{g} n={'' if ex else '≥'}{n}" for g, n, ex in bgroups[:8])
+                + "）"
                 if len(bgroups) > 1
                 else ""
             )
+            curve = b.curve_ns is not None
+            if curve:
+                title = f"{fig}{group_txt}: Legend の n が生存曲線の解析 n より少ない"
+                body = (
+                    f"Legend は n={pn.n}（{pn.context.strip()[:80]}）ですが、"
+                    f"Source Data の生存曲線は少なくとも {data_n} 個体から計算されています{per_group}。"
+                    "曲線の各低下（死亡数/at-risk 数）を整数で再現した最小のコホートサイズです。"
+                )
+            else:
+                title = f"{fig}{group_txt}: Legend の n と Source Data の行数が不一致"
+                body = (
+                    f"Legend は n={pn.n}（{pn.context.strip()[:80]}）ですが、"
+                    f"Source Data の該当ブロックは {data_n} 行です{per_group}。"
+                    "正の n は生データ群の有効行数です。除外した個体があれば Legend に明記してください。"
+                )
             out.append(
                 WarningItem(
                     tag=WarningTag.SAMPLE_SIZE,
-                    title=f"{fig}{group_txt}: Legend の n と Source Data の行数が不一致",
+                    title=title,
                     location=f"{b.location}「{b.title}」",
-                    reason=(
-                        f"Legend は n={pn.n}（{pn.context.strip()[:80]}）ですが、"
-                        f"Source Data の該当ブロックは {data_n} 行です{per_group}。"
-                        "正の n は生データ群の有効行数です。除外した個体があれば Legend に明記してください。"
-                    ),
+                    reason=body,
                     sources=[str(b.path)],
                     metadata={
                         "pattern_id": "P-SOURCE-DATA-LEGEND-N",
                         "legend_n": pn.n,
                         "data_n": data_n,
-                        "n_authority": "raw_data_nrows",
+                        "n_authority": "survival_curve_min_cohort" if curve else "raw_data_nrows",
                     },
                 )
             )

@@ -1,0 +1,16 @@
+{
+  "schema_version": "1.0",
+  "case_id": "source_data",
+  "role": "synthetic_regression",
+  "description": "Journal-style Source Data workbooks (titled side-by-side blocks) + Word legends: the five P-SOURCE-DATA-* checks end to end.",
+  "root_relative": "fixtures/synthetic/source_data",
+  "docker_root": "/app/fixtures/synthetic/source_data",
+  "canonical_paths": {
+    "manuscript": "manuscript.docx",
+    "source_data": ["MOESM41_ESM.xlsx", "MOESM43_ESM.xlsx", "MOESM44_ESM.xlsx"]
+  },
+  "ignore_globs": [],
+  "eval_command": {
+    "gold": "python -m pre_peer_checker.eval.gold_eval --case source_data --run --input fixtures/synthetic/source_data"
+  }
+}

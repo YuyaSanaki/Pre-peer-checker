@@ -92,6 +92,74 @@ _PATTERN_SPEC: dict[str, dict[str, Any]] = {
 }
 
 
+def _spec(
+    parser: list[str],
+    linking: list[str] | None = None,
+    need: list[str] | None = None,
+    primary: str = LAYER_MATCH,
+) -> dict[str, Any]:
+    return {
+        "primary": primary,
+        "parser_checks": parser,
+        "linking_checks": linking or [],
+        "need_any_ran": need if need is not None else parser,
+    }
+
+
+_PATTERN_SPEC.update(
+    {
+        "P-IMAGE-DUPLICATE-INTERNAL": _spec(["images", "figure_pdf"]),
+        "P-IMAGE-PARTIAL-REUSE": _spec(["images", "figure_pdf"], ["corpus_h3"]),
+        "P-BLOT-LANE-REUSE": _spec(["images", "figure_pdf"]),
+        "P-CONFIG-ANNOTATION-MISMATCH": _spec(["word_legend", "tables", "scripts"]),
+        "P-REF-LABEL-MISMATCH": _spec(["word_legend", "figure_pdf"]),
+        "P-VECTOR-SUBSET-UNDISCLOSED": _spec(["tables", "plot_digitize"], ["cross_table"]),
+        "P-ERRORBAR-SEM-SD-MISMATCH": _spec(["word_legend", "tables"], ["legend_n_match"]),
+        "P-STAT-MULTIPLICITY-GAP": _spec(["word_legend"]),
+        "P-NUMERIC-CROSSREF-MISMATCH": _spec(["word_legend", "tables"], ["legend_n_match"]),
+        "P-SCALE-MAG-INCONSISTENT": _spec(["images", "figure_pdf"]),
+        "P-COUNT-N-MISMATCH": _spec(["word_legend", "tables"], ["legend_n_match", "n_matrix"]),
+        "P-SURVIVAL-COUNT-NONINTEGER": _spec(["word_legend", "tables"]),
+        "P-METHODS-CLAIM-MISMATCH": _spec(["word_legend", "figure_pdf"]),
+        "P-REF-MISSING-ENTRY": _spec(["ref_biblio"]),
+        "P-REF-DUPLICATE-KEY": _spec(["ref_biblio"]),
+        "P-REF-META-INCONSISTENT": _spec(["ref_biblio"]),
+        "P-REF-ORPHAN-ENTRY": _spec(["ref_biblio"]),
+        "P-REF-PDF-META-MISMATCH": _spec(["ref_biblio"], ["ref_cited_pdfs"]),
+        "P-REF-CLAIM-CONTRADICTION": _spec(["ref_biblio"], ["ref_cited_pdfs"]),
+        "P-SOURCE-DATA-CROSS-FIGURE-REUSE": _spec(["tables"], ["cross_table"]),
+        "P-SOURCE-DATA-SUMMARY-MISMATCH": _spec(["tables"]),
+        "P-SOURCE-DATA-POPULATION-SD": _spec(["tables"]),
+        "P-SOURCE-DATA-LEGEND-N": _spec(
+            ["word_legend", "tables"], ["legend_found", "legend_n_match", "n_matrix"]
+        ),
+        "P-SOURCE-DATA-PANEL-REF-DUP": _spec(["tables", "word_legend"], ["n_matrix"]),
+        "P-SCALE-BAR-LEGEND-MISMATCH": _spec(["word_legend", "figure_pdf"], ["legend_found"]),
+        "P-ANTIBODY-HOST-MISMATCH": _spec(["word_legend"]),
+        "P-STAT-DF-N-MISMATCH": _spec(["word_legend"], ["legend_found"]),
+        "P-MEAN-GRANULARITY-IMPOSSIBLE": _spec(["word_legend"], ["legend_found"]),
+        "P-IMAGE-CHANNEL-REUSE": _spec(["images", "figure_pdf"]),
+        "P-BLOT-SPLICE-BOUNDARY": _spec(["images", "figure_pdf"]),
+        "P-SHEET-FORMULA-INCONSISTENT": _spec(["tables"]),
+    }
+)
+
+# Legend-dependent checks: an empty / missing legend is a parser miss, not a match miss.
+_LEGEND_DEPENDENT = {
+    "P-N-MISMATCH-LEGEND-VS-DATA",
+    "P-N-INCONSISTENT-ACROSS-IDENTICAL-PLOTS",
+    "P-EXCLUSION-UNDECLARED",
+    "P-COUNT-N-MISMATCH",
+    "P-SOURCE-DATA-LEGEND-N",
+    "P-STAT-DF-N-MISMATCH",
+    "P-MEAN-GRANULARITY-IMPOSSIBLE",
+}
+
+
+def pattern_spec_ids() -> set[str]:
+    return set(_PATTERN_SPEC)
+
+
 def _checks_by_id(coverage: dict[str, Any] | None) -> dict[str, dict[str, str]]:
     if not coverage:
         return {}
@@ -191,11 +259,7 @@ def diagnose_item_layer(
             "note": f"prerequisite inputs missing/skipped ({detail})",
         }
 
-    if pid in {
-        "P-N-MISMATCH-LEGEND-VS-DATA",
-        "P-N-INCONSISTENT-ACROSS-IDENTICAL-PLOTS",
-        "P-EXCLUSION-UNDECLARED",
-    }:
+    if pid in _LEGEND_DEPENDENT:
         wl = checks.get("word_legend")
         if wl and (
             "抽出パネル n=0" in wl.get("detail", "")
@@ -205,6 +269,13 @@ def diagnose_item_layer(
                 "layer": LAYER_PARSER,
                 "fail_layer": LAYER_PARSER,
                 "note": f"legend/panel extract empty ({wl.get('detail')})",
+            }
+        lf = checks.get("legend_found")
+        if lf and "見つからない" in lf.get("detail", ""):
+            return {
+                "layer": LAYER_PARSER,
+                "fail_layer": LAYER_PARSER,
+                "note": f"some figure legends not located ({lf.get('detail')[:120]})",
             }
 
     linking_ids = list(spec.get("linking_checks") or [])
@@ -222,7 +293,7 @@ def diagnose_item_layer(
                 }
 
     ratio = _n_matrix_unlinked_ratio(artifacts)
-    if ratio is not None and ratio >= 0.5 and pid.startswith("P-N-"):
+    if ratio is not None and ratio >= 0.5 and (pid.startswith("P-N-") or pid in _LEGEND_DEPENDENT):
         return {
             "layer": LAYER_LINKING,
             "fail_layer": LAYER_LINKING,

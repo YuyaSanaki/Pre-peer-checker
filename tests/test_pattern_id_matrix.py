@@ -77,30 +77,6 @@ def _run_h2b_unit() -> None:
     )
 
 
-def _run_source_data_unit(pid: str, tmp_path: Path) -> None:
-    from test_source_data_blocks import _blocks
-
-    from pre_peer_checker.engine.source_data_checks import (
-        warnings_from_source_data_panels,
-        warnings_from_source_data_reuse,
-        warnings_from_source_data_summaries,
-    )
-    from pre_peer_checker.parsers.legend_struct import PanelN
-
-    blocks, _, _ = _blocks(tmp_path)
-    panel_ns = [
-        PanelN(panel="P", n=30, figure="Figure 4", context="n (n = 30)", group="n"),
-        PanelN(panel="H", n=9, figure="Figure 4", context="d (n = 9)", group="d"),
-        PanelN(panel="H", n=7, figure="Figure 4", context="g (n = 7)", group="g"),
-    ]
-    warns = (
-        warnings_from_source_data_reuse(blocks)
-        + warnings_from_source_data_summaries(blocks)
-        + warnings_from_source_data_panels(blocks, panel_ns)
-    )
-    assert pid in {w.metadata.get("pattern_id") for w in warns}
-
-
 def _gold_input(case_id: str, *, corpus: bool) -> dict:
     syn = ROOT / "fixtures" / "synthetic" / case_id
     if case_id in {"image_reuse", "image_partial"}:
@@ -120,9 +96,6 @@ def _gold_input(case_id: str, *, corpus: bool) -> dict:
 def test_ci_required_pattern_emits(entry: dict, tmp_path: Path, request: pytest.FixtureRequest):
     pid = entry["pattern_id"]
     if entry["harness"] == "unit":
-        if entry["unit"] == "source_data_synthetic":
-            _run_source_data_unit(pid, tmp_path)
-            return
         assert entry["unit"] == "h2b_synthetic"
         request.getfixturevalue("sided_profile")
         _run_h2b_unit()

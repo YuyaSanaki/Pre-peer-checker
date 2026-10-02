@@ -327,3 +327,52 @@ def test_annotate_legend_html_marks_panels():
     assert 'data-panel="O"' in html
     assert "<mark class=\"leg-hl\"" in html
     assert "&lt;" not in html  # plain text escaped only when needed
+
+
+def _vec(src: Path, key: str, n: int) -> GroupVector:
+    return GroupVector(source=src, group_key=key, values=tuple(float(i) for i in range(n)), n=n)
+
+
+def test_n_profile_links_the_statement_file(tmp_path: Path):
+    from pre_peer_checker.engine.entity_link import link_by_n_profile
+
+    fig = tmp_path / "Fig3"
+    fig.mkdir()
+    a, b = fig / "manipulation.xlsx", fig / "other.xlsx"
+    ctx = "clone size. n= 10 (J), 12 (K), 12 (L), and 10 (M). ***p<0.001 by Dunn"
+    pns = [PanelN(panel=p, n=n, figure="Figure 3", context=ctx) for p, n in zip("JKLM", (10, 12, 12, 9))]
+    vecs = [_vec(a, "g1", 10), _vec(a, "g2", 12), _vec(a, "g3", 12), _vec(a, "g4", 10),
+            _vec(b, "x", 10), _vec(b, "y", 15)]
+    links = link_by_n_profile(pns, vecs)
+    assert {k[1]: (l.vector.source.name, l.vector.n) for k, l in links.items()} == {
+        "J": ("manipulation.xlsx", 10), "K": ("manipulation.xlsx", 12),
+        "L": ("manipulation.xlsx", 12), "M": ("manipulation.xlsx", 10),
+    }
+    # the file has fewer groups than the statement: the odd row has nothing to compare with
+    assert link_by_n_profile(pns, vecs[:3] + vecs[4:]) == {}
+
+
+def test_link_confidence_gates_mismatch(tmp_path: Path, monkeypatch):
+    from pre_peer_checker.engine.entity_link import (
+        LINK_CONFIDENCE_ENV,
+        EntityLink,
+        LinkStatus,
+        LinkTier,
+        link_confidence,
+        min_mismatch_confidence,
+    )
+    from pre_peer_checker.engine.n_matrix import NCell
+
+    vec = GroupVector(source=tmp_path / "a.xlsx", group_key="0", values=(1.0,) * 8, n=8)
+    assert link_confidence(EntityLink(LinkStatus.LINKED, LinkTier.TIER1, vec, score=100)) == 1.0
+    assert link_confidence(EntityLink(LinkStatus.LINKED, LinkTier.TIER3, vec, score=40)) == 0.4
+    assert link_confidence(EntityLink(LinkStatus.LINKED, LinkTier.SOFT, vec, score=60)) == 0.0
+    assert link_confidence(EntityLink(LinkStatus.UNLINKED, LinkTier.NONE, None)) == 0.0
+
+    assert NCell(n=8, confidence=0.4).counts_for_mismatch(9, 0.4)
+    assert not NCell(n=8, confidence=0.3).counts_for_mismatch(9, 0.4)
+    assert not NCell(n=8, confidence=1.0, n_lower_bound=True).counts_for_mismatch(9, 0.4)
+    assert NCell(n=10, confidence=1.0, n_lower_bound=True).counts_for_mismatch(9, 0.4)
+
+    monkeypatch.setenv(LINK_CONFIDENCE_ENV, "0.7")
+    assert min_mismatch_confidence() == 0.7

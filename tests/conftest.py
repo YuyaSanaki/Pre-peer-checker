@@ -45,6 +45,15 @@ def _disable_heavy_raster_ocr(monkeypatch):
     monkeypatch.setenv("PRE_PEER_CHECKER_RASTER_PANEL_OCR", "0")
 
 
+@pytest.fixture(autouse=True)
+def _large_host_memory(monkeypatch):
+    """Default-profile tests assume a host big enough for the 32B models."""
+    from pre_peer_checker.llm import registry
+
+    monkeypatch.setattr(registry, "_unified_memory_gb", lambda: 128.0)
+    monkeypatch.setattr(registry, "_gpu_memory_gb", lambda: 128.0)
+
+
 @pytest.fixture
 def raster_ocr_auto(monkeypatch):
     monkeypatch.delenv("PRE_PEER_CHECKER_RASTER_PANEL_OCR", raising=False)

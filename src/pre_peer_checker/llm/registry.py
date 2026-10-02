@@ -129,26 +129,126 @@ def default_profile_id(role: Role = "text", *, path: Path | None = None) -> str:
     return default_llm if role == "text" else default_vlm
 
 
-def effective_llm_profile_id(*, path: Path | None = None) -> str:
-    """Host-aware text profile: Mac/MLX → registry default (32b-mlx); else CUDA 本線 32b-hf.
+MLX_PREFERS = frozenset({"mlx"})
+HF_PREFERS = frozenset({"transformers", "cuda", "hf"})
 
-    軽量にしたければ ``PRE_PEER_CHECKER_LLM_PROFILE=qwen2.5-7b-mlx``（または ``-hf``）を指定。
-    """
-    env = (os.environ.get("PRE_PEER_CHECKER_LLM_PROFILE") or "").strip()
-    if env:
-        return env
+
+@dataclass(frozen=True)
+class ProfileSelection:
+    """Host-aware text profile choice and why it was made."""
+
+    profile_id: str
+    preferred_profile_id: str
+    source: str  # env | memory | default
+    memory_gb: float | None = None
+    memory_kind: str = ""  # unified | gpu
+
+    @property
+    def downgraded(self) -> bool:
+        return self.profile_id != self.preferred_profile_id
+
+    def to_dict(self) -> dict[str, Any]:
+        return {**asdict(self), "downgraded": self.downgraded}
+
+
+def _mlx_available() -> bool:
     try:
         from pre_peer_checker.llm.backend import MLXBackend
 
-        if MLXBackend.available():
-            return default_profile_id("text", path=path)
+        return MLXBackend.available()
     except Exception:
-        pass
-    # Non-Mac / MLX 無し: マシンパワーを活かす CUDA・HF 本線
+        return False
+
+
+@lru_cache(maxsize=1)
+def _unified_memory_gb() -> float | None:
+    """Installed RAM (Apple Silicon: unified memory shared with the GPU)."""
+    try:
+        return round(os.sysconf("SC_PAGE_SIZE") * os.sysconf("SC_PHYS_PAGES") / 1024**3, 1)
+    except (ValueError, OSError, AttributeError):
+        return None
+
+
+def _gpu_memory_gb() -> float | None:
+    """VRAM of the torch GPU, capped by ``PRE_PEER_CHECKER_GPU_MAX_MEMORY_GB``."""
+    try:
+        from pre_peer_checker.accel import device_summary, gpu_device, gpu_memory_cap_gb
+
+        if gpu_device() is None:
+            return None
+        mem = device_summary().get("memory_gb")
+    except Exception:
+        return None
+    cap = gpu_memory_cap_gb()
+    if mem is None:
+        return cap
+    return min(mem, cap) if cap is not None else mem
+
+
+def _fit_to_memory(
+    profiles: dict[str, ModelProfile],
+    preferred: str,
+    prefers: frozenset[str],
+    memory_gb: float | None,
+    memory_kind: str,
+) -> ProfileSelection:
+    """Downgrade ``preferred`` to the largest same-backend text profile that fits in memory.
+
+    ``recommended_vram_gb`` is the threshold: installed unified memory for MLX profiles,
+    GPU memory for HF profiles. Never upgrades beyond ``preferred``.
+    """
+    pref = profiles.get(preferred)
+    if memory_gb is None or pref is None or pref.recommended_vram_gb is None:
+        return ProfileSelection(preferred, preferred, "default", memory_gb, memory_kind)
+    if pref.recommended_vram_gb <= memory_gb:
+        return ProfileSelection(preferred, preferred, "memory", memory_gb, memory_kind)
+    smaller = [
+        p
+        for p in profiles.values()
+        if p.role == "text"
+        and p.prefer in prefers
+        and p.recommended_vram_gb is not None
+        and p.recommended_vram_gb < pref.recommended_vram_gb
+    ]
+    if not smaller:
+        return ProfileSelection(preferred, preferred, "memory", memory_gb, memory_kind)
+    fitting = [p for p in smaller if p.recommended_vram_gb <= memory_gb]  # type: ignore[operator]
+    chosen = (
+        max(fitting, key=lambda p: p.recommended_vram_gb or 0)
+        if fitting
+        else min(smaller, key=lambda p: p.recommended_vram_gb or 0)
+    )
+    return ProfileSelection(chosen.id, preferred, "memory", memory_gb, memory_kind)
+
+
+def select_llm_profile(*, path: Path | None = None) -> ProfileSelection:
+    """Host-aware text profile: Mac/MLX → 32b-mlx, else CUDA 本線 32b-hf — sized to memory.
+
+    メモリが推奨量に届かなければ同じバックエンドの軽量版（7B）へ落とす。
+    ``PRE_PEER_CHECKER_LLM_PROFILE`` があればそれを最優先する。
+    """
+    env = (os.environ.get("PRE_PEER_CHECKER_LLM_PROFILE") or "").strip()
+    if env:
+        return ProfileSelection(env, env, "env")
     profiles, _, _ = load_registry(path)
-    if "qwen2.5-32b-hf" in profiles:
-        return "qwen2.5-32b-hf"
-    return default_profile_id("text", path=path)
+    if _mlx_available():
+        return _fit_to_memory(
+            profiles,
+            default_profile_id("text", path=path),
+            MLX_PREFERS,
+            _unified_memory_gb(),
+            "unified",
+        )
+    # Non-Mac / MLX 無し: マシンパワーを活かす CUDA・HF 本線
+    preferred = (
+        "qwen2.5-32b-hf" if "qwen2.5-32b-hf" in profiles else default_profile_id("text", path=path)
+    )
+    return _fit_to_memory(profiles, preferred, HF_PREFERS, _gpu_memory_gb(), "gpu")
+
+
+def effective_llm_profile_id(*, path: Path | None = None) -> str:
+    """Profile id of :func:`select_llm_profile`."""
+    return select_llm_profile(path=path).profile_id
 
 
 def effective_vlm_profile_id(*, path: Path | None = None) -> str:
@@ -217,7 +317,7 @@ def resolve_model(
     source = "override"
     if pid is None and not (model_id and prefer):
         pid = (
-            default_profile_id(role, path=path)
+            effective_llm_profile_id(path=path)
             if role == "text"
             else effective_vlm_profile_id(path=path)
         )

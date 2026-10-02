@@ -413,6 +413,9 @@ def test_update_ledger_contribution_and_suggestion() -> None:
 def test_rule_ledger_configs_exist() -> None:
     ledger = json.loads(gz.LEDGER_PATH.read_text(encoding="utf-8"))
     for rule in ledger["rules"]:
+        if rule.get("kind") == "parser_rule":
+            # measured by scripts/dev_rule_audit.py via source patches, not an eval config
+            continue
         for key in ("baseline_config", "ablation_config"):
             assert gz.expand_configs(rule["task"], rule[key]) == [rule[key]]
 

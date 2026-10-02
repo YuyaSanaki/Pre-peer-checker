@@ -708,6 +708,13 @@
           const sel = data.selected || {};
           legendLlmHint.textContent =
             "利用可能: " + (sel.name || "backend") + " / 既定 " + (def || sel.model_id || "");
+          const pick = data.llm_profile_selection || {};
+          if (pick.downgraded && pick.memory_gb != null) {
+            const kind = pick.memory_kind === "gpu" ? "GPU メモリ" : "メモリ";
+            legendLlmHint.textContent +=
+              `（${kind} ${pick.memory_gb}GB のため軽量モデルを既定にしています。` +
+              `${pick.preferred_profile_id} より Legend の割り当て精度は下がります）`;
+          }
         } else {
           legendLlmHint.textContent =
             "未導入のため自動／常にでも規則のみ。導入: " + (data.install_hint || 'pip install -e ".[mlx]"');

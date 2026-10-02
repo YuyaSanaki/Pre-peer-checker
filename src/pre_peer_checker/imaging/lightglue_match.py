@@ -129,6 +129,9 @@ def _verify_ncc(path_a: Path, path_b: Path, *, min_score: float = 0.92) -> Preci
     """Multi-scale normalized cross-correlation (no extra deps)."""
     a = _load_gray_u8(path_a, max_side=256).astype(np.float32)
     b = _load_gray_u8(path_b, max_side=256).astype(np.float32)
+    # Blank / flat frames carry no evidence of reuse (ORB rejects them for lack of keypoints).
+    if float(a.std()) < 2.0 or float(b.std()) < 2.0:
+        return PreciseMatchResult(False, 0, 0.0, "ncc-multiscale", "featureless frame")
     best = -1.0
     best_scale = 1.0
 

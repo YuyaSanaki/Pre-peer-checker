@@ -2,6 +2,8 @@
 # Text の既定は 32B（Mac は 4bit MLX）。Legend の auto で n をパネルへ割り当てる精度が
 # 7B では足りないため（dev で recall 約 0.6 対 0.83）。7B は軽量な代替。
 # 掲載は Apache-2.0 のモデルに限る（研究用・独自ライセンスのモデルは載せない）。
+# recommended_vram_gb は既定モデルの自動選択のしきい値も兼ねる（MLX: 搭載ユニファイド
+# メモリ、HF: GPU メモリ）。届かないホストでは同じバックエンドの軽量版へ自動で落とす。
 version: 1
 default_llm_profile: qwen2.5-32b-mlx
 default_vlm_profile: qwen2.5-vl-7b
@@ -14,7 +16,8 @@ profiles:
     label: Qwen2.5-32B Instruct (MLX 4-bit)
     model_id: mlx-community/Qwen2.5-32B-Instruct-4bit
     prefer: mlx
-    recommended_vram_gb: 24
+    # 重み ~18GB。macOS が GPU に割り当てるのは搭載量の 2/3〜3/4 のため 24GB 機では載らない。
+    recommended_vram_gb: 32
     size_hint: 32B
     notes: Mac 配布・既定。メモリ 32 GB 以上の Apple Silicon を推奨。
 

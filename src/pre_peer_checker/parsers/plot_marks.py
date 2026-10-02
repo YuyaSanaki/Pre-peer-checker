@@ -253,24 +253,27 @@ def raster_dot_centroids(
     times the median mark area counts as that many overlapping marks
     (``estimate`` > len(centroids)).
     """
-    import cv2
-    from scipy.ndimage import binary_fill_holes
+    from scipy.ndimage import binary_fill_holes, find_objects, label
 
     if gray.size == 0:
         return [], 0, False
     inv = 255.0 - gray.astype(np.float32)
-    mask = binary_fill_holes(inv > 100).astype(np.uint8)
-    n_lab, _lab, stats, cents = cv2.connectedComponentsWithStats(mask, connectivity=8)
+    mask = binary_fill_holes(inv > 100)
+    lab, _n = label(mask, structure=np.ones((3, 3), bool))
     comps = []
-    for i in range(1, n_lab):
-        x, y, w, h, area = stats[i]
+    for i, sl in enumerate(find_objects(lab), start=1):
+        if sl is None:
+            continue
+        ys, xs = np.nonzero(lab[sl] == i)
+        area = len(ys)
+        h, w = sl[0].stop - sl[0].start, sl[1].stop - sl[1].start
         if area < min_area or area > max_area * 4:
             continue
         aspect = max(w, h) / max(1, min(w, h))
         fill = area / float(w * h)
         if aspect > 2.5 or fill < 0.45:
             continue
-        comps.append((float(cents[i][0]), float(cents[i][1]), int(area)))
+        comps.append((float(sl[1].start + xs.mean()), float(sl[0].start + ys.mean()), int(area)))
     if not comps:
         return [], 0, False
     single = [a for *_c, a in comps if a <= max_area]

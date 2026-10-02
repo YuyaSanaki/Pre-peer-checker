@@ -49,6 +49,7 @@ class _FakeCls:
 
 
 def test_load_pretrained_spills_to_cpu_on_oom():
+    pytest.importorskip("torch")
     _FakeCls.calls = []
     model = accel.load_pretrained(_FakeCls, "m", device="cuda")
     assert _FakeCls.calls == [{"": "cuda"}, "auto"]

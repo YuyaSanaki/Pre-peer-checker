@@ -5,6 +5,9 @@ from __future__ import annotations
 from pre_peer_checker.eval.model_bakeoff import build_bakeoff_plan
 from pre_peer_checker.llm.backend import select_backend
 from pre_peer_checker.llm.registry import (
+    _gpu_memory_gb as _real_gpu_memory_gb,
+)
+from pre_peer_checker.llm.registry import (
     get_profile,
     list_profiles,
     load_registry,
@@ -79,7 +82,7 @@ def test_bakeoff_plan_smoke(monkeypatch):
     )
     monkeypatch.setattr(
         "pre_peer_checker.eval.model_bakeoff.probe_backends",
-        lambda: [],
+        list,
     )
     monkeypatch.setattr(
         "pre_peer_checker.llm.vlm_backend.select_vlm_backend",
@@ -116,6 +119,84 @@ def test_effective_llm_profile_non_mlx_uses_hf(monkeypatch):
     assert kw["legend_llm_profile"] == "qwen2.5-32b-hf"
     assert kw["legend_llm_prefer"] == "cuda"
     assert kw["legend_llm_prefer"] != "none"
+
+
+def _host(monkeypatch, *, mlx: bool, unified_gb=None, gpu_gb=None):
+    from pre_peer_checker.llm import backend as be
+    from pre_peer_checker.llm import registry
+
+    monkeypatch.delenv("PRE_PEER_CHECKER_LLM_PROFILE", raising=False)
+    monkeypatch.setattr(be.MLXBackend, "available", staticmethod(lambda: mlx))
+    monkeypatch.setattr(registry, "_unified_memory_gb", lambda: unified_gb)
+    monkeypatch.setattr(registry, "_gpu_memory_gb", lambda: gpu_gb)
+
+
+def test_mac_profile_sized_to_unified_memory(monkeypatch):
+    from pre_peer_checker.llm.registry import select_llm_profile
+
+    for mem, expected in ((128.0, "qwen2.5-32b-mlx"), (32.0, "qwen2.5-32b-mlx"),
+                          (24.0, "qwen2.5-7b-mlx"), (8.0, "qwen2.5-7b-mlx"),
+                          (4.0, "qwen2.5-7b-mlx")):
+        _host(monkeypatch, mlx=True, unified_gb=mem)
+        sel = select_llm_profile()
+        assert sel.profile_id == expected, mem
+        assert sel.preferred_profile_id == "qwen2.5-32b-mlx"
+        assert sel.downgraded == (expected != "qwen2.5-32b-mlx")
+        assert sel.memory_kind == "unified"
+
+
+def test_gpu_profile_sized_to_vram(monkeypatch):
+    from pre_peer_checker.llm.registry import distribution_legend_llm_kwargs, select_llm_profile
+
+    for mem, expected in ((119.6, "qwen2.5-32b-hf"), (79.2, "qwen2.5-32b-hf"),
+                          (47.5, "qwen2.5-7b-hf"), (23.6, "qwen2.5-7b-hf"),
+                          (8.0, "qwen2.5-7b-hf")):
+        _host(monkeypatch, mlx=False, gpu_gb=mem)
+        sel = select_llm_profile()
+        assert sel.profile_id == expected, mem
+        assert sel.memory_kind == "gpu"
+    assert distribution_legend_llm_kwargs()["legend_llm_prefer"] == "cuda"
+
+
+def test_resolve_model_without_profile_uses_memory_choice(monkeypatch):
+    _host(monkeypatch, mlx=True, unified_gb=16.0)
+    r = resolve_model(role="text")
+    assert r.profile_id == "qwen2.5-7b-mlx"
+    assert r.model_id == "mlx-community/Qwen2.5-7B-Instruct-4bit"
+
+
+def test_profile_selection_unknown_memory_keeps_default(monkeypatch):
+    from pre_peer_checker.llm.registry import select_llm_profile
+
+    _host(monkeypatch, mlx=False)
+    sel = select_llm_profile()
+    assert sel.profile_id == "qwen2.5-32b-hf"
+    assert sel.source == "default"
+    assert not sel.downgraded
+
+
+def test_profile_selection_env_overrides_memory(monkeypatch):
+    from pre_peer_checker.llm.registry import select_llm_profile
+
+    _host(monkeypatch, mlx=True, unified_gb=16.0)
+    monkeypatch.setenv("PRE_PEER_CHECKER_LLM_PROFILE", "qwen2.5-32b-mlx")
+    sel = select_llm_profile()
+    assert sel.profile_id == "qwen2.5-32b-mlx"
+    assert sel.source == "env"
+    assert not sel.downgraded
+
+
+def test_gpu_memory_respects_cap(monkeypatch):
+    from pre_peer_checker import accel
+
+    monkeypatch.setattr(accel, "gpu_device", lambda: "cuda")
+    monkeypatch.setattr(accel, "device_summary", lambda: {"memory_gb": 119.6})
+    monkeypatch.setenv("PRE_PEER_CHECKER_GPU_MAX_MEMORY_GB", "24")
+    assert _real_gpu_memory_gb() == 24.0
+    monkeypatch.delenv("PRE_PEER_CHECKER_GPU_MAX_MEMORY_GB")
+    assert _real_gpu_memory_gb() == 119.6
+    monkeypatch.setattr(accel, "gpu_device", lambda: None)
+    assert _real_gpu_memory_gb() is None
 
 
 def test_probe_backends_reports_profile_model(monkeypatch):

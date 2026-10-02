@@ -343,14 +343,15 @@ def create_app() -> FastAPI:
         from pre_peer_checker.llm.backend import probe_backends, select_backend
         from pre_peer_checker.llm.registry import (
             default_profile_id,
-            effective_llm_profile_id,
             effective_vlm_profile_id,
             registry_public_dict,
+            select_llm_profile,
         )
 
         catalog = registry_public_dict()
         default_llm = catalog["default_llm_profile"]
-        effective_llm = effective_llm_profile_id()
+        llm_selection = select_llm_profile()
+        effective_llm = llm_selection.profile_id
         probed = [b.__dict__ for b in probe_backends(profile_id=effective_llm)]
         # Prefer host-aware profile for auto-select (MLX無し → 7b-hf)
         selected = select_backend("auto", profile_id=effective_llm)
@@ -361,6 +362,7 @@ def create_app() -> FastAPI:
             "selected": selected.info().__dict__ if selected is not None else None,
             "default_llm_profile": default_llm,
             "effective_llm_profile": effective_llm,
+            "llm_profile_selection": llm_selection.to_dict(),
             "default_vlm_profile": catalog["default_vlm_profile"],
             "effective_vlm_profile": effective_vlm_profile_id(),
             "profiles": catalog["profiles"],

@@ -26,9 +26,9 @@ def _llm_profiles() -> list[tuple[str, str]]:
     from pre_peer_checker.accel import gpu_device
     from pre_peer_checker.llm.backend import MLXBackend
     from pre_peer_checker.llm.registry import (
-        effective_llm_profile_id,
         effective_vlm_profile_id,
         get_profile,
+        select_llm_profile,
     )
 
     if MLXBackend.available():
@@ -37,9 +37,18 @@ def _llm_profiles() -> list[tuple[str, str]]:
         wanted = {"transformers", "cuda", "hf"}
     else:
         return []
+    llm = select_llm_profile()
+    if llm.downgraded and llm.memory_gb is not None:
+        kind = "GPU メモリ" if llm.memory_kind == "gpu" else "メモリ"
+        print(
+            f"  {kind} {llm.memory_gb}GB のため Legend LLM の既定を {llm.profile_id} にします"
+            f"（{llm.preferred_profile_id} より割り当て精度は下がります。"
+            f"変更: PRE_PEER_CHECKER_LLM_PROFILE）",
+            flush=True,
+        )
     out: list[tuple[str, str]] = []
     for label, pid in (
-        ("Legend LLM", effective_llm_profile_id()),
+        ("Legend LLM", llm.profile_id),
         ("VLM（パネル地図補助）", effective_vlm_profile_id()),
     ):
         prof = get_profile(pid)

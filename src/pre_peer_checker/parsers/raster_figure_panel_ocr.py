@@ -488,6 +488,8 @@ def _run_ocr(full, engines: list[str]) -> tuple[list[dict], str, list[dict]]:
     with tempfile.TemporaryDirectory(prefix="ppc-panel-ocr-") as tmp:
         for ent in crops:
             x0, y0, x1, y1 = (int(v) for v in ent["box"])
+            if x1 <= x0 or y1 <= y0:
+                continue
             crop = full.crop((x0, y0, x1, y1))
             crop_dets: list[dict] = []
             if vision is not None:
